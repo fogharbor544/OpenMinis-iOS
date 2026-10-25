@@ -431,7 +431,7 @@ private let logger = AppLogger(category: "ConfigOffload")
         // index-aligned with `resolved`. Rendered HERE, before the sheet and
         // before any write, so a record about to be removed is still named.
         // Goes to the sheet row and the audit row ONLY — never into the CLI
-        // response (docs/internal/plans/minis-config-readable-diff.md §2.0).
+        // response.
         var readables: [ReadableSummary] = []
         for raw in items {
             let rawPath = (raw["path"] as? String) ?? ""

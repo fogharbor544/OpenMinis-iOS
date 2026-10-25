@@ -20,7 +20,7 @@ private let ctLogger = AppLogger(category: "AIChatVM")
 
 /// Some models skip the `tool_title` argument even though the schema marks it
 /// required. The tool still runs, but its card can only show the raw command
-/// (e.g. a long `ssh ethan@… 'cd ~/Src/…'` line), which reads poorly.
+/// (e.g. a long `ssh user@… 'cd ~/src/…'` line), which reads poorly.
 ///
 /// The model gets a short, soft `<system-reminder>` appended to the result of
 /// a titled tool that came back without a title — not every time: on the 1st,

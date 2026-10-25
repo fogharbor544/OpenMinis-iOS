@@ -13,7 +13,7 @@ import Foundation
 // USER-FACING ONLY. The text is for the person approving the change and
 // reviewing the log. It never reaches the model: no CLI response, audit
 // list/get output or user_message carries it (see ConfigOffloadBridge
-// `auditEntryDict` and docs/internal/plans/minis-config-readable-diff.md §2.0).
+// `auditEntryDict`).
 //
 // This file is Foundation-only on purpose: standalone tests compile it
 // together with ConfigField.swift (see MinisTests/Standalone).

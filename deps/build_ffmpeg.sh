@@ -56,7 +56,7 @@ for arg in "$@"; do
     esac
 done
 PATCH_SOURCE_DIR="$FFMPEG_DIR"   # the tree the patches are applied to
-MIN_FLAG="$MIN_FLAG"
+MIN_FLAG="-miphoneos-version-min=$IOS_DEPLOYMENT_TARGET"
 PLIST_PLATFORM="iPhoneOS"
 LAME_DIR="$SCRIPT_DIR/lame-build"
 if [ "$PLATFORM" == "iphonesimulator" ]; then

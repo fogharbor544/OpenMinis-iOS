@@ -47,7 +47,7 @@ images=("$AOT_DIR"/aot_*.S)
 
 objs=()
 pids=()
-for src in "${images[@]}"; do
+for src in ${images[@]+"${images[@]}"}; do
     obj="$OBJ_DIR/$(basename "${src%.S}").o"
     objs+=("$obj")
     # Assembling the large images takes minutes: skip unchanged ones.

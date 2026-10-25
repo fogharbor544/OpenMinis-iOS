@@ -158,8 +158,8 @@ deps/lame-3.100/**/.deps/
 # built alongside (deps/build_rclone_ios.sh).
 src/android/app/libs/rclone.aar
 
-# [T-ios-aojit] AOJIT images: hundreds of MB of assembly, kept out of git.
-# deps/build_aot.sh assembles whatever is present (a stub when nothing is).
+# [T-ios-aojit] AOJIT images: hundreds of MB of assembly, kept out of git
+# (see deps/aot/README.md). The README and workloads are tracked.
 deps/aot/*.S
 deps/aot/.build/
 deps/aot/.build-iphonesimulator/

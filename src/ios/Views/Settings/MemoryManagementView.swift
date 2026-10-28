@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct MemoryManagementView: View {
+    @ObservedObject private var bots = BotWorkspaceStore.shared
     @State private var memoryFiles: [MemoryFileItem] = []
     @State private var forceSyncToast: String?
     @AppStorage("cloudSync.v2.enabled") private var iCloudSyncEnabled: Bool = false
@@ -26,6 +27,18 @@ struct MemoryManagementView: View {
                 Text(AppLocalized("settings_memory_global_enabled_footer"))
             }
 
+            Section("Bot Memories") {
+                ForEach(bots.data.bots) { bot in
+                    NavigationLink(bot.name) { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }
+                }
+                NavigationLink("Shared Materials") { BotMemoryView(owner: "shared", title: String(localized: "Shared Materials")) }
+            }
+            Section("Group Memories") {
+                ForEach(bots.data.rooms) { room in
+                    NavigationLink(room.name) { BotMemoryView(owner: "room:\(room.id)", title: room.name) }
+                }
+            }
+            Section {
             ForEach(memoryFiles) { file in
                 NavigationLink {
                     MemoryFileEditView(fileName: file.name, isGlobal: file.isGlobal)
@@ -55,6 +68,9 @@ struct MemoryManagementView: View {
             }
             .onDelete { offsets in
                 deleteFiles(at: offsets)
+            }
+            } header: { Text("Legacy Conversation Memory") } footer: {
+                Text("These files and the iCloud sync action apply to legacy conversations. Bot and group memories use separate local entries and are not automatically imported or synced.")
             }
         }
         .navigationTitle("Memory")

@@ -17,5 +17,6 @@ with tempfile.TemporaryDirectory(prefix='minis-browser-tests-') as temp:
     auth = temp / 'BiometricAuth.swift'
     auth.write_text('import Foundation\n@MainActor enum BiometricAuth { static func authenticate(reason: String) async -> Bool { false } }\n')
     executable = temp / 'browser-tests'
-    subprocess.run(['swiftc', '-swift-version', '6', *sources, str(auth), str(Path(__file__).with_name('BrowserStorageBehaviorTests.swift')), '-o', str(executable)], check=True)
-    subprocess.run([str(executable)], check=True)
+    for language_version in ['5', '6']:
+        subprocess.run(['swiftc', '-swift-version', language_version, *sources, str(auth), str(Path(__file__).with_name('BrowserStorageBehaviorTests.swift')), '-o', str(executable)], check=True)
+        subprocess.run([str(executable)], check=True)

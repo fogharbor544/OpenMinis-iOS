@@ -58,11 +58,11 @@ final class BrowserCredentialStore: ObservableObject {
     private let vault: any BrowserCredentialVault
     private let authenticate: () async -> Bool
 
-    init(vault: any BrowserCredentialVault = KeychainBrowserCredentialVault(),
+    init(vault: (any BrowserCredentialVault)? = nil,
          authenticate: @escaping () async -> Bool = {
              await BiometricAuth.authenticate(reason: String(localized: "Unlock browser passwords"))
          }) {
-        self.vault = vault
+        self.vault = vault ?? KeychainBrowserCredentialVault()
         self.authenticate = authenticate
     }
     private var unlockGeneration = UUID()

@@ -17,7 +17,10 @@ extension ContentView {
     @ViewBuilder
     func sessionList(useNavigationLinks: Bool) -> some View {
         Group {
-            if useNavigationLinks {
+            if homeShowsBots {
+                BotWorkspaceView(embedded: true, onShowHistory: { homeShowsBots = false },
+                                 onOpenSettings: { activeToolSheet = .settings })
+            } else if useNavigationLinks {
                 stackList
             } else {
                 splitList
@@ -210,7 +213,7 @@ extension ContentView {
         AnyView(
         List {
             Section("Bots & Groups") {
-                Button { showBotWorkspace = true } label: {
+                Button { homeShowsBots = true } label: {
                     Label("Open Bots & Groups", systemImage: "person.2.fill")
                 }
             }
@@ -315,7 +318,7 @@ extension ContentView {
         ScrollViewReader { scrollProxy in
         List(selection: $selectedSessionId) {
             Section("Bots & Groups") {
-                Button { showBotWorkspace = true } label: {
+                Button { homeShowsBots = true } label: {
                     Label("Open Bots & Groups", systemImage: "person.2.fill")
                 }
             }

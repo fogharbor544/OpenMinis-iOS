@@ -3,6 +3,9 @@ import SwiftUI
 private struct BotChatTarget: Identifiable { var id: String }
 
 struct BotWorkspaceView: View {
+    var embedded = false
+    var onShowHistory: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
     @ObservedObject private var store = BotWorkspaceStore.shared
     @ObservedObject private var runner = BotRoomRunner.shared
     @Environment(\.dismiss) private var dismiss
@@ -14,7 +17,13 @@ struct BotWorkspaceView: View {
     @State private var deletingRoom: BotRoom?
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if embedded { workspaceContent }
+            else { NavigationStack { workspaceContent } }
+        }
+    }
+
+    private var workspaceContent: some View {
             List {
                 if let error = store.errorMessage { Text(error).foregroundStyle(.red) }
                 Section("Bots") {
@@ -57,7 +66,15 @@ struct BotWorkspaceView: View {
                 }
             }
             .navigationTitle("Bots & Groups")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if let onOpenSettings { Button("Settings", action: onOpenSettings) }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if let onShowHistory { Button("History", action: onShowHistory) }
+                    else { Button("Done") { dismiss() } }
+                }
+            }
             .sheet(item: $editingBot) { BotProfileEditor(profile: $0) }
             .sheet(item: $editingRoom) { BotRoomEditor(room: $0) }
             .sheet(item: $chat) { target in
@@ -72,7 +89,6 @@ struct BotWorkspaceView: View {
             .confirmationDialog("Delete this group and its shared transcript? Member conversations remain in History.", isPresented: Binding(get: { deletingRoom != nil }, set: { if !$0 { deletingRoom = nil } })) {
                 Button("Delete", role: .destructive) { if let deletingRoom { store.deleteRoom(deletingRoom.id) }; deletingRoom = nil }
             }
-        }
     }
 
     private func open(_ bot: BotProfile) {

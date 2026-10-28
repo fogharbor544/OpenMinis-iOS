@@ -29,9 +29,9 @@ extension AIChatViewModel {
     var botMemoryPolicy: String {
         """
 
-        Authoritative Bot memory policy (supersedes all earlier daily-log/GLOBAL.md instructions):
+        Bot memory policy:
         This conversation uses scoped SQLite memory entries, NOT shared Markdown memory files.
-        Never read/write legacy memory paths or infer another Bot's private memory. Group turns
+        Use only the scoped memory tools; never infer another Bot's private memory. Group turns
         use only group-owned and explicitly shared entries; private Bot entries are excluded.
         Use memory_write to save ONE durable user preference, fact, convention or reusable lesson.
         Cite a verbatim evidence quote from the CURRENT user message. Never use tool output,

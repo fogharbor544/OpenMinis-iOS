@@ -55,11 +55,6 @@ enum ChatStoreSyncHydrators {
             merger: { record in await mergeSkill(record: record) },
             deletionApplier: { id in await applySkillDeletion(id: id) }
         )
-        h.register(
-            recordType: "ProviderConfigV2",
-            builder: { _ in await buildProviderConfig() },
-            merger: { record in await mergeProviderConfig(record: record) }
-        )
 
         h.register(
             recordType: "MCPServerItem",
@@ -101,18 +96,6 @@ enum ChatStoreSyncHydrators {
             builder: { id in await buildSubAgentV3(id: id) },
             merger: { record in await mergeSubAgentV3(record: record) },
             deletionApplier: { id in await deleteSubAgentV3(id: id) }
-        )
-        // Legacy whole-file env-vars record. New devices NEVER emit it
-        // (builder returns nil — caller treats nil as "this builder
-        // chose not to push" and drops the dirty row). The merger is
-        // kept so a peer running the old build can still seed our
-        // env-vars on first sync. Once at least one EnvVarItem has been
-        // pushed to cloud, EnvVarMigration.cleanupLegacyRecord deletes
-        // the old whole-file record server-side.
-        h.register(
-            recordType: "EnvVarV2",
-            builder: { _ -> PortableRecord? in nil },
-            merger: { record in await mergeEnvVars(record: record) }
         )
         h.register(
             recordType: "EnvVarItem",
@@ -161,9 +144,6 @@ enum ChatStoreSyncHydrators {
     }
 
     private static func mergeSession(record: PortableRecord) async {
-        // Reconstruct a SyncedSession from PortableRecord fields, then
-        // pass through ChatStore.mergeRemoteSession (which already has
-        // LWW-by-updatedAt logic for v1 — reused as-is).
         guard let id = stringField(record, "sessionId") else { return }
         let title = optionalStringField(record, "title")
         let modelId = stringField(record, "modelId") ?? "unknown"
@@ -294,10 +274,6 @@ enum ChatStoreSyncHydrators {
     }
 
     private static func deleteMessage(id: String) async {
-        // Per §3.3.1: single-message deletions are propagated. Use the
-        // same ChatStore helper v1 uses; it already takes care of *not*
-        // re-marking the row dirty (the deletion came from cloud, no
-        // need to re-push).
         await ChatStore.shared.deleteLocalMessage(messageId: id)
         // [T-ios-log-noise-reduction] INFO→DEBUG: per-record deletion trace,
         // ~6.4k lines per batch sync; not actionable in production.
@@ -353,7 +329,6 @@ enum ChatStoreSyncHydrators {
         let boundaryMessageId = optionalStringField(record, "boundaryMessageId")
         let firstKeptMessageId = optionalStringField(record, "firstKeptMessageId")
         let lastCompactedMessageId = optionalStringField(record, "lastCompactedMessageId")
-        // markerVersion absent on records from older builds → treat as v1.
         let markerVersion = intField(record, "markerVersion") ?? 1
         let marker = CompactMarker(
             id: id, sessionId: sessionId, summary: summary,
@@ -562,101 +537,6 @@ enum ChatStoreSyncHydrators {
         logger.info("[SyncCore] applied SkillV2 deletion: id=\(id.prefix(8))")
     }
 
-    // MARK: - ProviderConfig
-
-    private static func buildProviderConfig() async -> PortableRecord? {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let configURL = library.appendingPathComponent("MinisChat/provider-config.json")
-        guard let data = try? Data(contentsOf: configURL),
-              let json = String(data: data, encoding: .utf8) else { return nil }
-        // Reuse v1's export — it already pulls API keys out of the
-        // Keychain and base64-encodes them with savedAt timestamps.
-        let secrets: String = {
-            if #available(iOS 17.0, *) {
-                return CloudSyncEngine.exportProviderSecrets(configJson: json)
-            }
-            return "[]"
-        }()
-        // [T-apikey fc9a35ec] Stamp the upload hash so V1's merger echo
-        // detection recognises our own record bouncing back via fetchRecentV2.
-        // Without this, the v2 hydrator's inbound merge sees its own upload
-        // as a "remote change" and may clobber later in-memory edits.
-        if #available(iOS 17.0, *) {
-            CloudSyncEngine.lastUploadedProviderConfigHash =
-                SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        }
-        let synced = SyncedProviderConfig(
-            configJson: json,
-            secretsJsonBase64: secrets,
-            updatedAt: Date()
-        )
-        return SyncableTypeRegistry.shared.metadata(for: "ProviderConfigV2")?.buildPortable(synced)
-    }
-
-    private static func mergeProviderConfig(record: PortableRecord) async {
-        // [T-provider-sync-v3 S7] If v3 is the active sync surface for
-        // ProviderConfig, silently drop inbound v2 records. New devices
-        // emit BOTH v2 and v3 outbound during rollout so old peers can
-        // still receive a current snapshot, but inbound v2 on a v3 device
-        // would only let a stale peer's round-tripped snapshot overwrite
-        // tombstones — the exact ping-pong loop v3 exists to escape.
-        if ProviderV3Bootstrap.isEnabled {
-            logger.info("[v3] inbound ProviderConfigV2 dropped — v3 is the authoritative provider sync surface")
-            return
-        }
-        guard let json = stringField(record, "configJson") else { return }
-        // [T-apikey fc9a35ec] Delegate to the v1 merger which:
-        //   - skips own echo via lastUploadedProviderConfigHash
-        //   - bails out if a local dirty ProviderConfig upload is pending
-        //     (avoids clobbering in-flight user edits)
-        //   - does a per-instance / per-modelEntry / per-modelGroup union
-        //     with timestamp-based conflict resolution, instead of blindly
-        //     writing the remote JSON to disk
-        //
-        // The previous implementation atomically replaced provider-config.json
-        // with the remote string. When the local instance list was a superset
-        // of the remote (e.g. user just added a provider on this device but
-        // an older snapshot is being replayed by the CK fetch cursor) the
-        // local-only instance vanished from ProviderConfigStore.instances.
-        // Its Keychain entry remained intact under the same UUID, which is
-        // why toggling the disabled provider's enabled switch off→on
-        // (which re-runs updateInstance → save → re-export) appears to
-        // "restore" the key.
-        //
-        // The v1 merger writes the merged result to disk and reloads the
-        // store internally, so we don't repeat the file write here.
-        if #available(iOS 17.0, *) {
-            let outcome = await CloudSyncEngine.mergeProviderConfig(remoteJson: json)
-            // Import remote secrets after the config merge so any instance
-            // newly added by the merger has its Keychain entry seeded.
-            // V1's importProviderSecrets is itself last-write-wins by
-            // remote updatedAt vs local Keychain savedAt — it will not
-            // overwrite a locally-newer key.
-            if let secretsJson = stringField(record, "secretsJson"), !secretsJson.isEmpty {
-                CloudSyncEngine.importProviderSecrets(secretsJson: secretsJson)
-            }
-            // Honest outcome log. The previous "applied via v1 merger" line
-            // was printed unconditionally, even when the merger had bailed
-            // out at the echo or dirty-state guard — which masked the
-            // dirty-zombie ping-pong that prevented two devices' provider
-            // lists from converging.
-            switch outcome {
-            case .applied:
-                logger.info("[SyncCore] applied ProviderConfigV2 via v1 merger (\(json.count) chars)")
-            case .skippedDecodeFailure:
-                logger.warning("[SyncCore] ProviderConfigV2 merge skipped: remote JSON decode failed (\(json.count) chars)")
-            case .skippedOwnEcho:
-                logger.info("[SyncCore] ProviderConfigV2 merge skipped: own echo (\(json.count) chars)")
-            case .skippedLocalDirty:
-                logger.info("[SyncCore] ProviderConfigV2 merge skipped: local pending upload (\(json.count) chars)")
-            }
-        } else {
-            logger.info("[SyncCore] ProviderConfigV2 merge skipped: pre-iOS-17 (\(json.count) chars)")
-        }
-    }
-
-    // MARK: - MCPServers (legacy whole-file, inbound-only)
-
     // MARK: - MCPServerItem (per-server)
 
     /// Build a per-server record. `id` is the server name (also the CK
@@ -714,50 +594,6 @@ enum ChatStoreSyncHydrators {
             MCPStore.shared.applyRemoteServerDeletion(name: id)
         }
         logger.info("[SyncCore] applied MCPServerItem deletion '\(id)'")
-    }
-
-    // MARK: - EnvVars
-
-    private static func buildEnvVars() async -> PortableRecord? {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let envURL = library.appendingPathComponent("MinisChat/env-vars.json")
-        guard let data = try? Data(contentsOf: envURL),
-              let json = String(data: data, encoding: .utf8) else { return nil }
-        let secrets: String = {
-            if #available(iOS 17.0, *) {
-                return CloudSyncEngine.exportEnvVarSecrets(envJson: json)
-            }
-            return "[]"
-        }()
-        // [T-apikey fc9a35ec] Stamp upload hash so v1's merger recognises
-        // our own echo. Same rationale as buildProviderConfig.
-        if #available(iOS 17.0, *) {
-            CloudSyncEngine.lastUploadedEnvVarHash =
-                SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        }
-        let synced = SyncedEnvVars(
-            envVarsJson: json,
-            envSecretsJsonBase64: secrets,
-            updatedAt: Date()
-        )
-        return SyncableTypeRegistry.shared.metadata(for: "EnvVarV2")?.buildPortable(synced)
-    }
-
-    private static func mergeEnvVars(record: PortableRecord) async {
-        guard let json = stringField(record, "envVarsJson") else { return }
-        // [T-apikey fc9a35ec] Delegate to v1 merger (echo detection +
-        // per-id union with local-only preservation). Same reasoning as
-        // mergeProviderConfig above. The previous blind file write would
-        // wipe locally-added env vars whenever a stale snapshot arrived.
-        if #available(iOS 17.0, *) {
-            await MainActor.run {
-                CloudSyncEngine.mergeEnvVars(remoteJson: json)
-            }
-            if let secretsJson = stringField(record, "envSecretsJson"), !secretsJson.isEmpty {
-                CloudSyncEngine.importEnvVarSecrets(secretsJson: secretsJson)
-            }
-        }
-        logger.info("[SyncCore] applied EnvVarV2 via v1 merger (\(json.count) chars)")
     }
 
     // MARK: - EnvVarItem (per-variable)
@@ -925,8 +761,6 @@ enum ChatStoreSyncHydrators {
         let skillDir: URL
     }
 
-    /// Minimal MIME helper for SessionFile builds. Keep tiny — full helper
-    /// lives on CloudSyncEngine for v1; v2 only needs the common cases.
     private enum SessionFileMimeMap {
         static func mimeType(for ext: String) -> String? {
             switch ext.lowercased() {
@@ -1146,10 +980,7 @@ enum ChatStoreSyncHydrators {
             userModifiedAt: (row["user_modified_at"] as? Double).map { Date(timeIntervalSince1970: $0) },
             sortOrder: (row["sort_order"] as? Int) ?? 0,
             updatedAt: Date(timeIntervalSince1970: (row["updated_at"] as? Double) ?? 0),
-            extrasJson: row["extras_json"] as? String,
-            // [T-provider-entry-composite-key] carry the pre-migration uuid so a
-            // receiver can normalize old uuid references to this composite key.
-            legacyUuid: row["uuid"] as? String
+            extrasJson: row["extras_json"] as? String
         )
         return SyncableTypeRegistry.shared
             .metadata(for: "ProviderModelEntryV3")?
@@ -1161,35 +992,8 @@ enum ChatStoreSyncHydrators {
             logger.warning("[v3] mergeProviderModelEntryV3 DROPPED (DB not open yet) id=\(record.id.id.prefix(8)) — will re-pull")
             return
         }
-        let rawId = record.id.id
+        let id = record.id.id
         let entryUpdatedAt = dateField(record, "updatedAt") ?? Date()
-        // [T-provider-entry-id-canonicalize] Key the local upsert on the
-        // CANONICAL composite key (instanceId/modelId), NOT the record's raw id.
-        // The local DB migrated entry ids to compositeKey (ModelEntry.id =
-        // compositeKey), but the cloud still holds pre-migration records keyed by
-        // random per-device UUIDs. Upserting under the raw UUID meant every such
-        // inbound record missed the local row (rowExisted=false) and got inserted
-        // as a NEW entry — the same model piling up under different uuids on each
-        // cold start (observed: iPad re-applying 119 "new" entries, cloud growing
-        // 732→772+). Resolve the composite key from the record's own
-        // instanceId + baseModel.id and upsert under THAT, so a raw-uuid record
-        // and the local composite-keyed row collapse onto one identity and go
-        // through LWW merge instead of duplicate insertion. The uuid is ignored
-        // for identity (it remains only the cloud record's container id +
-        // legacyUuid mapping below).
-        let canonInstanceId = stringField(record, "providerInstanceId") ?? ""
-        let canonBaseJson = stringField(record, "baseModelJson") ?? "{}"
-        let canonModelId = (try? JSONSerialization.jsonObject(with: Data(canonBaseJson.utf8)) as? [String: Any])?["id"] as? String
-        let id: String = {
-            // Already composite-keyed (peer migrated, or id contains "/") — keep.
-            if rawId.contains("/") { return rawId }
-            // Raw uuid + resolvable model → use the canonical composite key.
-            if let m = canonModelId, !canonInstanceId.isEmpty, !m.isEmpty {
-                return "\(canonInstanceId)/\(m)"
-            }
-            // Can't resolve (missing fields) — fall back to raw id (no worse than before).
-            return rawId
-        }()
         // [T-icloud-record-delete-resurrection] Same resurrection guard as the
         // instance merger: upsertEntryFromInbound re-inserts an absent row, so
         // a just-deleted model entry re-pulled by fetchRecentV2 before its
@@ -1198,12 +1002,8 @@ enum ChatStoreSyncHydrators {
         // recorded under either form still suppresses resurrection. (Evaluate
         // the two awaits as plain statements — `||` would put the second await
         // inside a non-concurrent autoclosure.)
-        var recentlyDeleted = await ChatStore.shared.isRecentlyDeletedRecord(
+        let recentlyDeleted = await ChatStore.shared.isRecentlyDeletedRecord(
             type: "ProviderModelEntryV3", id: id, remoteUpdatedAt: entryUpdatedAt)
-        if !recentlyDeleted && id != rawId {
-            recentlyDeleted = await ChatStore.shared.isRecentlyDeletedRecord(
-                type: "ProviderModelEntryV3", id: rawId, remoteUpdatedAt: entryUpdatedAt)
-        }
         if recentlyDeleted {
             // [T-sync-trace-log-volume] DEBUG, not INFO — unlike its eight
             // sibling SKIP lines in this file.
@@ -1241,25 +1041,6 @@ enum ChatStoreSyncHydrators {
             logger.info("[v3] applied ProviderModelEntryV3 \(id.prefix(8))")
             await refreshStoreFromDB()
         }
-        // [T-provider-entry-composite-key] Learn legacyUuid → compositeKey so any
-        // group/binding/agent-loop reference still pointing at an old random uuid
-        // gets normalized to the composite key (deferred, order-independent).
-        // Compute compositeKey from the record's instanceId + modelId; the
-        // mapping sources are (a) this record's legacyUuid field (peer migrated),
-        // and (b) the record's own id when it's still a raw uuid (peer not yet
-        // migrated — id won't contain "/").
-        let instanceId = stringField(record, "providerInstanceId") ?? ""
-        let baseJson = stringField(record, "baseModelJson") ?? "{}"
-        let modelId = (try? JSONSerialization.jsonObject(with: Data(baseJson.utf8)) as? [String: Any])?["id"] as? String
-        if let modelId, !instanceId.isEmpty {
-            let compositeKey = "\(instanceId)/\(modelId)"
-            var pairs: [String: String] = [:]
-            if let legacy = optionalStringField(record, "legacyUuid") { pairs[legacy] = compositeKey }
-            if !id.contains("/") { pairs[id] = compositeKey }  // peer still uuid-keyed
-            if !pairs.isEmpty {
-                await MainActor.run { ProviderConfigStore.shared.learnLegacyUuids(pairs) }
-            }
-        }
     }
 
     private static func deleteProviderModelEntryV3(id: String) async {
@@ -1267,21 +1048,7 @@ enum ChatStoreSyncHydrators {
             logger.warning("[v3] deleteProviderModelEntryV3 DROPPED (DB not open yet) id=\(id.prefix(8))")
             return
         }
-        // [T-provider-entry-id-canonicalize] The local DB keys entries by the
-        // composite key, but the cloud can issue a delete for a pre-migration
-        // RANDOM-UUID record id. Deleting only that raw uuid would no-op (the
-        // local row is composite-keyed) and the entry would survive a remote
-        // delete. Resolve the uuid → composite key via the persisted legacy map
-        // and delete the canonical row too. Delete both forms so an
-        // un-normalized raw-uuid row (if any) is also cleared.
-        let canonical = await MainActor.run { ProviderConfigStore.shared.canonicalEntryId(forLegacy: id) }
         await db.deleteEntryRow(id: id)
-        if let canonical, canonical != id {
-            await db.deleteEntryRow(id: canonical)
-            logger.info("[v3] deleted ProviderModelEntryV3 \(id.prefix(8)) (+canonical \(canonical))")
-        } else {
-            logger.info("[v3] deleted ProviderModelEntryV3 \(id.prefix(16))")
-        }
         await refreshStoreFromDB()
     }
 
@@ -1689,26 +1456,5 @@ enum ChatStoreSyncHydrators {
         await MainActor.run {
             ProviderConfigStore.shared.applyMergedConfigFromSync(fresh)
         }
-    }
-}
-
-// MARK: - V3 bootstrap / feature flag
-
-/// Controls whether the v3 per-record sync surface is the authoritative
-/// inbound path for ProviderConfig data. When ON:
-///   - Outbound: v2 (legacy whole-file) + v3 (per-record) are emitted.
-///   - Inbound: v3 is merged; v2 is silently dropped (S7 short-circuit).
-/// Default ON for builds that include this commit. Kill-switch via
-/// UserDefaults key `cloudSync.providerV3.enabled` lets us flip back to
-/// V2-only behavior in the field if v3 has unforeseen bugs.
-@MainActor
-enum ProviderV3Bootstrap {
-    private static let key = "cloudSync.providerV3.enabled"
-    static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: key) as? Bool ?? true
-    }
-    static func setEnabled(_ enabled: Bool) {
-        UserDefaults.standard.set(enabled, forKey: key)
-        logger.info("[v3] ProviderV3Bootstrap.setEnabled(\(enabled))")
     }
 }

@@ -6,12 +6,8 @@ private let pickerLog = AppLogger(category: "UnifiedPicker")
 // MARK: - Virtual System Voice Entries
 
 extension ModelEntry {
-    /// System ASR — Online (server-based / cloud). Higher accuracy + more languages,
-    /// but needs network, caps at 1 min / request and 1000 requests/hour per device,
-    /// and uploads audio to Apple. `system-asr` (no suffix) kept as the legacy /
-    /// default id so old selections still resolve.
     static let systemASROnline = ModelEntry(
-        uuid: "system-asr-online",
+
         providerInstanceId: SystemVoiceProvider.builtinProviderId,
         model: LLMModel(
             id: "system-asr-online",
@@ -26,7 +22,7 @@ extension ModelEntry {
     /// (on-device is monolingual per locale). Falls back to Online when the chosen
     /// language has no on-device model.
     static let systemASROffline = ModelEntry(
-        uuid: "system-asr-offline",
+
         providerInstanceId: SystemVoiceProvider.builtinProviderId,
         model: LLMModel(
             id: "system-asr-offline",
@@ -39,7 +35,7 @@ extension ModelEntry {
     /// Legacy/default ASR entry (maps to Offline-preferred behavior). Retained so
     /// existing "…/system-asr" references and the bare sentinel keep resolving.
     static let systemASR = ModelEntry(
-        uuid: "system-asr",
+
         providerInstanceId: SystemVoiceProvider.builtinProviderId,
         model: LLMModel(
             id: "system-asr",
@@ -50,7 +46,7 @@ extension ModelEntry {
         isHidden: true
     )
     static let systemTTS = ModelEntry(
-        uuid: "system-tts",
+
         providerInstanceId: SystemVoiceProvider.builtinProviderId,
         model: LLMModel(
             id: "system-tts",
@@ -167,9 +163,6 @@ struct ModelPickerConfig {
             },
             onSelect: { entry in
                 if VoiceProviderResolver.isSystemEntry(entry.providerInstanceId) {
-                    // Preserve the Online/Offline composite id (entry.id =
-                    // "<sentinel>/system-asr-online|offline") so the choice survives;
-                    // the bare/legacy System entry collapses to the sentinel.
                     let eid = entry.id
                     selection.inputEntryId = (eid.hasSuffix("/system-asr-online")
                         || eid.hasSuffix("/system-asr-offline")) ? eid : VoiceProviderResolver.systemEntryId

@@ -122,10 +122,6 @@ extension ChatStore {
         sqlite3_finalize(dupStmt)
         if hasDup { return true }
 
-        // 2. any marker without first_kept_message_id AND without last_compacted_message_id.
-        // compactAll markers intentionally have first_kept_message_id = NULL (and a non-null
-        // last_compacted_message_id) — they must NOT be treated as legacy/needing repair, or
-        // step 3 below would overwrite them with a bogus message id from past-the-end sortOrder.
         let markerSql = "SELECT 1 FROM compact_markers WHERE session_id = ? AND first_kept_message_id IS NULL AND last_compacted_message_id IS NULL LIMIT 1"
         var mStmt: OpaquePointer?
         var hasLegacyMarker = false
@@ -136,11 +132,6 @@ extension ChatStore {
         sqlite3_finalize(mStmt)
         if hasLegacyMarker { return true }
 
-        // 3. rank inversion: sort_order disagrees with the canonical (created_at, id)
-        // order. Catches the case where a remote merge inserted with a hint integer
-        // that didn't match local rank (legacy data from pre-fix builds), or any
-        // other pathway that left out-of-order rows. Gaps are NOT an anomaly — see
-        // SessionOrderRules.inversionProbeSQL for why.
         var invStmt: OpaquePointer?
         var hasInversion = false
         if sqlite3_prepare_v2(db, SessionOrderRules.inversionProbeSQL, -1, &invStmt, nil) == SQLITE_OK {
@@ -151,16 +142,6 @@ extension ChatStore {
         return hasInversion
     }
 
-    /// Perform a session repair: rewrite sort_orders to a stable dense sequence and
-    /// upgrade legacy compact markers (nil first_kept_message_id) by looking up the
-    /// corresponding row via legacy firstKeptSortOrder.
-    ///
-    /// The dense sequence ends at the session's current maximum sort_order (or
-    /// n-1 if that is larger), never below it: see
-    /// SessionOrderRules.repairBaseSortOrder for why it must not move down.
-    ///
-    /// Safe to call unconditionally — no-op if session is already healthy.
-    /// Wraps everything in a single transaction.
     @discardableResult
     func repairSession(sessionId: String) -> RepairReport {
         // PER-SESSION: rewrites one session's message rows in place; the row

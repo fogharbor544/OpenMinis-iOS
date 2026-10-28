@@ -143,34 +143,10 @@ struct ModelOverrides: Codable, Hashable, Sendable {
     }
 }
 
-/// A model available through a specific provider instance.
-/// Each entry has a stable UUID used as its Identifiable `id`.
-/// The legacy composite key "{providerInstanceId}:{model.id}" is available as `compositeKey`.
-///
-/// Storage model:
-/// - `baseModel` holds the API-reported metadata and is overwritten on every refresh.
-/// - `overrides` holds user edits and is preserved across refreshes.
-/// - `model` is a computed view combining the two. UI code reads `model`; persistence
-///   and refresh logic read `baseModel`.
 struct ModelEntry: Identifiable, Codable, Hashable {
-    /// [T-provider-entry-composite-key] Per-device random uuid. NO LONGER the
-    /// identity / sync key / reference key — that role moved to `compositeKey`.
-    /// Retained for: (1) downgrade compatibility (an old build reads this as
-    /// `id`), (2) legacyUuid → compositeKey normalization during migration and
-    /// cross-version sync. New entries still get a uuid so downgrade keeps
-    /// working.
-    let uuid: String
-    /// Stable cross-device identity = "{providerInstanceId}/{baseModel.id}".
-    /// Same model under the same instance resolves to the SAME id on every
-    /// device, so sync de-dups naturally and group/binding references never go
-    /// dangling from a uuid mismatch. Separator is "/" (not the legacy ":")
-    /// so migration can tell new keys from the old ":" composite keys that
-    /// group membership used in a much earlier schema.
+    /// Stable identity shared by local storage, groups and sync.
     var id: String { compositeKey }
     var compositeKey: String { "\(providerInstanceId)/\(baseModel.id)" }
-    /// The pre-composite-key legacy composite (":" separator). Kept ONLY for
-    /// reading data written by the very old group-membership scheme.
-    var legacyColonCompositeKey: String { "\(providerInstanceId):\(baseModel.id)" }
     let providerInstanceId: String
     /// API-reported model metadata. Do not read from UI — read `model` instead.
     let baseModel: LLMModel
@@ -178,36 +154,8 @@ struct ModelEntry: Identifiable, Codable, Hashable {
     var overrides: ModelOverrides
     var isCustom: Bool
     var isHidden: Bool
-    /// Timestamp of the last user modification to `overrides`, `isHidden`, or `isCustom`.
-    /// Nil for legacy entries written before this field existed. Used by iCloud merge to
-    /// resolve same-field conflicts (last-write-wins by timestamp) and to avoid applying
-    /// stale override names from old devices that never stamped a modification time.
     var userModifiedAt: Date?
 
-    /// [T-model-absence-grace] When the provider's `/v1/models` first stopped
-    /// listing this model, or nil while the provider is still reporting it.
-    ///
-    /// Exists because "this refresh did not list the model" and "this model is
-    /// gone" are different facts, and `replaceEntries` used to treat them as
-    /// one: a catalog entry missing from a single response was deleted outright,
-    /// taking its `overrides` with it. Relay/aggregator endpoints (the reported
-    /// case: CPA-Mini2 serving `gemini-3.8-flash-high`) drop a model from the
-    /// list transiently — upstream quota, a backend rotation, a partial outage —
-    /// and list it again minutes later. The user saw the model vanish from the
-    /// provider, and separately saw a context-window override "revert", which
-    /// was the same deletion seen from the other side.
-    ///
-    /// While set, the entry is kept and shown as unavailable rather than
-    /// deleted; it is only really removed once the absence has persisted past
-    /// `ProviderConfigStore.modelAbsenceGracePeriod`. A model that comes back is
-    /// cleared back to nil and is indistinguishable from one that never left —
-    /// overrides included.
-    ///
-    /// DELIBERATELY LOCAL-ONLY, and not part of `isUserModified`: absence is a
-    /// per-device observation (each device refreshes on its own schedule against
-    /// possibly different upstream state), not user intent, so it must neither
-    /// travel over iCloud nor make an otherwise-untouched entry start syncing.
-    /// It is dropped on encode for exactly that reason — see `encode(to:)`.
     var absentSince: Date?
 
     /// True while the provider is not currently listing this model.
@@ -249,7 +197,6 @@ struct ModelEntry: Identifiable, Codable, Hashable {
     }
 
     init(
-        uuid: String = UUID().uuidString,
         providerInstanceId: String,
         model: LLMModel,
         overrides: ModelOverrides = ModelOverrides(),
@@ -258,7 +205,6 @@ struct ModelEntry: Identifiable, Codable, Hashable {
         userModifiedAt: Date? = nil,
         absentSince: Date? = nil
     ) {
-        self.uuid = uuid
         self.providerInstanceId = providerInstanceId
         self.baseModel = model
         self.overrides = overrides
@@ -269,15 +215,13 @@ struct ModelEntry: Identifiable, Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case uuid, providerInstanceId, model, overrides, isCustom, isHidden, userModifiedAt
+        case providerInstanceId, model, overrides, isCustom, isHidden, userModifiedAt
         case absentSince
     }
 
-    // Decode with backwards compatibility: generate uuid if missing in old data,
-    // default overrides to empty if absent.
+    // Empty overrides are omitted by the current encoder.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.uuid = try container.decodeIfPresent(String.self, forKey: .uuid) ?? UUID().uuidString
         self.providerInstanceId = try container.decode(String.self, forKey: .providerInstanceId)
         self.baseModel = try container.decode(LLMModel.self, forKey: .model)
         self.overrides = try container.decodeIfPresent(ModelOverrides.self, forKey: .overrides) ?? ModelOverrides()
@@ -291,7 +235,6 @@ struct ModelEntry: Identifiable, Codable, Hashable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(uuid, forKey: .uuid)
         try container.encode(providerInstanceId, forKey: .providerInstanceId)
         try container.encode(baseModel, forKey: .model)
         if !overrides.isEmpty {
@@ -300,19 +243,11 @@ struct ModelEntry: Identifiable, Codable, Hashable {
         try container.encode(isCustom, forKey: .isCustom)
         try container.encode(isHidden, forKey: .isHidden)
         try container.encodeIfPresent(userModifiedAt, forKey: .userModifiedAt)
-        // [T-model-absence-grace] Encoded so the grace window survives a
-        // relaunch. It reaches the local config file only: the iCloud upload
-        // filters to `isUserModified` entries (CloudSyncEngine :1363/:2184),
-        // which absence deliberately does not set, and an entry that IS user
-        // modified carries a field the receiving device simply re-derives from
-        // its own next refresh. Each device observes its own provider, so a
-        // synced absence would be a claim one device cannot make for another.
         try container.encodeIfPresent(absentSince, forKey: .absentSince)
     }
 
     // Hashable/Equatable based on stored properties only
     static func == (lhs: ModelEntry, rhs: ModelEntry) -> Bool {
-        lhs.uuid == rhs.uuid &&
         lhs.providerInstanceId == rhs.providerInstanceId &&
         lhs.baseModel == rhs.baseModel &&
         lhs.overrides == rhs.overrides &&
@@ -327,7 +262,6 @@ struct ModelEntry: Identifiable, Codable, Hashable {
     }
 
     func hash(into hasher: inout Hasher) {
-        hasher.combine(uuid)
         hasher.combine(providerInstanceId)
         hasher.combine(baseModel)
         hasher.combine(overrides)

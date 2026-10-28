@@ -60,28 +60,13 @@ extension ConfigRegistry {
         ))
     }
 
-    // MARK: Memory — global default toggle for the persistent memory feature
-    //
-    // `memory.enabled` mirrors the Settings → Memory switch
-    // (MemoryManagementView, AppStorage key "memory.global.enabled").
-    // It is the global DEFAULT applied to newly created sessions: a new
-    // chat starts with its per-session memoryEnabled seeded from this
-    // value (see ChatStore.getMemoryEnabled). It does NOT retroactively
-    // flip already-open sessions — those carry their own per-session
-    // toggle, changed via the /memory slash command.
-    //
-    // When off, new sessions skip auto-injection of GLOBAL.md + recent
-    // daily logs into the system prompt AND drop the memory_get /
-    // memory_write tools from the registered tool list
-    // (see AIChatViewModel.makeAgentTools). So this one bool gates both
-    // injection and tool access for sessions that inherit the default.
 
     @MainActor
     private static func registerMemory(into r: ConfigRegistry) {
         r.register(AppStorageBoolField(
             path: "memory.enabled",
             displayName: "Memory enabled (global default)",
-            description: "Default for whether NEW chat sessions start with memory on. When on, a new session auto-injects GLOBAL.md + recent daily logs into the system prompt and exposes the memory_get / memory_write tools. When off, new sessions get neither. Already-open sessions keep their own per-session setting (toggle with /memory) and are not changed by this.",
+            description: "Default for whether NEW chat sessions start with memory on. When on, a Bot or group conversation loads relevant scoped memory entries and exposes the memory_get / memory_write tools. When off, new sessions get neither. Already-open sessions keep their own per-session setting (toggle with /memory) and are not changed by this.",
             userDefaultsKey: "memory.global.enabled",
             defaultValue: true
         ))
@@ -471,10 +456,6 @@ extension ConfigRegistry {
                                          store: ProviderConfigStore) throws -> SessionModelSource {
         if s.hasPrefix("entry:") {
             let raw = String(s.dropFirst("entry:".count))
-            // [T-ios-minis-config-entry-id-composite] Same normalize-then-
-            // validate as defaults.agentLoopEntries: entry ids are composite
-            // keys now, but the agent may pass a legacy random uuid. Store the
-            // normalized (current) id so the binding never carries a stale ref.
             let entryId = store.normalizeEntryRef(raw)
             guard !raw.isEmpty,
                   store.config.modelEntries.contains(where: { $0.id == entryId }) else {
@@ -662,9 +643,6 @@ extension ConfigRegistry {
             valueSchema: .json,
             reader: {
                 let cfg = ProviderConfigStore.shared.config
-                // Lookup map; on duplicate provider ids (corrupt config /
-                // mid-migration state) keep the latest so the read can't
-                // trap. Dictionary(uniqueKeysWithValues:) would assert.
                 let providersById = Dictionary(
                     cfg.instances.map { ($0.id, $0) },
                     uniquingKeysWith: { _, new in new }
@@ -744,9 +722,6 @@ extension ConfigRegistry {
             valueSchema: .json,
             reader: {
                 let cfg = ProviderConfigStore.shared.config
-                // Lookup maps; tolerate duplicate ids (corrupt config /
-                // mid-migration state). Dictionary(uniqueKeysWithValues:)
-                // would assert and crash the read.
                 let entriesById = Dictionary(
                     cfg.modelEntries.map { ($0.id, $0) },
                     uniquingKeysWith: { _, new in new }
@@ -844,12 +819,6 @@ extension ConfigRegistry {
             description: "Model entries available via minis-model-use. Replace with full list to set.",
             valueSchema: .array(.string()),
             risk: .sensitive, revertable: true,
-            // [T-ios-minis-config-entry-id-composite] Emit normalized ids so
-            // the agent never sees (and round-trips) a stale legacy uuid that
-            // survived in storage from before the composite-key migration.
-            // [T-ios-agentloop-dirty-data-skip] Normalize, then drop any id that
-            // still doesn't match a known entry (stale legacy uuid) so the agent
-            // never sees an unresolvable ref it can't act on.
             readable: ConfigReadable(.refList(.modelEntry, ordered: false)),
             reader: {
                 let store = ProviderConfigStore.shared
@@ -862,22 +831,9 @@ extension ConfigRegistry {
             writer: { v in
                 guard case .array(let arr) = v else { throw ConfigError.typeMismatch(expected: "array") }
                 let rawIds: [String] = arr.compactMap { if case .string(let s) = $0 { return s } else { return nil } }
-                // [T-ios-minis-config-entry-id-composite] Entry ids became
-                // composite keys ("{instanceId}/{modelId}"); lists written by
-                // the agent may still carry legacy random uuids (read from an
-                // un-normalized store or older notes). Normalize each ref
-                // first, then validate — only ids that are neither valid
-                // composite keys nor resolvable legacy forms are rejected.
                 let store = ProviderConfigStore.shared
                 let normalized = rawIds.map { store.normalizeEntryRef($0) }
                 let valid = Set(store.config.modelEntries.map(\.id))
-                // [T-ios-agentloop-dirty-data-skip] Silently drop ids that don't
-                // resolve to a known entry instead of hard-failing the whole
-                // write. The config append flow ("read old list + add one →
-                // write the whole new list") would otherwise let a single
-                // legacy bare-uuid still sitting in storage block every valid
-                // new append. Filtering self-heals the stale data while letting
-                // the new entry through; a diagnostic log keeps a trace.
                 let ids = normalized.filter { valid.contains($0) }
                 let skipped = normalized.filter { !valid.contains($0) }
                 if !skipped.isEmpty {
@@ -937,13 +893,6 @@ extension ConfigRegistry {
 
     @MainActor
     private static func registerSync(into r: ConfigRegistry) {
-        // The whole sync stack (CloudSyncEngine V2 + its Settings entry) is
-        // iOS 17+ — ContentView doesn't even show the iCloud Sync row on
-        // iOS 16. Register the same paths as UnavailableField stubs there so
-        // minis-config answers with a clear feature_unavailable instead of
-        // silently flipping cloudSync.* UserDefaults keys no engine will
-        // ever read — or worse, keys a later OS upgrade would suddenly honor
-        // without the user ever having seen a sync consent surface.
         var syncFields: [ConfigField] = []
         func reg(_ field: ConfigField) { syncFields.append(field) }
 
@@ -959,12 +908,6 @@ extension ConfigRegistry {
             }
         ))
 
-        // Per-category upload switches, DERIVED from UploadPolicy.Category
-        // rather than hand-listed. The previous hand-written set was modelled on
-        // v1's categories and silently missed `.memory` (the "Memory Files"
-        // toggle visible in Settings had no CLI field at all — GH#101.2).
-        // Deriving means a future category cannot drift out of the CLI again;
-        // same pattern as registerRootfsMirror below.
         for category in UploadPolicy.Category.allCases {
             reg(ClosureField(
                 path: "sync.\(syncFieldSuffix(for: category))",
@@ -1124,19 +1067,6 @@ extension ConfigRegistry {
 
     @MainActor
     private static func registerSelfMeta(into r: ConfigRegistry) {
-        // The master switch surface. Agent CAN read it (so it knows why
-        // it might be denied later in the session) but CAN'T write it —
-        // the writer always throws. The bridge's first-line check on
-        // `MinisConfigPermissionStore.shared.enabled` will short-circuit
-        // most of these calls when the switch is off; the registration
-        // exists for the rare case where the agent reads while we're
-        // still enabled, plus to surface the switch in topic-help.
-        // [T-ish-container-identity GH#99] Storage-identity fields. Users and
-        // agents had NO sanctioned way to tell which session's storage
-        // /var/minis currently points at, or that the iOS data container UUID
-        // rotates on every app update (contents migrate) — so a per-session
-        // empty workspace or a post-update path change read as "my files are
-        // gone". Read-only, side-effect-free.
         r.register(ReadOnlyField(
             path: "system.containerId",
             displayName: "Data container UUID",

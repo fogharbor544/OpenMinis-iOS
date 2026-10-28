@@ -132,9 +132,6 @@ struct SyncedMessage: Syncable {
         )
     }()
 
-    /// Builds a SyncedMessage from a RawMessage. `updatedAt` defaults to
-    /// `createdAt` when the local DB doesn't track an explicit message
-    /// updated_at column for this row (legacy rows pre-migration).
     static func from(_ m: RawMessage, updatedAt: Date) -> SyncedMessage {
         let partsJson: String = (try? String(data: JSONEncoder().encode(m.parts), encoding: .utf8)) ?? "[]"
         let tokenUsageJson: String? = m.tokenUsage.flatMap {
@@ -172,9 +169,6 @@ struct SyncedCompactMarker: Syncable {
     var boundaryMessageId: String?
     var firstKeptMessageId: String?
     var lastCompactedMessageId: String?
-    /// Marker schema version (see CompactMarker.version). Synced so peer
-    /// devices know whether to use the v2 id-only resolution path or the v1
-    /// multi-field fallback chain.
     var version: Int
 
     static let syncMetadata: SyncTypeMetadata<SyncedCompactMarker> = {
@@ -225,7 +219,6 @@ struct SyncedSessionFile: Syncable {
     var relativePath: String
     var fileSize: Int
     var mimeType: String?
-    /// composite identity — mirrors the v1 recordName format.
     var compositeKey: String { "\(sessionId):\(relativePath)" }
     var updatedAt: Date
 
@@ -291,51 +284,6 @@ struct SyncedSkill: Syncable {
     }()
 }
 
-// MARK: - SyncedProviderConfig
-
-struct SyncedProviderConfig: Syncable {
-    /// Constant id — only one ProviderConfig per app.
-    var id: String = "provider-config"
-    var configJson: String
-    var secretsJsonBase64: String       // base64-wrapped secrets blob
-    var updatedAt: Date
-
-    static let syncMetadata: SyncTypeMetadata<SyncedProviderConfig> = {
-        typealias F = FieldDescriptor<SyncedProviderConfig>
-        return SyncTypeMetadata<SyncedProviderConfig>(
-            recordType: "ProviderConfigV2",
-            idKeyPath: \SyncedProviderConfig.id,
-            scope: .global,
-            fields: [
-                F.string("configJson",   \SyncedProviderConfig.configJson),
-                F.string("secretsJson",  \SyncedProviderConfig.secretsJsonBase64),
-                F.date("updatedAt",      \SyncedProviderConfig.updatedAt),
-            ],
-            conflictPolicy: .lastWriteWinsByField(\SyncedProviderConfig.updatedAt),
-            version: 1
-        )
-    }()
-}
-
-// MARK: - SyncedMCPServer (per-server record, current schema)
-//
-// [T-mcp-per-server-sync] One CK record per MCP server; recordName = the
-// server's name (the key under `mcpServers` in servers.json). Replaces the
-// whole-file MCPServersV2 outbound, which had the classic whole-file-LWW
-// failure mode: two devices each adding a different server, the later file
-// mtime wins and silently drops the other device's addition (the same
-// defect the EnvVarV2 → EnvVarItem migration fixed for env vars).
-//
-// Per-server records resolve as a natural union (different recordNames);
-// double-edits of the same server resolve via per-entry updatedAt LWW;
-// deletes use the standard op=delete tombstone path and cannot resurrect
-// (recently-deleted guard in the merger).
-//
-// `entryJson` is the full on-disk ServerEntry object serialized verbatim
-// (note/enabled/url/headers/command/args/env/startupTimeoutSeconds/...)
-// so fields added by a newer build round-trip through an older peer
-// without being stripped. Headers/env can hold literal tokens → the type
-// lives in the minis-secrets zone alongside ProviderConfigV2.
 struct SyncedMCPServer: Syncable {
     var id: String          // server name — also the CK recordName
     var entryJson: String   // full ServerEntry JSON, verbatim round-trip
@@ -360,27 +308,6 @@ struct SyncedMCPServer: Syncable {
     }()
 }
 
-// MARK: - SyncedProviderInstanceV3 / EntryV3 / GroupV3 (per-record v3 sync)
-//
-// Replaces the file-level SyncedProviderConfig with one CKRecord per
-// ProviderInstance / ModelEntry / ModelGroup. Deletes propagate via the
-// CKRecord `op="delete"` path instead of application-layer tombstones
-// — a deleted row is gone for good and cannot be resurrected by a
-// peer's stale snapshot.
-//
-// Stale-field strategy: every record carries an `extrasJson` field
-// envelope so a v3.0 device round-tripping a record from a future
-// v3.x build doesn't silently strip unknown fields. This is the exact
-// failure mode that pinned v2 into the deletedInstances ping-pong loop
-// — solved here at the record-shape level, not application-layer.
-//
-// Secret storage: per the agreed design (decision #2), secrets are
-// inlined on the instance record as `secretBlob` (base64-wrapped
-// ciphertext). Changes to instance metadata (label, baseURL, etc.) and
-// secret rotation both touch the same record, but the cost of
-// re-uploading secret bytes on a label change is negligible at the
-// payload sizes involved (single-instance record is ~hundreds of
-// bytes vs the legacy whole-file 290KB).
 
 struct SyncedProviderInstanceV3: Syncable {
     var id: String                       // = ProviderInstance.id (UUID)
@@ -441,15 +368,6 @@ struct SyncedProviderInstanceV3: Syncable {
 }
 
 struct SyncedProviderModelEntryV3: Syncable {
-    /// [T-provider-entry-composite-key] Plan-X: this is the entry's random
-    /// UUID = its DB primary key, NOT the composite key. The DB id column stays
-    /// the uuid so old group/binding references (also uuids) keep matching and
-    /// downgrade is safe. Cross-device de-dup of the same (instance, model) is
-    /// handled at the MERGE layer: on inbound the receiver computes the
-    /// composite key from instanceId+modelId, learns legacyUuid→compositeKey,
-    /// and normalizes references. (An earlier iteration keyed the record by the
-    /// composite key and wrote composite keys into the DB id column — that
-    /// orphaned every uuid reference; reverted.)
     var id: String
     var providerInstanceId: String
     var baseModelJson: String            // LLMModel JSON (contains modelId)
@@ -460,10 +378,6 @@ struct SyncedProviderModelEntryV3: Syncable {
     var sortOrder: Int
     var updatedAt: Date
     var extrasJson: String?
-    /// Transition field: the random uuid this entry had before migration, so a
-    /// receiver can build legacyUuid→compositeKey and normalize old references.
-    /// nil for entries created fresh under the composite-key scheme.
-    var legacyUuid: String?
 
     static let syncMetadata: SyncTypeMetadata<SyncedProviderModelEntryV3> = {
         typealias F = FieldDescriptor<SyncedProviderModelEntryV3>
@@ -481,7 +395,6 @@ struct SyncedProviderModelEntryV3: Syncable {
                 F.int("sortOrder",              \SyncedProviderModelEntryV3.sortOrder),
                 F.date("updatedAt",             \SyncedProviderModelEntryV3.updatedAt),
                 F.optionalString("extrasJson",  \SyncedProviderModelEntryV3.extrasJson),
-                F.optionalString("legacyUuid",  \SyncedProviderModelEntryV3.legacyUuid),
             ],
             conflictPolicy: .lastWriteWinsByField(\SyncedProviderModelEntryV3.updatedAt),
             version: 1
@@ -635,56 +548,6 @@ struct SyncedSubAgentV3: Syncable {
     }()
 }
 
-// MARK: - SyncedEnvVars (legacy whole-file record)
-//
-// Kept for inbound compatibility ONLY. New devices push per-variable
-// EnvVarItem records (below); the whole-file record is no longer
-// produced. Receiver-side logic still applies an inbound EnvVarV2 once
-// to seed `env-vars.json` + Keychain values, after which the device
-// switches to per-key mode. Cloud copies of EnvVarV2 records get
-// cleaned up after every device has migrated (see EnvVarMigration).
-struct SyncedEnvVars: Syncable {
-    /// Constant id — only one env-vars record per app.
-    var id: String = "env-vars"
-    var envVarsJson: String
-    var envSecretsJsonBase64: String
-    var updatedAt: Date
-
-    static let syncMetadata: SyncTypeMetadata<SyncedEnvVars> = {
-        typealias F = FieldDescriptor<SyncedEnvVars>
-        return SyncTypeMetadata<SyncedEnvVars>(
-            recordType: "EnvVarV2",
-            idKeyPath: \SyncedEnvVars.id,
-            scope: .global,
-            fields: [
-                F.string("envVarsJson",     \SyncedEnvVars.envVarsJson),
-                F.string("envSecretsJson",  \SyncedEnvVars.envSecretsJsonBase64),
-                F.date("updatedAt",         \SyncedEnvVars.updatedAt),
-            ],
-            conflictPolicy: .lastWriteWinsByField(\SyncedEnvVars.updatedAt),
-            version: 1
-        )
-    }()
-}
-
-// MARK: - SyncedEnvVar (per-variable record, current schema)
-//
-// One CK record per environment variable. Eliminates the
-// "whole-file LWW overwrites the other side's edits" failure mode
-// that whole-file EnvVarV2 had. Two devices each adding a different
-// variable now resolve as a natural union (different recordIds);
-// double-edits of the same variable resolve via per-record
-// updatedAt LWW; deletes use the standard op=delete tombstone path.
-//
-// `valueB64`: base64(utf8(value)). Values still go through the sync
-// layer (rather than relying solely on iCloud Keychain
-// synchronization) because Keychain sync timing is opaque and a
-// brand-new entry could otherwise show up on a peer with an empty
-// value. The receiver decodes and writes the value into Keychain
-// itself. Same trust model as the legacy whole-file path: base64
-// is encoding, not encryption — if the user's iCloud account is
-// compromised, the values are readable. Existing users have already
-// accepted that.
 struct SyncedEnvVar: Syncable {
     var id: String         // EnvVarEntry.id (UUID) — also CK recordName
     var key: String        // variable name, e.g. "API_KEY"
@@ -877,12 +740,7 @@ enum SyncedTypesBootstrap {
         r.register(SyncedFolder.self)
         r.register(SyncedSessionFile.self)
         r.register(SyncedSkill.self)
-        r.register(SyncedProviderConfig.self)
         r.register(SyncedMCPServer.self)    // per-server, current schema
-        // v3 per-record provider sync. These coexist with the legacy
-        // SyncedProviderConfig dual-write outbound until all peer
-        // devices upgrade; inbound v2 is silently dropped on v3 builds
-        // (see ChatStoreSyncHydrators.mergeProviderConfig).
         r.register(SyncedProviderInstanceV3.self)
         r.register(SyncedProviderModelEntryV3.self)
         r.register(SyncedProviderModelGroupV3.self)
@@ -891,7 +749,6 @@ enum SyncedTypesBootstrap {
         // metadata(for: "SubAgentV3") returns nil, buildPortable is never
         // reached, and the builder pushes nothing while dirty rows drain.
         r.register(SyncedSubAgentV3.self)
-        r.register(SyncedEnvVars.self)   // legacy whole-file, inbound only
         r.register(SyncedEnvVar.self)    // per-variable, current schema
         r.register(SyncedEnvVarState.self) // [T-envvar-disable] enabled state
         r.register(SyncedDevice.self)

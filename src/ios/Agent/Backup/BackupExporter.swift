@@ -707,11 +707,6 @@ actor BackupExporter {
 
     // MARK: - Memory & Soul
 
-    /// GLOBAL.md / SOUL.md / daily files, copied verbatim into `data/memory/`.
-    ///
-    /// Note this deliberately does NOT reuse the sync hydrator's daily-memory
-    /// path: that one drops anything older than 30 days, which is correct for
-    /// sync traffic and wrong for a full backup.
     private func exportSoul(dataDir: URL) throws -> BackupManifest.CategoryStat {
         let src = AIChatViewModel.minisMemoryPersistentDir
         let dst = dataDir.appendingPathComponent("soul", isDirectory: true)
@@ -847,23 +842,6 @@ actor BackupExporter {
         return (try? fm.attributesOfItem(atPath: secretsURL.path)[.size] as? Int64) ?? 0
     }
 
-    /// [T-backup-thinking-rules] Write every user-authored thinking rule to
-    /// `data/thinking_rules.jsonl`. Returns how many were written.
-    ///
-    /// Reads the RAW ROWS rather than `loadThinkingRules`, which returns
-    /// decoded `ThinkingRule` values: the point is to carry the stored
-    /// representation across unchanged — above all `wire_format_json`, whose
-    /// whole design is to be an opaque blob so a new wire-format case needs no
-    /// migration. Decoding and re-encoding here would put this file in the
-    /// business of understanding formats it deliberately does not.
-    ///
-    /// Nothing is written when the user has authored no rules, so an ordinary
-    /// package gains no file at all.
-    /// [T-subagent-own-store] Write the custom sub agent roster.
-    ///
-    /// The built-in is filtered out: it is recreated by
-    /// `SubAgentRoster.normalize` on every load, and restoring a package's copy
-    /// onto a newer build would reinstate stale canonical name/description.
     private func exportSubAgents(dataDir: URL) async throws -> Int {
         let roster = await MainActor.run { SubAgentStore.shared.subAgents }
         let custom = roster.filter { !$0.isBuiltIn && $0.id != SubAgentDefinition.builtInId }

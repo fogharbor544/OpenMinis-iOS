@@ -302,15 +302,6 @@ struct ContentView: View {
             }
         }
     }
-    // [T-ios-migration-timer-sessionlist-uaf-crash] The migration-subtitle
-    // refresh cadence used to be a process-lived `Timer.publish(every:5).autoconnect()`
-    // subscribed via `.onReceive` on the sidebar Group (see sessionList). A
-    // process-lived Combine publisher whose sink attribute AttributeGraph rebuilds
-    // on every body transaction is a use-after-free hazard: a 5s tick delivered into
-    // the sink while the graph tears down/rebuilds that attribute releases a dangling
-    // sink closure (crash below). Replaced with a `.task`-driven async loop whose
-    // lifetime SwiftUI owns and cancels deterministically — no graph-bound publisher.
-    // See migrationSubtitleRefreshInterval / migrationSubtitleLoop.
     @State var remoteDeviceSessions: [(device: SyncDevice, sessions: [ChatSession])] = []
     // showSettings consolidated into activeToolSheet (.settings)
     @State var showTerminal = false
@@ -1423,11 +1414,6 @@ struct ContentView: View {
                     fetchAlarmsIfNeeded()
                     if #available(iOS 17.0, *) {
                         SyncCore.shared.isAppInBackground = false
-                        // [T-icloud-migration-keeps-going] A migration that
-                        // suspended (no progress for a window, or left
-                        // suspended by an older build) picks up again on
-                        // foreground instead of waiting for a cold launch.
-                        // No-op unless suspended and idle.
                     }
                     #if DEBUG
                     IdleTimerLease.set(.debugMenu, held: keepScreenAwake, reason: "active")

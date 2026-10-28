@@ -34,9 +34,9 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
             "group-a": BotSessionOwner(botId: a.id, roomId: room.id)
         ]
         precondition(workspace.persist(initial))
-        let unowned = AIChatViewModel(); unowned.sessionId = "temporary"
-        precondition(unowned.botMemoryFragment() == nil)
-        precondition(!unowned.executeBotMemoryGet("{}").success)
+        let temporaryChat = AIChatViewModel(); temporaryChat.sessionId = "temporary"
+        precondition(temporaryChat.botMemoryFragment() == nil)
+        precondition(!temporaryChat.executeBotMemoryGet("{}").success)
         let vm = AIChatViewModel(); vm.sessionId = "private-a"
         let words = "I always prefer concise answers"
         vm.messages = [.init(content: words)]

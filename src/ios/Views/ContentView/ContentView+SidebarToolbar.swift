@@ -1,31 +1,11 @@
-//
-//  ContentView+SidebarToolbar.swift
-//  Minis - home screen (session list, navigation, settings entry)
-//
-//  ContentView, sidebar toolbar: toolbar items (new chat, tools, settings,
-//  terminal, alarms), the navigation-title sync indicator and the migration /
-//  sync subtitle with its self-cancelling refresh loop.
-//
-//  Map of the ContentView files: ContentView/ContentView.swift.
-//
 
 import SwiftUI
 
 extension ContentView {
     // MARK: - Sidebar Toolbar
 
-    /// Refresh cadence for the sidebar migration subtitle, in seconds.
     private static let migrationSubtitleRefreshInterval: UInt64 = 5
 
-    /// [T-ios-migration-timer-sessionlist-uaf-crash] Self-cancelling refresh loop
-    /// for `migrationSubtitle`, driven by `.task` on the identity-stable sidebar
-    /// Group. Replaces the process-lived `Timer.publish().autoconnect()` +
-    /// `.onReceive` that AttributeGraph could tear down mid-transaction (UAF).
-    ///
-    /// SwiftUI cancels this Task when the Group's identity ends, so the loop stops
-    /// cleanly with no dangling subscription. It parks (no refresh, cheap poll)
-    /// while the app is backgrounded — the crash reproduced with the app in the
-    /// background, and a hidden sidebar has nothing to display anyway.
     @MainActor
     func migrationSubtitleLoop() async {
         // Mirror the old `.onAppear { refreshMigrationSubtitle() }`: refresh once
@@ -240,24 +220,6 @@ extension ContentView {
                     if #available(iOS 17.0, *) { return SyncV2Bootstrap.isEnabled }
                     return false
                 }()
-                // Title text comes from SOUL.md (falls back to "Minis"). The
-                // leading sync indicator floats as an overlay so it doesn't
-                // take layout space — title stays perfectly centered in the
-                // navigation bar regardless of whether the indicator is visible.
-                // When iCloud sync isn't enabled the title is a plain Text;
-                // wrapping it in a `.disabled` Button would drain SwiftUI's
-                // default disabled-button tint into the label and render the
-                // SOUL name grey, which read as a styling bug rather than the
-                // intended "no sync detail to open" state.
-                // [T-ios-soul-name-sidebar-stale] The `.onReceive(soulMdChanged)`
-                // that refreshes `soulName` used to live HERE. It was moved to the
-                // stable `sessionList(useNavigationLinks:)` body for the SAME reason
-                // the migration timer was (see the T-ios-migration-timer note below):
-                // this toolbar principal item rebuilds on every canOpenSync /
-                // soulName / migrationSubtitle / isSelecting change, so a sink
-                // attached here gets torn down and re-created constantly and can
-                // drop a .soulMdChanged notification that arrives during the gap.
-                // This Text now only READS `soulName`.
                 let titleLabel = Text(soulName)
                     .font(.system(size: 18.5, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -280,17 +242,6 @@ extension ContentView {
                             .offset(x: -27)
                         }
                     }
-                // [T-ios-migration-timer-toolbar-uaf-crash] The migration-subtitle
-                // refresh driver used to live HERE, on this `titleLabel` Text inside
-                // the churny toolbar principal item. That item rebuilds whenever
-                // canOpenSync / soulName / migrationSubtitle / isSelecting change, so
-                // AttributeGraph repeatedly tore down the driver's sink — a
-                // use-after-free release in the setBody transaction (EXC_BAD_ACCESS,
-                // build 309). The driver now lives on the stable
-                // `sessionList(useNavigationLinks:)` body (identity-stable across the
-                // sidebar lifetime) as a `.task` async loop, not a Combine timer sink
-                // (see migrationSubtitleLoop, T-ios-migration-timer-sessionlist-uaf-crash);
-                // this Text only READS the `migrationSubtitle` @State.
 
                 // [T-ios-ipad-sidebar-title-offcentre] Claim the width the bar
                 // will give us and centre inside it, instead of letting the

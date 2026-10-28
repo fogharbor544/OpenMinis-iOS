@@ -1,13 +1,5 @@
 import SwiftUI
 
-/// V2 iCloud Sync settings page. Replaces the v1 CloudSyncSettingsView
-/// when v2 is enabled. Drives:
-/// - Master enable/disable
-/// - This device's friendly name
-/// - Per-category upload toggles (Chat / SessionFiles / Skills / Providers / Env)
-/// - Per-file size cap
-/// - Discovered remote devices (read from sync_devices table populated
-///   by mergeDevice hydrator on inbound SyncDeviceV2 records)
 struct CloudSyncSettingsV2View: View {
     @State private var v2Enabled: Bool = false
     @State private var deviceName: String = ""
@@ -17,15 +9,6 @@ struct CloudSyncSettingsV2View: View {
     @State private var maxFileSizeMB: Int = 1
     @State private var remoteDevices: [SyncDevice] = []
     @State private var statusText: String = ""
-    // [T-ios-migration-timer-sessionlist-uaf-crash] 5s refresh cadence is driven by
-    // a `.task` async loop (see refreshLoop), NOT a process-lived
-    // `Timer.publish(every:5).autoconnect()` + `.onReceive`. A graph-bound Combine
-    // publisher's sink is a SwiftUI attribute AttributeGraph re-creates on every body
-    // transaction; a tick delivered while it is torn down/rebuilt releases the dangling
-    // `SubscriptionView` sink closure → use-after-free (CODESIGNING Invalid Page,
-    // TestFlight crash1/crash2, 1.10(43)). Same mechanism 665c15fb fixed in ContentView;
-    // that commit converted only the ContentView binding point, leaving this view and
-    // SyncMigrationDetailView on the crashing pattern.
     private static let refreshIntervalSeconds: UInt64 = 5
 
     var body: some View {
@@ -157,11 +140,6 @@ struct CloudSyncSettingsV2View: View {
 #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
-        // [T-ios-migration-timer-sessionlist-uaf-crash] `.task` async refresh loop
-        // replaces the old `.task { await refresh() }` + `.onReceive(timer)` pair, so
-        // there is no graph-bound Combine sink to be released mid-transaction (the crash
-        // that pattern caused — see refreshIntervalSeconds). SwiftUI cancels this Task
-        // on teardown.
         .task { await refreshLoop() }
         .alert("Device Name", isPresented: $showDeviceNameEditor) {
             TextField("Device name", text: $deviceNameDraft)
@@ -182,12 +160,6 @@ struct CloudSyncSettingsV2View: View {
         }
     }
 
-    /// [T-ios-migration-timer-sessionlist-uaf-crash] Self-cancelling 5s refresh loop
-    /// driven by `.task`, replacing the graph-bound `Timer.publish().autoconnect()` +
-    /// `.onReceive` that AttributeGraph could tear down mid-transaction (UAF). SwiftUI
-    /// cancels this Task on teardown, so no dangling subscription survives. Refreshes
-    /// once immediately (mirroring the old `.task { await refresh() }`) then every 5s;
-    /// skips the refresh while backgrounded and resumes on the next foreground tick.
     @MainActor
     private func refreshLoop() async {
         await refresh()

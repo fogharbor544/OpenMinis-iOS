@@ -328,8 +328,6 @@ final class DebugJSONRPC: @unchecked Sendable {
             return await handleSyncDirtyByType()
         case "debug.sync.providerV3.status":
             return await handleProviderV3Status()
-        case "debug.sync.providerV3.setEnabled":
-            return await handleProviderV3SetEnabled(params: params)
         case "debug.sync.ckQuery":
             return await handleSyncCKQuery(params: params)
         case "debug.sync.allZones":
@@ -1243,8 +1241,7 @@ final class DebugJSONRPC: @unchecked Sendable {
     /// sync state. Used by both manual debugging and the audit script
     /// that compares two devices' provider-config state.
     private func handleProviderV3Status() async -> Any {
-        let enabled = await MainActor.run { ProviderV3Bootstrap.isEnabled }
-        let migrated = UserDefaults.standard.bool(forKey: "cloudSync.providerV3.migrationCompleted")
+        let enabled = true
         let db = await MainActor.run { ProviderConfigStore.shared.db }
         let counts: (instances: Int, entries: Int, groups: Int)
         if let db {
@@ -1254,7 +1251,6 @@ final class DebugJSONRPC: @unchecked Sendable {
         }
         return [
             "enabled": enabled,
-            "migrationCompleted": migrated,
             "dbOpen": db != nil,
             "counts": [
                 "instances": counts.instances,
@@ -1262,18 +1258,6 @@ final class DebugJSONRPC: @unchecked Sendable {
                 "groups": counts.groups,
             ],
         ] as [String: Any]
-    }
-
-    /// debug.sync.providerV3.setEnabled — kill-switch for v3. Off resumes
-    /// V2-merge inbound + stops V3 outbound apply behaviors so a faulty
-    /// v3 rollout can be reverted in the field without a code change.
-    /// Takes effect immediately for inbound; outbound V3 records already
-    /// in the dirty queue will still drain on the next send cycle
-    /// (harmless — peers on v3 will just LWW them).
-    private func handleProviderV3SetEnabled(params: [String: Any]) async -> Any {
-        let enable = (params["enabled"] as? Bool) ?? true
-        await MainActor.run { ProviderV3Bootstrap.setEnabled(enable) }
-        return ["enabled": enable] as [String: Any]
     }
 
     /// debug.sync.dirtyByType — same shape as the existing dump.dirty

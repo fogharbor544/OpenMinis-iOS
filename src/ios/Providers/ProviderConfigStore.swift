@@ -44,19 +44,6 @@ struct ProviderConfig: Codable, Equatable {
     var modelEntries: [ModelEntry]
     var modelGroups: [ModelGroup]
     var defaultPrimaryGroupId: String?
-    /// [T-sub-agents-v1] Read by delegation ONLY through the Auto path: a sub
-    /// agent whose definition pins no group runs on whichever of these the
-    /// delegating model asks for (`model_choice: sub_model` -> this group,
-    /// `default_model` -> `defaultPrimaryGroupId`, `same_as_me` -> the parent's
-    /// own binding). A definition that pins a group ignores all of it.
-    ///
-    /// There is no automatic downgrade: nothing routes work here just because
-    /// the group exists. The delegating model picks it deliberately for work it
-    /// judges simple and self-verifiable, and an unconfigured or unroutable
-    /// group falls back to the parent's model rather than to the other group.
-    ///
-    /// Also read by voice correction, title generation and the Model Groups
-    /// picker.
     var defaultSubGroupId: String?
     /// Stores per-session model bindings keyed by sessionId.
     var sessionBindings: [String: SessionModelBinding]
@@ -202,8 +189,6 @@ final class ProviderConfigStore: ObservableObject {
     /// whenever `config` changes.
     private struct EntryIndex {
         var byId: [String: Int] = [:]
-        var byUuid: [String: Int] = [:]
-        var byColonKey: [String: Int] = [:]
     }
     private var entryIndex: EntryIndex?
 
@@ -213,9 +198,6 @@ final class ProviderConfigStore: ObservableObject {
         // First occurrence wins, matching the `first(where:)` scans it replaces.
         for (i, e) in config.modelEntries.enumerated() {
             if index.byId[e.id] == nil { index.byId[e.id] = i }
-            if index.byUuid[e.uuid] == nil { index.byUuid[e.uuid] = i }
-            let colon = e.legacyColonCompositeKey
-            if index.byColonKey[colon] == nil { index.byColonKey[colon] = i }
         }
         entryIndex = index
         return index
@@ -242,12 +224,6 @@ final class ProviderConfigStore: ObservableObject {
         return library.appendingPathComponent("MinisChat/provider-config.json")
     }
 
-    /// v3 SQLite store. Populated on first launch from `provider-config.json`
-    /// (migration); then becomes the source of truth for sync record
-    /// emission and inbound merge. The JSON file is kept as a downgrade
-    /// safety mirror — every mutate rewrites both.
-    /// Held as Optional so init can short-circuit if DB open fails (rare,
-    /// but we'd rather degrade to JSON-only than crash).
     private(set) var db: ProviderConfigDB?
 
     /// Snapshot of the config the last time `save()` ran, used to diff
@@ -255,43 +231,12 @@ final class ProviderConfigStore: ObservableObject {
     /// `nil` until the first save() runs after init.
     private var lastSavedSnapshot: ProviderConfig?
 
-    /// [T-provider-entry-composite-key] legacyUuid → compositeKey map.
-    /// Populated by migration (every old entry's uuid → its composite key) and
-    /// by inbound sync (a peer's entry record's uuid / legacyUuid → composite
-    /// key, computed from the record's instanceId+modelId). `entry(for:)` uses
-    /// it to resolve a still-uuid reference; `normalizeReferences(using:)`
-    /// rewrites group/binding/agent-loop references that match a known
-    /// legacyUuid to the composite key. Persisted in provider_local_kv so it
-    /// survives restarts and deferred (out-of-order) record arrival.
-    private(set) var legacyUuidToCompositeKey: [String: String] = [:]
-
-    /// True while the one-shot composite-key migration is running. Resolve /
-    /// save use the pre-migration snapshot during this window; the migrated
-    /// config is swapped in atomically when it flips back to false. Prevents a
-    /// half-migrated state from being read or pushed.
-    private(set) var compositeKeyMigrationInFlight = false
 
     init() {
         let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
         let baseURL = libraryURL.appendingPathComponent("MinisChat", isDirectory: true)
         try? FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
         self.fileURL = baseURL.appendingPathComponent("provider-config.json")
-        // First-frame value comes from the V2 JSON so the UI has something to
-        // render before the SQLite DB finishes opening. Once the DB is ready
-        // and V3 is the authoritative store (migration done), we overwrite
-        // `config` from `dumpProviderConfig()` — the V3 path that preserves
-        // group members verbatim — so the JSON's (potentially member-truncated
-        // from an older build) snapshot never becomes the persisted/pushed
-        // source of truth. [T-icloud-modelgroup-member-loss]
-        // [T-ios-reboot-config-loss] Load with missing-vs-unreadable
-        // discrimination. After a device reboot iOS can relaunch the app in
-        // the background BEFORE first unlock (BGTask / CloudKit push /
-        // location session); the default file-protection class
-        // (completeUntilFirstUserAuthentication) makes provider-config.json
-        // unreadable then, and the old silent `.empty` fallback plus any
-        // later save() overwrote the real JSON, bulk-replaced the V3 DB from
-        // the empty snapshot, and pushed the wipe to iCloud — the "blank app
-        // after reboot" field report.
         let loaded = Self.loadGuarded(from: fileURL)
         self.config = loaded.config
         self.loadDegradation = loaded.degradation
@@ -329,16 +274,7 @@ final class ProviderConfigStore: ObservableObject {
                 // first point where the DB is known-open; before this the cache is empty,
                 // which resolves to built-in behaviour rather than anything wrong.
                 await self.reloadThinkingRuleCache()
-                // [T-provider-entry-composite-key] Load the persisted
-                // legacyUuid→compositeKey map (normalization runs AFTER the
-                // authoritative config is loaded below, so it operates on the
-                // real config, not the JSON seed).
-                await self.loadLegacyUuidMap()
-                // V3 authoritative-load: replace the JSON-seeded config with
-                // the DB dump when V3 is enabled. dumpProviderConfig() never
-                // truncates group memberEntryIds.
-                //
-                guard ProviderV3Bootstrap.isEnabled else { return }
+                guard !(await db.isEmpty()) else { return }
                 let fresh = await db.dumpProviderConfig()
                 let jsonGroupMembers = self.config.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
                 let dbGroupMembers = fresh.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
@@ -354,34 +290,6 @@ final class ProviderConfigStore: ObservableObject {
                                       after: deduped.modelGroups, detail: "stage=init json-vs-db")
                 self.config = deduped
                 self.lastSavedSnapshot = deduped
-                // [T-provider-entry-composite-key] Build the legacyUuid map from
-                // the local entries (each entry's random uuid → its composite
-                // key), then normalize any group/binding/agent-loop reference
-                // still pointing at a uuid to the composite key. This is what
-                // heals group memberEntryIds that were written as uuids before
-                // the entry id became a composite key. Detailed logging so the
-                // migration/normalization is auditable in the field.
-                var localPairs: [String: String] = [:]
-                for e in deduped.modelEntries where e.uuid != e.compositeKey {
-                    localPairs[e.uuid] = e.compositeKey
-                }
-                let danglingBefore = deduped.modelGroups.reduce(0) { acc, g in
-                    acc + g.memberEntryIds.filter { ref in !deduped.modelEntries.contains { $0.id == ref || $0.uuid == ref } }.count
-                }
-                logger.info("[CompositeKeyMigrate] init: entries=\(deduped.modelEntries.count) localUuid→ckPairs=\(localPairs.count) danglingGroupRefs(before)=\(danglingBefore) lmapSize(persisted)=\(self.legacyUuidToCompositeKey.count)")
-                for (u, ck) in localPairs where self.legacyUuidToCompositeKey[u] != ck {
-                    self.legacyUuidToCompositeKey[u] = ck
-                }
-                if self.normalizeReferences() {
-                    self.lastSavedSnapshot = self.config
-                    self.save()
-                    let danglingAfter = self.config.modelGroups.reduce(0) { acc, g in
-                        acc + g.memberEntryIds.filter { ref in !self.config.modelEntries.contains { $0.id == ref || $0.uuid == ref } }.count
-                    }
-                    logger.info("[CompositeKeyMigrate] init: normalizeReferences rewrote refs → danglingGroupRefs(after)=\(danglingAfter); persisted+saved")
-                } else {
-                    logger.info("[CompositeKeyMigrate] init: normalizeReferences no-op (no uuid refs matched lmap; \(danglingBefore) dangling refs need a cloud entry record to normalize)")
-                }
                 logger.info("[GroupLoad] init: loaded authoritative config from V3 DB — groups=\(deduped.modelGroups.count) entries=\(deduped.modelEntries.count) groupMembers(json=\(jsonGroupMembers)→db=\(dbGroupMembers)) prunedDuplicates=\(prunedAtLoad.count)")
                 self.ensureVoiceTemplateModels()
                 self.objectWillChange.send()
@@ -511,8 +419,6 @@ final class ProviderConfigStore: ObservableObject {
         // Tests don't open the DB by default.
     }
 
-    /// Async DB open + one-shot migration from provider-config.json.
-    /// Runs off the main thread so a slow open doesn't block UI launch.
     private static func setupDB(jsonURL: URL, completion: @escaping (ProviderConfigDB?) -> Void) {
         Task.detached {
             do {
@@ -545,7 +451,7 @@ final class ProviderConfigStore: ObservableObject {
         var unique: [ModelEntry] = []
         unique.reserveCapacity(entries.count)
         for entry in entries {
-            let key = "\(entry.providerInstanceId)/\(entry.uuid)"
+            let key = "\(entry.providerInstanceId)/\(entry.id)"
             guard let i = indexByKey[key] else {
                 indexByKey[key] = unique.count
                 unique.append(entry)
@@ -622,93 +528,6 @@ final class ProviderConfigStore: ObservableObject {
         if config.modelEntries.count != entryCountBefore {
             logger.warning("[ModelList] load dropped \(entryCountBefore - config.modelEntries.count) duplicate model entr(ies) (same uuid); \(config.modelEntries.count) remain")
         }
-        // Migrate group memberEntryIds from legacy composite keys to stable UUIDs.
-        //
-        // [T-icloud-modelgroup-member-loss] CRITICAL: this path must NOT drop a
-        // member just because the referenced entry isn't in `modelEntries`
-        // right now. The entry can be legitimately absent for a transient
-        // reason (its own ProviderModelEntryV3 record hasn't merged in yet,
-        // or a per-instance model refresh is still in flight) — dropping it
-        // here would truncate the fully-synced member list, then `save()`
-        // would write the truncated list back to the V2 JSON *and* re-push a
-        // truncated V3
-        // group record, propagating the deletion to every device. A member
-        // that is a syntactically valid UUID but currently unresolved is the
-        // ModelGroupRouter's problem to filter at ROUTE time, NOT ours to
-        // delete from the persisted group. We only rewrite legacy composite
-        // keys → UUID; anything that already looks like a UUID is preserved
-        // verbatim even when unresolved.
-        let compositeToUUID = Dictionary(
-            config.modelEntries.map { ($0.compositeKey, $0.id) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let validEntryIds = Set(config.modelEntries.map(\.id))
-        func looksLikeUUID(_ s: String) -> Bool { UUID(uuidString: s) != nil }
-        for i in config.modelGroups.indices {
-            let before = config.modelGroups[i].memberEntryIds
-            var unresolvedPreserved = 0
-            config.modelGroups[i].memberEntryIds = before.compactMap { entryId in
-                // 1. Already valid UUID resolvable in the current store → keep.
-                if validEntryIds.contains(entryId) { return entryId }
-                // 2. Legacy composite key → map to UUID.
-                if let mapped = compositeToUUID[entryId] { return mapped }
-                // 3. Looks like a UUID but isn't in the store yet → PRESERVE.
-                //    Do not treat a transient sync gap as a permanent stale id.
-                if looksLikeUUID(entryId) {
-                    unresolvedPreserved += 1
-                    return entryId
-                }
-                // 3.5. Built-in System engine member (sentinel-prefixed) → PRESERVE.
-                //    These never live in the store (synthetic, local-only) and are
-                //    resolved by id-prefix at route time, so they'd otherwise be
-                //    wrongly dropped as "unrecognisable" on a V2 JSON load.
-                if entryId == SystemVoiceProvider.builtinProviderId
-                    || entryId.hasPrefix(SystemVoiceProvider.builtinProviderId + "/") {
-                    return entryId
-                }
-                // 4. Neither a known composite key nor a UUID → genuinely
-                //    unrecognisable; drop (this is the only safe drop).
-                logger.warning("[GroupLoad] group \(config.modelGroups[i].id.prefix(8)) dropping unrecognisable member token '\(entryId.prefix(12))' (not a UUID, not a known composite key)")
-                return nil
-            }
-            // [T-group-order-log] Legacy composite keys are mapped to ids and
-            // unrecognisable tokens dropped just above.
-            GroupOrderLog.note(reason: "normalize", groupId: config.modelGroups[i].id,
-                               name: config.modelGroups[i].name,
-                               before: before.map { compositeToUUID[$0] ?? $0 },
-                               after: config.modelGroups[i].memberEntryIds, warnOnReorder: true,
-                               detail: "stage=load-json")
-            if unresolvedPreserved > 0 {
-                logger.info("[GroupLoad] group \(config.modelGroups[i].id.prefix(8)) (\(config.modelGroups[i].name)) preserved \(unresolvedPreserved) unresolved UUID member(s) across load — entries may still be syncing; members=\(before.count)→\(config.modelGroups[i].memberEntryIds.count)")
-            }
-        }
-        // Remove groups that became empty after cleanup and fix up default
-        // pointers. With step 3 above preserving unresolved UUIDs, a group
-        // only becomes empty here if it genuinely had zero members or only
-        // unrecognisable (non-UUID, non-composite) tokens — never from a
-        // transient sync gap.
-        let emptyGroupIds = Set(config.modelGroups.filter { $0.memberEntryIds.isEmpty }.map(\.id))
-        if !emptyGroupIds.isEmpty {
-            logger.warning("[GroupLoad] removing \(emptyGroupIds.count) group(s) that are empty after member normalisation: \(emptyGroupIds.map { $0.prefix(8) }.joined(separator: ","))")
-            config.modelGroups.removeAll { emptyGroupIds.contains($0.id) }
-            if let def = config.defaultPrimaryGroupId, emptyGroupIds.contains(def) {
-                config.defaultPrimaryGroupId = config.modelGroups.first?.id
-            }
-            if let def = config.defaultSubGroupId, emptyGroupIds.contains(def) {
-                config.defaultSubGroupId = nil
-            }
-            // [T-sub-agents-v1] Same reference cleanup as the pointers above: a
-            // sub agent pinned to a group that just went away must fall back to
-            // "chosen per task", not keep a dangling id the resolver would have
-            // to re-check on every delegation.
-            for gid in emptyGroupIds {
-                SubAgentStore.shared.clearModelGroup(gid)
-            }
-        }
-        // Restore default group pointer if lost (e.g. missing key in JSON) but groups exist.
-        if config.defaultPrimaryGroupId == nil, let firstGroup = config.modelGroups.first {
-            config.defaultPrimaryGroupId = firstGroup.id
-        }
         // Infer output modalities from model names for entries that don't have modalityOverride yet.
         for i in config.modelEntries.indices {
             let entry = config.modelEntries[i]
@@ -717,7 +536,7 @@ final class ProviderConfigStore: ObservableObject {
                 let inferred = base.withInferredModality()
                 if inferred.modalityOverride != nil {
                     config.modelEntries[i] = ModelEntry(
-                        uuid: entry.id,
+
                         providerInstanceId: entry.providerInstanceId,
                         model: inferred,
                         overrides: entry.overrides,
@@ -770,13 +589,6 @@ final class ProviderConfigStore: ObservableObject {
             }
         }
 
-        // [T-icloud-drop-wholefile-producers] The legacy whole-file
-        // ProviderConfigV2 record is no longer emitted here. Every v3 device
-        // drops it on receipt (S7 short-circuit), so on a v3 fleet it was an
-        // 882 KB record in EVERY outbound batch that nobody read — and it is
-        // the record behind "You can't save the same record twice" (CKError
-        // 12) whenever two saves raced. The inbound merger stays so a
-        // not-yet-upgraded peer's snapshot can still be read.
     }
 
     /// [T-backup-restore-tombstone] Queue v3 upserts for everything a backup
@@ -812,7 +624,7 @@ final class ProviderConfigStore: ObservableObject {
             }
             for entry in current.modelEntries {
                 // Plan-X: V3 entry record is keyed by uuid (= DB primary key).
-                await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: entry.uuid, operation: "upsert")
+                await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: entry.id, operation: "upsert")
             }
             for group in current.modelGroups {
                 await ChatStore.shared.markDirty(recordType: "ProviderModelGroupV3", recordId: group.id, operation: "upsert")
@@ -858,8 +670,8 @@ final class ProviderConfigStore: ObservableObject {
 
         // Model entries — Plan-X: key the diff + V3 record by uuid (DB primary
         // key), not the composite key, so markDirty targets the right record.
-        let priorEntries = Self.dictByIdLastWins(prior.modelEntries.map { ($0.uuid, $0) })
-        let curEntries = Self.dictByIdLastWins(current.modelEntries.map { ($0.uuid, $0) })
+        let priorEntries = Self.dictByIdLastWins(prior.modelEntries.map { ($0.id, $0) })
+        let curEntries = Self.dictByIdLastWins(current.modelEntries.map { ($0.id, $0) })
         for (uuid, entry) in curEntries {
             if priorEntries[uuid] != entry {
                 await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: uuid, operation: "upsert")
@@ -904,18 +716,8 @@ final class ProviderConfigStore: ObservableObject {
         return out
     }
 
-    /// Reload config from disk (e.g. after iCloud sync overwrites the file).
-    ///
-    /// [T-icloud-modelgroup-member-loss] When V3 is the authoritative store,
-    /// reload from the SQLite DB (dumpProviderConfig — preserves group members
-    /// verbatim) instead of the V2 JSON. The legacy whole-file V2 sync path
-    /// (CloudSyncEngine) calls this after merging; routing it through the
-    /// member-truncating `load(from:)` is exactly what propagated group-member
-    /// deletions. The JSON branch remains for pre-migration / kill-switched
-    /// devices.
     func reloadFromDisk() async {
-        let dbAuthoritative = ProviderV3Bootstrap.isEnabled
-        if let db, dbAuthoritative {
+        if let db {
             let priorMembers = config.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
             let fresh = await db.dumpProviderConfig()
             let freshMembers = fresh.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
@@ -1008,9 +810,6 @@ final class ProviderConfigStore: ObservableObject {
             let mock = VoiceProviderTemplate.mockEntries(for: instance)
             config.modelEntries.append(contentsOf: mock)
             logger.info("[ModelList] addInstance (voice): instance=\(instance.label) seeded \(mock.count) mock voice entries: [\(mock.map { $0.baseModel.id }.joined(separator: ","))]")
-            // Dual-purpose providers (MiMo, DashScope) also serve text models
-            // via /v1/models. Fetch them now; replaceEntries preserves the
-            // voice seeds above (T-mimo-shadow-voice guard).
             if instance.credentialType == .apiKey {
                 Task { await refreshModels(for: instance) }
             }
@@ -1034,34 +833,6 @@ final class ProviderConfigStore: ObservableObject {
                 .filter { $0.providerInstanceId == instance.id }
                 .map { $0.baseModel.id })
 
-            // Only remove stale VOICE-TEMPLATE SEEDS not in the current template
-            // (seeds a previous template version added, e.g. Doubao's retired
-            // seed-tts-2.0). Never remove API-fetched models — dual-purpose
-            // vendors serve both template voice seeds and API models (from
-            // /v1/models) on one host, and the API models must survive launch.
-            //
-            // This guard distinguishes "template seed" from "API model" by
-            // modality SHAPE. Two prior attempts widened the shape too far:
-            //   - 9485394c scoped removal to "has .audioInput OR .audioOutput",
-            //     assuming API models never carry an audio modality. False for
-            //     MiMo, whose /v1/models returns audio-capable models.
-            //   - [T-mimo-launch-model-count-shrink] tightened to "audio AND NOT
-            //     .textInput", which spared API TTS ([.textInput,.audioOutput])
-            //     and chat-with-audio (has .textInput) — but NOT a future
-            //     API-fetched dedicated ASR model, which is [.audioInput,
-            //     .textOutput] (no .textInput) and would still be wrongly wiped
-            //     every launch once a vendor exposes one via /v1/models.
-            //
-            // Robust discriminator [T-voice-seed-shape-exact]: every template
-            // mockModel seed is authored as EXACTLY ONE modality flag —
-            // .audioOutput alone (TTS voices) or .audioInput alone (ASR). No
-            // API-derived model is ever a single audio flag: OpenAIModelsAPI /
-            // inferDedicatedVoiceModality always attach the paired text side
-            // (TTS → [.textInput,.audioOutput], ASR → [.audioInput,.textOutput],
-            // chat → text ∪ …), i.e. ≥2 flags. So only remove entries whose
-            // modality is EXACTLY .audioOutput or EXACTLY .audioInput — this
-            // still cleans up any retired single-flag template seed while
-            // sparing every API model regardless of its ASR/TTS/omni shape.
             let seedShapes: [ModelModality] = [.audioOutput, .audioInput]
             let voiceExistingIds = Set(config.modelEntries
                 .filter { $0.providerInstanceId == instance.id }
@@ -1082,10 +853,6 @@ final class ProviderConfigStore: ObservableObject {
                 changed = true
                 logger.info("[VoiceTemplateMigrate] \(instance.label): added \(newEntries.count) new entries: \(toAdd.sorted())")
             }
-            // Heal corrupted modality: auto-refresh can overwrite template
-            // entries with text-only modality from /v1/models. Restore the
-            // template's authoritative modalityOverride for any entry whose
-            // baseModel modality diverged.
             for i in config.modelEntries.indices {
                 let e = config.modelEntries[i]
                 guard e.providerInstanceId == instance.id,
@@ -1093,7 +860,7 @@ final class ProviderConfigStore: ObservableObject {
                       e.baseModel.modalityOverride != tplModel.modalityOverride else { continue }
                 logger.info("[VoiceTemplateMigrate] \(instance.label): healing modality for \(e.baseModel.id): \(e.baseModel.modalityOverride?.rawValue ?? -1) → \(tplModel.modalityOverride?.rawValue ?? -1)")
                 config.modelEntries[i] = ModelEntry(
-                    uuid: e.uuid,
+
                     providerInstanceId: e.providerInstanceId,
                     model: tplModel,
                     overrides: e.overrides,
@@ -1109,9 +876,6 @@ final class ProviderConfigStore: ObservableObject {
 
     func updateInstance(_ instance: ProviderInstance) {
         guard let idx = config.instances.firstIndex(where: { $0.id == instance.id }) else { return }
-        // If the user changed the base URL or v1 suffix, the previously probed image
-        // endpoint may no longer be valid (different upstream). Drop the cached
-        // resolution so the next image-gen request re-probes.
         var updated = instance
         let old = config.instances[idx]
         if old.customBaseURL != updated.customBaseURL || old.appendV1Suffix != updated.appendV1Suffix {
@@ -1712,29 +1476,12 @@ final class ProviderConfigStore: ObservableObject {
             || entryId.hasPrefix(SystemVoiceProvider.builtinProviderId + "/") {
             return SystemVoiceCatalog.entry(forCompositeId: entryId)
         }
-        // [T-provider-entry-composite-key] `id` is now the compositeKey
-        // ("{instanceId}/{modelId}"). Resolve by composite key first; then fall
-        // back to the legacy random uuid and the old ":" composite key so a
-        // reference written by an older build (or synced from a not-yet-migrated
-        // peer) still resolves. The legacyUuid normalization map rewrites these
-        // to composite keys over time, but this lookup keeps them working in the
-        // meantime — never returns nil just because a reference is still in an
-        // old form.
-        // [T-composer-typing-lag] Same precedence as before, via the index.
         let index = currentEntryIndex()
         let entries = config.modelEntries
         if let i = index.byId[entryId] { return entries[i] }
-        if let i = index.byUuid[entryId] { return entries[i] }
-        if let mapped = legacyUuidToCompositeKey[entryId], let i = index.byId[mapped] { return entries[i] }
-        if let i = index.byColonKey[entryId] { return entries[i] }
         return nil
     }
 
-    /// [T-ios-minis-config-entry-id-composite] Normalize an entry reference in
-    /// any historical form (composite key, legacy random uuid, legacy ":"
-    /// composite) to the entry's CURRENT id (the composite key). Returns the
-    /// input unchanged when nothing resolves — callers validate afterwards, so
-    /// a truly-unknown reference still fails their existence check.
     func normalizeEntryRef(_ ref: String) -> String {
         entry(for: ref)?.id ?? ref
     }
@@ -1751,7 +1498,7 @@ final class ProviderConfigStore: ObservableObject {
         // creates a custom entry (UI "Add Model" flow), so the entry carries user intent.
         // [T-provider-entry-composite-key] uuid param wants the random uuid,
         // not entry.id (which is now the composite key).
-        let e = ModelEntry(uuid: entry.uuid, providerInstanceId: entry.providerInstanceId,
+        let e = ModelEntry(providerInstanceId: entry.providerInstanceId,
                            model: inferredModel, overrides: entry.overrides,
                            isCustom: entry.isCustom, isHidden: entry.isHidden,
                            userModifiedAt: Date())
@@ -1806,12 +1553,6 @@ final class ProviderConfigStore: ObservableObject {
     ///   instance's list, for the Refresh row and the outcome log line.
     @discardableResult
     func replaceEntries(for instanceId: String, models rawModels: [LLMModel], caller: String = #function) -> ModelListDiff {
-        // [T-icloud-provider-sync-consistency] Deduplicate the incoming model
-        // list by id BEFORE building entries. Some provider /v1/models
-        // endpoints (notably the OpenAI-compatible OAuth path) can return the
-        // same model id multiple times; without this guard each duplicate
-        // became its own entry row (one model showing up 2-3× in the picker).
-        // Keep first occurrence, preserve order.
         var seenModelIds = Set<String>()
         let models = rawModels.filter { seenModelIds.insert($0.id).inserted }
         if models.count != rawModels.count {
@@ -1870,7 +1611,7 @@ final class ProviderConfigStore: ObservableObject {
                 resolved = resolved.withModalityOverride(templateModality)
             }
             return ModelEntry(
-                uuid: prior?.uuid ?? UUID().uuidString,  // [composite-key] keep random uuid, not id(=compositeKey)
+
                 providerInstanceId: instanceId,
                 model: resolved,
                 overrides: prior?.overrides ?? ModelOverrides(),
@@ -1885,29 +1626,6 @@ final class ProviderConfigStore: ObservableObject {
         }
         config.modelEntries.append(contentsOf: newEntries)
 
-        // [T-model-absence-grace] Catalog entries the provider did NOT list this
-        // time are KEPT, marked unavailable, and only deleted once the absence
-        // has outlived `modelAbsenceGracePeriod`.
-        //
-        // Previously they were deleted on the spot, which conflated two
-        // different facts: "this response did not mention the model" and "this
-        // model is gone". Relay/aggregator endpoints drop a model from
-        // /v1/models transiently (upstream quota, backend rotation, a partial
-        // outage) and list it again minutes later — and the deletion took the
-        // user's `overrides` with it, permanently. That is the reported case:
-        // `gemini-3.8-flash-high` vanished from CPA-Mini2, and a context-window
-        // override "reverted" on a later refresh, which was the same deletion
-        // seen from the other side.
-        //
-        // `isCustom` entries already had this protection (they are kept
-        // unconditionally below); this extends the same courtesy to entries the
-        // provider itself gave us, which is where user overrides actually live.
-        //
-        // The two existing guards do not cover this: `fetchModelsWithFallback`
-        // only rescues an EMPTY list or an unreachable endpoint, and
-        // `suspiciousShrink` needs the list to roughly halve — losing one model
-        // out of twelve trips neither, and `suspiciousShrink` protects only
-        // group references, never the entry.
         let now = Date()
         let absentCatalog = existing.filter { !$0.isCustom && !refreshedModelIds.contains($0.baseModel.id) }
         var keptAbsent: [ModelEntry] = []
@@ -1935,7 +1653,7 @@ final class ProviderConfigStore: ObservableObject {
         let remainingCustom = existing.filter { $0.isCustom && !refreshedModelIds.contains($0.baseModel.id) }
         let enrichedCustom = remainingCustom.map { entry in
             ModelEntry(
-                uuid: entry.uuid,
+
                 providerInstanceId: entry.providerInstanceId,
                 model: entry.baseModel.withInferredModality(),
                 overrides: entry.overrides,
@@ -1953,16 +1671,6 @@ final class ProviderConfigStore: ObservableObject {
             logger.info("[ModelList] replaceEntries caller=\(caller) instance=\(instanceLabel)(\(instanceId.prefix(8))) preserved \(enrichedCustom.count) custom entries: [\(enrichedCustom.map { $0.baseModel.id }.prefix(10).joined(separator: ","))]")
         }
 
-        // [T-mimo-shadow-voice] Preserve AUDIO-modality template seed entries that
-        // the real /models list didn't return. Vendors like MiMo ride their ASR/TTS
-        // on /v1/chat/completions and never expose those models via /v1/models, so
-        // the voice seed entries (from VoiceProviderTemplate.mockModels) aren't in
-        // `refreshedModelIds` — without this they'd be wiped on every refresh (the
-        // dual-purpose DashScope bug), breaking the Voice Services shadow view. Keep
-        // any non-custom (custom already handled above) existing entry that is (a)
-        // absent from the refreshed list, (b) audio-modality, and (c) a member of
-        // this instance's voice template mockModels — so we only protect genuine
-        // template seeds, not stray audio entries.
         if let tpl = VoiceProviderTemplate.template(forBaseURL: config.instances.first(where: { $0.id == instanceId })?.effectiveCustomBaseURL) {
             let templateVoiceIds = Set(tpl.mockModels
                 .filter { ($0.modalityOverride ?? []).contains(.audioInput) || ($0.modalityOverride ?? []).contains(.audioOutput) }
@@ -1974,12 +1682,12 @@ final class ProviderConfigStore: ObservableObject {
             // twice on the next one (2^n; 1,048,574 copies of two MiniMax
             // speech seeds and a 303 MB provider-config.json after ~20
             // refreshes, so launch blew the 19 s scene-create watchdog).
-            let keptAbsentUUIDs = Set(keptAbsent.map(\.uuid))
+            let keptAbsentUUIDs = Set(keptAbsent.map(\.id))
             let preservedVoice = existing.filter { e in
                 !e.isCustom
                 && !refreshedModelIds.contains(e.baseModel.id)
                 && templateVoiceIds.contains(e.baseModel.id)
-                && !keptAbsentUUIDs.contains(e.uuid)
+                && !keptAbsentUUIDs.contains(e.id)
             }
             if !preservedVoice.isEmpty {
                 config.modelEntries.append(contentsOf: preservedVoice)
@@ -2129,7 +1837,6 @@ final class ProviderConfigStore: ObservableObject {
         // describer behind it. (The resolver also guards, but the tool-exposure
         // gate reads the pointer directly.)
         if config.visionGroupId == groupId { config.visionGroupId = nil }
-        // [T-sub-agents-v1] Mirrors the pointer cleanups above.
         SubAgentStore.shared.clearModelGroup(groupId)
         config.agentLoopGroupIds.removeAll { $0 == groupId }
         Self.recordTombstone(in: &config.deletedModelGroups, ids: [groupId])
@@ -2288,7 +1995,6 @@ final class ProviderConfigStore: ObservableObject {
         }
     }
 
-    // MARK: - Sub Agents  [T-sub-agents-v1]
 
     // [T-subagent-own-store] The sub agent roster API moved to
     // `SubAgentStore.shared` — see that type's header. Call sites use the
@@ -2327,7 +2033,6 @@ final class ProviderConfigStore: ObservableObject {
         save()
     }
 
-    // MARK: - Bulk Update (for migration)
 
     /// - Parameter orderReason: [T-group-order-log] for the `[GroupOrder]`
     ///   log only (`restore-merge` from a backup restore).
@@ -2337,13 +2042,6 @@ final class ProviderConfigStore: ObservableObject {
         save()
     }
 
-    /// Apply a merged config from iCloud sync without triggering a markDirty upload.
-    /// Used by `CloudSyncEngine.mergeProviderConfig` — it replaces the in-memory config,
-    /// writes it to disk, and publishes the change, but does NOT schedule a re-upload.
-    /// The caller decides separately whether the merge produced data that needs to be
-    /// pushed back to iCloud (via the existing "localHasUnique" re-upload path).
-    // [T-provider-sync-apply-interaction-defer] Deferral plumbing for
-    // applyMergedConfigFromSync — see the gate comment inside it.
     private var pendingSyncApply: ProviderConfig?
     private var syncApplyRetryTimer: Timer?
     var syncApplyForegroundObserver: NSObjectProtocol?
@@ -2385,11 +2083,6 @@ final class ProviderConfigStore: ObservableObject {
         RunLoop.main.add(timer, forMode: .default)
     }
 
-    /// - Parameter source: [T-group-order-log] who produced `newConfig`, for
-    ///   the `[GroupOrder] reason=sync-apply` line only: `v3-db-refresh` (the
-    ///   row-level inbound merges, read back from the database),
-    ///   `legacy-merge`, `restore`, or `deferred` for an apply that was held
-    ///   back and is replayed.
     func applyMergedConfigFromSync(_ newConfig: ProviderConfig, source: String = "v3-db-refresh") {
         // Compute the set of instances that ended up with zero model
         // entries after the merge. The remote ProviderConfig snapshot
@@ -2570,7 +2263,7 @@ final class ProviderConfigStore: ObservableObject {
             if entries.count == 1 { survivors.append(entries[0]); continue }
             var rep = entries.sorted { a, b in
                 if a.isCustom != b.isCustom { return !a.isCustom }  // non-custom first
-                return a.uuid < b.uuid                              // then smallest uuid
+                return a.id < b.id                              // then smallest uuid
             }.first!
             // [T-ios-hidden-models-restored] The representative choice is
             // deterministic by uuid, NOT by user intent — a duplicate that
@@ -2586,9 +2279,9 @@ final class ProviderConfigStore: ObservableObject {
                 rep.userModifiedAt = best.1
             }
             survivors.append(rep)
-            for e in entries where e.uuid != rep.uuid {
-                uuidRewrite[e.uuid] = rep.uuid
-                pruned.append(e.uuid)
+            for e in entries where e.id != rep.id {
+                uuidRewrite[e.id] = rep.id
+                pruned.append(e.id)
             }
         }
         config.modelEntries = survivors
@@ -2623,142 +2316,6 @@ final class ProviderConfigStore: ObservableObject {
             }
         }
         return (config, pruned)
-    }
-
-    // MARK: - [T-provider-entry-composite-key] legacyUuid normalization
-
-    /// Rewrite every group / binding / agent-loop reference that matches a known
-    /// legacyUuid to its composite key, using `legacyUuidToCompositeKey`.
-    /// Idempotent. Returns true if anything changed (so caller can persist).
-    /// References that don't match any known legacyUuid are LEFT AS-IS — never
-    /// dropped — so an out-of-order arrival just normalizes later when the entry
-    /// record (and thus its legacyUuid mapping) shows up.
-    @discardableResult
-    func normalizeReferences() -> Bool {
-        guard !legacyUuidToCompositeKey.isEmpty else { return false }
-        let map = legacyUuidToCompositeKey
-        var changed = false
-
-        func remap(_ ref: String) -> String { map[ref] ?? ref }
-
-        // Groups: memberEntryIds + added/removed member keys.
-        for i in config.modelGroups.indices {
-            let before = config.modelGroups[i].memberEntryIds
-            var seen = Set<String>()
-            let after = before.compactMap { mid -> String? in
-                let m = remap(mid)
-                return seen.insert(m).inserted ? m : nil
-            }
-            if after != before {
-                // [T-group-order-log] Ids are remapped here, so compare the
-                // remapped "before" with the result: what is left is a member
-                // dropped as a duplicate or one that changed places.
-                GroupOrderLog.note(reason: "normalize", groupId: config.modelGroups[i].id,
-                                   name: config.modelGroups[i].name,
-                                   before: before.map(remap), after: after, warnOnReorder: true,
-                                   detail: "stage=legacy-uuid-remap")
-                config.modelGroups[i].memberEntryIds = after; changed = true
-            }
-
-            for (oldKey, t) in config.modelGroups[i].addedMembers where map[oldKey] != nil {
-                let nk = map[oldKey]!
-                config.modelGroups[i].addedMembers.removeValue(forKey: oldKey)
-                config.modelGroups[i].addedMembers[nk] = Swift.max(config.modelGroups[i].addedMembers[nk] ?? .distantPast, t)
-                changed = true
-            }
-            for (oldKey, t) in config.modelGroups[i].removedMembers where map[oldKey] != nil {
-                let nk = map[oldKey]!
-                config.modelGroups[i].removedMembers.removeValue(forKey: oldKey)
-                config.modelGroups[i].removedMembers[nk] = Swift.max(config.modelGroups[i].removedMembers[nk] ?? .distantPast, t)
-                changed = true
-            }
-        }
-
-        // Agent-loop entry ids.
-        let alBefore = config.agentLoopModelEntryIds
-        var seenAL = Set<String>()
-        let alAfter = alBefore.compactMap { id -> String? in
-            let m = remap(id); return seenAL.insert(m).inserted ? m : nil
-        }
-        if alAfter != alBefore { config.agentLoopModelEntryIds = alAfter; changed = true }
-
-        // Session bindings: directEntry.compositeKey + group.resolvedEntryId.
-        for (sid, var binding) in config.sessionBindings {
-            var bChanged = false
-            func fixSource(_ src: SessionModelSource) -> SessionModelSource {
-                switch src {
-                case .directEntry(let mid, let ck):
-                    // Prefer composite key; if absent but mid is a known legacy
-                    // uuid, fill composite key (keep mid for downgrade).
-                    if ck == nil, let mapped = map[mid] {
-                        bChanged = true
-                        return .directEntry(modelEntryId: mid, compositeKey: mapped)
-                    }
-                    return src
-                case .group(let gid, let rid):
-                    let nr = remap(rid)
-                    if nr != rid { bChanged = true; return .group(groupId: gid, resolvedEntryId: nr) }
-                    return src
-                }
-            }
-            binding.primarySource = fixSource(binding.primarySource)
-            if let sub = binding.subModelSource { binding.subModelSource = fixSource(sub) }
-            if bChanged { config.sessionBindings[sid] = binding; changed = true }
-        }
-
-        if changed {
-            logger.info("[CompositeKeyMigrate] normalizeReferences: rewrote uuid→compositeKey references (lmap=\(map.count))")
-        }
-        return changed
-    }
-
-    /// Merge new legacyUuid→compositeKey entries into the map and persist.
-    /// Triggers normalizeReferences when anything new was learned.
-    func learnLegacyUuids(_ pairs: [String: String]) {
-        var learnedNew = false
-        var learnedKeys: [String] = []
-        for (uuid, ck) in pairs where legacyUuidToCompositeKey[uuid] != ck {
-            legacyUuidToCompositeKey[uuid] = ck
-            learnedNew = true
-            learnedKeys.append("\(uuid.prefix(8))→\(ck)")
-        }
-        guard learnedNew else {
-            logger.info("[CompositeKeyMigrate] learnLegacyUuids: \(pairs.count) inbound pair(s), none new (lmap=\(self.legacyUuidToCompositeKey.count))")
-            return
-        }
-        logger.info("[CompositeKeyMigrate] learnLegacyUuids: learned \(learnedKeys.count) new mapping(s) [\(learnedKeys.prefix(6).joined(separator: ","))] lmap=\(self.legacyUuidToCompositeKey.count)")
-        persistLegacyUuidMap()
-        if normalizeReferences() {
-            save()
-            logger.info("[CompositeKeyMigrate] learnLegacyUuids: normalizeReferences rewrote references after learning + saved")
-        }
-    }
-
-    /// [T-provider-entry-id-canonicalize] Resolve a (possibly legacy random-uuid)
-    /// entry id to its canonical composite key, if a mapping is known. Returns
-    /// nil when the id is already composite (contains "/") or unknown — callers
-    /// then fall back to the id as-is. Used by the inbound delete path so a
-    /// raw-uuid `op=delete` from the cloud removes the locally composite-keyed
-    /// row instead of silently no-op'ing.
-    func canonicalEntryId(forLegacy id: String) -> String? {
-        if id.contains("/") { return nil }
-        return legacyUuidToCompositeKey[id]
-    }
-
-    private func persistLegacyUuidMap() {
-        guard let db else { return }
-        let snapshot = legacyUuidToCompositeKey
-        let json = (try? JSONEncoder().encode(snapshot)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        Task.detached { await db.setLegacyUuidMapKV(json) }
-    }
-
-    func loadLegacyUuidMap() async {
-        guard let db else { return }
-        if let s = await db.localKV("legacyUuidMap"),
-           let data = s.data(using: .utf8),
-           let map = try? JSONDecoder().decode([String: String].self, from: data) {
-            self.legacyUuidToCompositeKey = map
-        }
     }
 
     // MARK: - Shadow Voice Providers [T-mimo-shadow-voice]
@@ -2801,9 +2358,6 @@ final class ProviderConfigStore: ObservableObject {
         let outputModels: [ModelEntry]  // audioOutput entries (TTS)
     }
 
-    /// Normalize a base URL for cross-instance de-dup: lowercased, trailing
-    /// "/v1"/"/" stripped. Two instances pointing at the same MiMo host fold to
-    /// one shadow row.
     static func normalizedShadowKey(_ baseURL: String?) -> String {
         guard var s = baseURL?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !s.isEmpty else { return "" }
         while s.hasSuffix("/") { s.removeLast() }
@@ -2870,8 +2424,6 @@ final class ProviderConfigStore: ObservableObject {
         return result.sorted { ($0.displayName, $0.id) < ($1.displayName, $1.id) }
     }
 
-    /// True when ≥2 enabled instances share a normalized base URL AND have voice
-    /// models — the migration/dup case (scenario B). UI shows a non-destructive hint.
     func hasFoldedShadowDuplicates() -> Bool {
         var seen = Set<String>()
         for inst in config.instances where inst.isEnabled && hasVoiceModels(for: inst.id) {
@@ -2949,23 +2501,6 @@ final class ProviderConfigStore: ObservableObject {
         await refreshModels(for: instance, caller: "autoRefreshModels(daily)")
     }
 
-    /// [T-mimo-shadow-voice] One-time upgrade migration: existing users whose
-    /// mixed-modality provider (MiMo, DashScope/百炼, …) was mis-classified as
-    /// voice-only by the old base-URL whitelist have polluted model lists (text
-    /// models dropped, only voice mock left). Waiting for the next natural
-    /// refresh is a poor experience. On first launch after this fix ships, force
-    /// ONE real `refreshModels` for every third-party OpenAI-compatible instance
-    /// so the corrected logic (never-skip fetch + replaceEntries voice-seed
-    /// preservation) restores the correct model list. Runs once (guarded by a
-    /// UserDefaults flag), silently, in the background, per-instance failure
-    /// isolated. Once entries land, `shadowVoiceProviders()` recomputes off the
-    /// updated `modelEntries` and the store's `objectWillChange` (fired by
-    /// `save()` inside replaceEntries) refreshes the UI — no app restart needed.
-    /// Refresh models for all enabled provider instances.
-    /// Called on first daily launch to keep model lists up-to-date.
-    /// Skips instances where the user has manually added custom models.
-    /// [T-copilot-models-refresh-window] Minimum interval between automatic
-    /// all-provider model-list refreshes.
     static let modelsRefreshWindow: TimeInterval = 6 * 60 * 60
 
     /// [T-model-absence-grace] How long a catalog model may stay unlisted by its
@@ -3318,8 +2853,6 @@ final class ProviderConfigStore: ObservableObject {
         return !officialHosts.contains(where: { custom.contains($0) })
     }
 
-    /// Fetch models from the provider API, falling back to models.dev when the API
-    /// returns an empty list or fails (e.g. custom base URL without /v1/models support).
     static func fetchModelsWithFallback(_ instance: ProviderInstance, forceRefresh: Bool = false) async throws -> ModelFetchResult {
         var warnings: [String] = []
         let isThirdParty = isThirdPartyOpenAICompat(instance)
@@ -3328,7 +2861,6 @@ final class ProviderConfigStore: ObservableObject {
         var vendorError: String?
         var vendorThrew = false
 
-        // Step 1: Try /v1/models API
         do {
             let models = try await fetchModelsForInstance(instance, forceRefresh: forceRefresh)
             if !models.isEmpty {
@@ -3518,8 +3050,6 @@ enum ProviderKeychainHelper {
         "providerKey.savedAt.\(instanceId)"
     }
 
-    /// Timestamp of the last local save for this instance's API key, or
-    /// `.distantPast` if never stamped (legacy entries written before this field existed).
     static func apiKeySavedAt(instanceId: String) -> Date {
         let ud = UserDefaults.standard
         if let ts = ud.object(forKey: apiKeySavedAtUDKey(instanceId: instanceId)) as? Date {
@@ -3537,7 +3067,6 @@ enum ProviderKeychainHelper {
 
     static func saveAPIKey(_ key: String, instanceId: String, caller: String = #function) {
         let service = "com.openminis.app.provider.\(instanceId)"
-        // Delete both legacy (non-sync) and synchronizable entries
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -3562,7 +3091,6 @@ enum ProviderKeychainHelper {
 
     static func loadAPIKey(instanceId: String, caller: String = #function) -> String? {
         let service = "com.openminis.app.provider.\(instanceId)"
-        // Try synchronizable first, then fallback to legacy
         let syncQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -3575,46 +3103,12 @@ enum ProviderKeychainHelper {
         let syncStatus = SecItemCopyMatching(syncQuery as CFDictionary, &result)
         if syncStatus == errSecSuccess, let data = result as? Data {
             let s = String(data: data, encoding: .utf8)
-            // [T-keychain-log-volume] The successful fast path is deliberately
-            // SILENT. It reports that nothing happened — the key was found where
-            // it was expected — and it is by far the most frequent Keychain
-            // operation in the app: 206 of 260 sampled apiKey reads were this
-            // line, including bursts of 40 in a single second from one caller
-            // re-reading the same ten instances four times over.
-            //
-            // Everything with diagnostic value is still logged: writes, deletes,
-            // misses (with both OSStatus values) and — importantly — a hit on
-            // the LEGACY path, which is the one that says an entry has not yet
-            // migrated to the synchronizable form. These were added as temporary
-            // scaffolding for T-apikey (3ca9b95ec, 2026-05-08), the bug they
-            // were tracking was fixed in 6e7665512, and the scaffolding then
-            // stayed for four months.
-            //
-            // A decode failure is NOT silent: `hit=false` on a successful
-            // SecItemCopyMatching means the bytes were not valid UTF-8, which is
-            // corruption rather than absence.
             if s == nil {
                 AppLogger(category: "Keychain").error("read apiKey instanceId=\(instanceId.prefix(8)) src=sync FOUND BUT NOT UTF-8 bytes=\(data.count) caller=\(caller)")
             }
             return s
         }
-        // Fallback to legacy non-sync entry
-        let legacyQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        result = nil
-        let legacyStatus = SecItemCopyMatching(legacyQuery as CFDictionary, &result)
-        guard legacyStatus == errSecSuccess, let data = result as? Data else {
-            AppLogger(category: "Keychain").info("read apiKey instanceId=\(instanceId.prefix(8)) hit=false syncStatus=\(syncStatus) legacyStatus=\(legacyStatus) caller=\(caller)")
-            return nil
-        }
-        let s = String(data: data, encoding: .utf8)
-        AppLogger(category: "Keychain").info("read apiKey instanceId=\(instanceId.prefix(8)) src=legacy hit=\(s != nil) keyLen=\(s?.count ?? 0) syncStatus=\(syncStatus) caller=\(caller)")
-        return s
+        return nil
     }
 
     static func deleteAPIKey(instanceId: String, caller: String = #function) {
@@ -3744,27 +3238,7 @@ enum ProviderKeychainHelper {
             }
             return decoded
         }
-        // Fallback to legacy
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: acct,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        // [T-envvar-redactor-crash] Clear before reusing: SecItemCopyMatching
-        // writes a +1 reference straight through the pointer without releasing
-        // what was there, so reusing a non-nil `result` corrupts ARC's
-        // ownership bookkeeping (loadAPIKey above already does this).
-        result = nil
-        let legacyStatus = SecItemCopyMatching(query as CFDictionary, &result)
-        guard legacyStatus == errSecSuccess, let data = result as? Data else {
-            AppLogger(category: "Keychain").info("read oauthToken instanceId=\(instanceId.prefix(8)) hit=false syncStatus=\(syncStatus) legacyStatus=\(legacyStatus) caller=\(caller)")
-            return nil
-        }
-        let decoded = try? JSONDecoder().decode(type, from: data)
-        AppLogger(category: "Keychain").info("read oauthToken instanceId=\(instanceId.prefix(8)) src=legacy hit=true decoded=\(decoded != nil) syncStatus=\(syncStatus) caller=\(caller)")
-        return decoded
+        return nil
     }
 
     static func deleteOAuthToken(instanceId: String, caller: String = #function) {
@@ -3885,24 +3359,7 @@ enum ProviderKeychainHelper {
             }
             return s
         }
-        // Fallback to legacy
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        // [T-envvar-redactor-crash] Clear before reusing — see loadOAuthToken.
-        result = nil
-        let legacyStatus = SecItemCopyMatching(query as CFDictionary, &result)
-        guard legacyStatus == errSecSuccess, let data = result as? Data else {
-            AppLogger(category: "Keychain").info("read oauthString instanceId=\(instanceId.prefix(8)) acct=\(account) hit=false syncStatus=\(syncStatus) legacyStatus=\(legacyStatus) caller=\(caller)")
-            return nil
-        }
-        let s = String(data: data, encoding: .utf8)
-        AppLogger(category: "Keychain").info("read oauthString instanceId=\(instanceId.prefix(8)) acct=\(account) src=legacy hit=\(s != nil) valLen=\(s?.count ?? 0) syncStatus=\(syncStatus) caller=\(caller)")
-        return s
+        return nil
     }
 
     static func deleteOAuthString(instanceId: String, account: String, caller: String = #function) {

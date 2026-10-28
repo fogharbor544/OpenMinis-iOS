@@ -1,15 +1,3 @@
-//
-//  ChatStore+SyncDirty.swift
-//  Minis - chat persistence (Agent/Chat)
-//
-//  ChatStore, iCloud sync dirty tracking: marking records dirty (v1 / v2
-//  record types), re-upload staging, the historical backlog scan, loading /
-//  counting / clearing dirty records, force sync / force pull of a session,
-//  and scanning a session's file directories for dirty files (used when the
-//  deferred sync marks are flushed).
-//
-//  Map of the ChatStore files: ChatStore.swift.
-//
 
 import Foundation
 import SQLite3
@@ -60,10 +48,6 @@ extension ChatStore {
             "ProviderThinkingRuleV3", "SubAgentV3", "Message"].contains(recordType) {
             recordDeletedRecordTombstone(type: recordType, id: recordId)
         }
-        // Trace priority=0 (user-driven) writes so we can follow a
-        // freshly-typed message from local INSERT through CK push and
-        // peer hydrate. priority=1 (migration backlog) is too noisy to
-        // log at this granularity.
         if priority == 0 {
             // [T-ios-log-noise-reduction] INFO→DEBUG: per-record markDirty
             // trace (~876 lines/day). The SKIP-reason variants above stay INFO
@@ -76,60 +60,19 @@ extension ChatStore {
             INSERT OR REPLACE INTO sync_dirty_records (record_type, record_id, zone_name, operation, priority, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
         """
-        let v2Type = Self.v2RecordType(forV1: recordType)
-        let writeV1Row = v2Type == recordType
-        // v1 dirty row.
+        let syncType = Self.syncRecordType(for: recordType)
+        guard Self.v2SyncRecordTypes.contains(syncType) else { return }
         var stmt: OpaquePointer?
-        // DIAG (T-memory-row-vanish): rows for MemoryGlobalV2/MemoryDailyV2
-        // appear in the markDirty INFO log but never show up in
-        // countDirtyRecords or SyncCore.loadDirtyRecords. Capture
-        // prepare/step errcodes + post-step changes() so we can tell
-        // which layer is dropping the write.
-        var prepareRC: Int32 = 0
-        var stepRC: Int32 = -999
-        var changesAfter: Int32 = -1
-        if writeV1Row {
-            prepareRC = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-            if prepareRC == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, (recordType as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 2, (recordId as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 3, (zoneName as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(stmt, 4, (operation as NSString).utf8String, -1, nil)
-                sqlite3_bind_int(stmt, 5, Int32(priority))
-                sqlite3_bind_double(stmt, 6, now)
-                stepRC = sqlite3_step(stmt)
-                changesAfter = Int32(sqlite3_changes(db))
-            }
-            sqlite3_finalize(stmt)
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(stmt, 1, (syncType as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (recordId as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 3, (zoneName as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 4, (operation as NSString).utf8String, -1, nil)
+            sqlite3_bind_int(stmt, 5, Int32(priority))
+            sqlite3_bind_double(stmt, 6, now)
+            sqlite3_step(stmt)
         }
-        if recordType.hasPrefix("Memory") || recordType == "SoulV2" {
-            let errMsg = String(cString: sqlite3_errmsg(db))
-            iCloudLogger.info("[iCloudTrace] markDirty SQL type=\(recordType) id=\(recordId.prefix(20)) prepareRC=\(prepareRC) stepRC=\(stepRC) changes=\(changesAfter) errmsg=\(errMsg) v1RowWritten=\(writeV1Row)")
-        }
-        // v2 dirty row — same record, different recordType name. SyncCore
-        // looks up by V2-suffixed type names, so dual-writing here lets
-        // both engines coexist during the v2 rollout. v1 ignores rows it
-        // doesn't recognize; v2 ignores the un-suffixed names.
-        if v2Type != recordType {
-            var v2Stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &v2Stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(v2Stmt, 1, (v2Type as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(v2Stmt, 2, (recordId as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(v2Stmt, 3, (zoneName as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(v2Stmt, 4, (operation as NSString).utf8String, -1, nil)
-                sqlite3_bind_int(v2Stmt, 5, Int32(priority))
-                sqlite3_bind_double(v2Stmt, 6, now)
-                sqlite3_step(v2Stmt)
-            }
-            sqlite3_finalize(v2Stmt)
-
-            // Resurrect cascade was needed under the old soft-tombstone
-            // policy. Now that inbound SessionV2 deletes hard-delete the
-            // row + children, there's no tombstoned state to resurrect
-            // from — if the row is gone, there's no parent for any new
-            // child write to attach to anyway, so the SQL FK / lookups
-            // upstream of markDirty would have already rejected it.
-        }
+        sqlite3_finalize(stmt)
         // Schedule a debounced send so local changes are uploaded promptly
         // without triggering a full sync on every individual write.
         // Skip during agent processing (syncSendDeferred) — flushPendingSyncDirty
@@ -140,327 +83,23 @@ extension ChatStore {
                     // Drive whichever engine the user is currently on.
                     if SyncV2Bootstrap.isEnabled {
                         SyncCore.shared.scheduleSend()
-                    } else {
-                        CloudSyncEngine.shared.scheduleSend()
                     }
                 }
             }
         }
     }
 
-    /// Map a v1 record type name to its v2 counterpart for dual-writing.
-    /// Returns the input unchanged when no mapping exists (e.g. unknown
-    /// types from future code paths).
-    private static func v2RecordType(forV1 v1Type: String) -> String {
-        switch v1Type {
+    private static func syncRecordType(for type: String) -> String {
+        switch type {
         case "Session":         return "SessionV2"
         case "Message":         return "MessageV2"
         case "CompactMarker":   return "CompactMarkerV2"
         case "SessionFile":     return "SessionFileV2"
         case "Skill":           return "SkillV2"
-        case "ProviderConfig":  return "ProviderConfigV2"
-        case "EnvVar":          return "EnvVarV2"
         case "SyncDevice":      return "SyncDeviceV2"
         case "Soul":            return "SoulV2"
         case "Folder":          return "FolderV2"
-        default:                return v1Type
-        }
-    }
-
-    /// Force-mark everything locally syncable as dirty for a full re-upload to iCloud.
-    /// Used by the "Delete iCloud Data" flow to repopulate a freshly-emptied cloud from
-    /// local state. Does NOT touch local data. Category toggles in CloudSyncEngine still
-    /// filter what actually gets uploaded.
-    ///
-    /// Two-phase staging to keep cold-launch CPU bounded:
-    ///   • Phase A (synchronous, fast): singleton records — Skills,
-    ///     ProviderConfig, EnvVar, the latest active sessions and their
-    ///     children. These are small and the user wants them on cloud
-    ///     ASAP.
-    ///   • Phase B (background, paginated): historical sessions in
-    ///     created_at-DESC windows of 100. Each window scans a
-    ///     bounded subset and yields between windows. The scan cursor
-    ///     is persisted so a cold launch resumes where the previous
-    ///     pass stopped, never re-walking already-staged history.
-    ///
-    /// Idempotent across launches: once Phase A finishes, the
-    /// once-per-install guard (`initialBacklogMarked`) flips. Future
-    /// calls bail out unless `force: true` (the "Delete iCloud Data"
-    /// recovery path). Phase B continues independently via its own
-    /// cursor until the entire backlog is staged.
-    ///
-    /// Why this matters: pre-fix, every cold launch re-marked 89k+
-    /// session files + 290k SQLite INSERTs unconditionally, sustaining
-    /// 90%+ CPU. Logs showed 60 calls per day, all redundant.
-    func markAllLocalForReupload(force: Bool = false) {
-        guard !syncZoneName.isEmpty else { return }
-        let initialDoneKey = "cloudSync.v2.initialBacklogMarked"
-        let alreadyDone = UserDefaults.standard.bool(forKey: initialDoneKey)
-        if !force && alreadyDone {
-            let counts = countDirtyRecords()
-            iCloudLogger.info("[iCloud] markAllLocalForReupload skipped (initial backlog already marked, dirty=\(counts.total)). Pass force=true to re-mark.")
-            // Even when Phase A is done, Phase B may still be paginating
-            // older sessions across launches. Kick its async loop so
-            // it picks up where it left off (no-op if cursor is past
-            // the oldest session).
-            kickHistoricalBacklogScan(force: false)
-            return
-        }
-        let backlogPriority = 1
-
-        // ─── Phase A — fast path, ship the small / important stuff ───
-        // Singleton records first so user-visible config (skills,
-        // providers, env vars) syncs in the first push regardless of
-        // how long the historical scan takes.
-        // [T-icloud-drop-wholefile-producers] ProviderConfig / EnvVar
-        // whole-file records are no longer queued here: providers and env
-        // vars travel as per-record v3 / EnvVarItem records, which the
-        // backlog scan below already enumerates. A v3 peer discards the
-        // whole-file forms on receipt, so queuing them only inflated the
-        // first push by ~900 KB.
-        // Skills are stored in SkillStore's own DB; CloudSyncEngine /
-        // its v2 caller enumerates SkillStore separately. ChatStore
-        // doesn't see them.
-
-        // Most-recent active sessions + children: top-100 by
-        // updated_at. The rest goes to Phase B.
-        let recentLimit = 100
-        let recentSessSql = """
-            SELECT s.id FROM sessions s
-            WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)
-            ORDER BY s.updated_at DESC
-            LIMIT \(recentLimit)
-            """
-        var recentIds: [String] = []
-        var rsStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, recentSessSql, -1, &rsStmt, nil) == SQLITE_OK {
-            while sqlite3_step(rsStmt) == SQLITE_ROW {
-                recentIds.append(String(cString: sqlite3_column_text(rsStmt, 0)))
-            }
-        }
-        sqlite3_finalize(rsStmt)
-        for sid in recentIds {
-            stageSessionAndChildrenForReupload(sessionId: sid, priority: backlogPriority)
-        }
-        iCloudLogger.info("[iCloud] markAllLocalForReupload Phase A: staged \(recentIds.count) recent sessions + singletons (priority=\(backlogPriority))")
-        // Reset the historical cursor so Phase B starts at the
-        // boundary just below the most-recent set.
-        if let oldestRecent = recentIds.last,
-           let oldestUpdatedAt = sessionUpdatedAt(id: oldestRecent) {
-            UserDefaults.standard.set(oldestUpdatedAt.timeIntervalSince1970,
-                                      forKey: "cloudSync.v2.backlogScanCursorAt")
-        } else {
-            UserDefaults.standard.set(Date().timeIntervalSince1970,
-                                      forKey: "cloudSync.v2.backlogScanCursorAt")
-        }
-        UserDefaults.standard.set(true, forKey: initialDoneKey)
-
-        // ─── Phase B — paginated background scan of older history ───
-        kickHistoricalBacklogScan(force: true)
-    }
-
-    /// Look up `sessions.updated_at` for a single session. Used by the
-    /// markAllLocalForReupload Phase A→B handoff to set the initial
-    /// pagination cursor.
-    private func sessionUpdatedAt(id: String) -> Date? {
-        let sql = "SELECT updated_at FROM sessions WHERE id = ?"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
-        sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0))
-    }
-
-    /// Stage one session + all its messages/markers/files dirty.
-    /// Pulled out so Phase A and Phase B share the per-session work.
-    /// Returns the number of SessionFile records staged (used by the
-    /// migration progress UI to grow its denominator dynamically as
-    /// the scan progresses, rather than pre-walking the whole tree).
-    @discardableResult
-    private func stageSessionAndChildrenForReupload(sessionId: String, priority: Int) -> Int {
-        markDirty(recordType: "Session", recordId: sessionId, priority: priority)
-        let msgSql = "SELECT id FROM messages WHERE session_id = ?"
-        var msgStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, msgSql, -1, &msgStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(msgStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(msgStmt) == SQLITE_ROW {
-                markDirty(recordType: "Message",
-                          recordId: String(cString: sqlite3_column_text(msgStmt, 0)),
-                          priority: priority)
-            }
-        }
-        sqlite3_finalize(msgStmt)
-        let cmSql = "SELECT id FROM compact_markers WHERE session_id = ?"
-        var cmStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, cmSql, -1, &cmStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(cmStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(cmStmt) == SQLITE_ROW {
-                markDirty(recordType: "CompactMarker",
-                          recordId: String(cString: sqlite3_column_text(cmStmt, 0)),
-                          priority: priority)
-            }
-        }
-        sqlite3_finalize(cmStmt)
-        let fileCount = scanAndMarkSessionFiles(sessionId: sessionId, priority: priority)
-        // Bump the running session-file estimate so MigrationEngine can
-        // grow the denominator monotonically as Phase B paginates.
-        if fileCount > 0 {
-            let key = "cloudSync.v2.estimatedExtraSessionFiles"
-            let prev = UserDefaults.standard.integer(forKey: key)
-            UserDefaults.standard.set(prev + fileCount, forKey: key)
-        }
-        return fileCount
-    }
-
-    /// Baseline record count for the migration progress UI's denominator.
-    /// Counts only what we can know cheaply from SQLite: sessions
-    /// (non-empty), messages, compact markers, plus singletons. Does
-    /// NOT include SessionFiles — those are filesystem-discovered and
-    /// get added to the denominator incrementally by Phase B as it
-    /// pages through sessions. SkillStore / EnvVarStore counts are
-    /// added by the migration UI on top.
-    func countBacklogBaseline() -> (sessions: Int, messages: Int, compactMarkers: Int, singletons: Int) {
-        var sessions = 0, messages = 0, markers = 0
-        var stmt: OpaquePointer?
-        let sessSql = "SELECT COUNT(*) FROM sessions s WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)"
-        if sqlite3_prepare_v2(db, sessSql, -1, &stmt, nil) == SQLITE_OK,
-           sqlite3_step(stmt) == SQLITE_ROW {
-            sessions = Int(sqlite3_column_int(stmt, 0))
-        }
-        sqlite3_finalize(stmt)
-        stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM messages", -1, &stmt, nil) == SQLITE_OK,
-           sqlite3_step(stmt) == SQLITE_ROW {
-            messages = Int(sqlite3_column_int(stmt, 0))
-        }
-        sqlite3_finalize(stmt)
-        stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM compact_markers", -1, &stmt, nil) == SQLITE_OK,
-           sqlite3_step(stmt) == SQLITE_ROW {
-            markers = Int(sqlite3_column_int(stmt, 0))
-        }
-        sqlite3_finalize(stmt)
-        // ProviderConfig + EnvVar (legacy whole-file). Per-key
-        // EnvVarItem records are counted by EnvVarStore separately
-        // when the migration UI assembles the denominator.
-        return (sessions: sessions, messages: messages, compactMarkers: markers, singletons: 2)
-    }
-
-    /// Phase B: paginated background scan of older sessions.
-    ///
-    /// Reads the cursor at `cloudSync.v2.backlogScanCursorAt` (a
-    /// session.updated_at value), pulls the next 100 sessions strictly
-    /// older than it, stages each, advances the cursor, yields, and
-    /// loops. Stops when no sessions remain. Persistent cursor means a
-    /// cold launch resumes where the previous pass stopped — no
-    /// repeated work even if migration takes multiple sessions to
-    /// finish.
-    ///
-    /// Triggered from markAllLocalForReupload (after Phase A) and
-    /// re-kicked on every subsequent invocation that short-circuits
-    /// the once-per-install guard, since the pagination state is
-    /// independent of `initialBacklogMarked`.
-    nonisolated(unsafe) private static var historicalScanInFlight = false
-    private func kickHistoricalBacklogScan(force: Bool) {
-        if !force && Self.historicalScanInFlight { return }
-        Self.historicalScanInFlight = true
-        Task { [weak self] in
-            await self?.runHistoricalBacklogScan()
-            await MainActor.run { Self.historicalScanInFlight = false }
-        }
-    }
-
-    private func runHistoricalBacklogScan() async {
-        let cursorKey = "cloudSync.v2.backlogScanCursorAt"
-        let cancelKey = "cloudSync.v2.backlogScanCanceled"
-        let windowSize = 100
-        let backlogPriority = 1
-        var totalStaged = 0
-        var passes = 0
-        while !Task.isCancelled {
-            // Honor explicit user cancel from MigrationEngine.cancelMigration.
-            // Without this, the loop would keep paginating older sessions and
-            // immediately re-stage the priority=1 dirty rows that
-            // clearMigrationBacklog() just removed — the user sees migration
-            // "still running" because it really is.
-            if UserDefaults.standard.bool(forKey: cancelKey) {
-                iCloudLogger.info("[iCloud] historicalBacklogScan: cancel flag set, stopping. totalStaged=\(totalStaged) passes=\(passes)")
-                return
-            }
-            let cursor = UserDefaults.standard.double(forKey: cursorKey)
-            // Cursor sentinel: negative or zero means "no work" only if
-            // we've also recorded at least one Phase B pass. Default 0
-            // would otherwise pull *all* sessions on first call — but
-            // markAllLocalForReupload sets the cursor to the oldest
-            // recent session before kicking us, so 0 here means
-            // pagination already drained completely.
-            guard cursor > 0 else {
-                iCloudLogger.info("[iCloud] historicalBacklogScan: cursor=0 (drained), totalStaged=\(totalStaged) passes=\(passes)")
-                return
-            }
-            let sql = """
-                SELECT id, updated_at FROM sessions
-                WHERE updated_at < ?
-                  AND EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id)
-                ORDER BY updated_at DESC
-                LIMIT \(windowSize)
-                """
-            var batch: [(id: String, updatedAt: Double)] = []
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_double(stmt, 1, cursor)
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let sid = String(cString: sqlite3_column_text(stmt, 0))
-                    let updatedAt = sqlite3_column_double(stmt, 1)
-                    batch.append((sid, updatedAt))
-                }
-            }
-            sqlite3_finalize(stmt)
-            if batch.isEmpty {
-                iCloudLogger.info("[iCloud] historicalBacklogScan: window empty, finished. totalStaged=\(totalStaged) passes=\(passes)")
-                // Sentinel to mark fully drained — next launch's
-                // kickHistoricalBacklogScan returns immediately.
-                UserDefaults.standard.set(0.0, forKey: cursorKey)
-                return
-            }
-            for (sid, _) in batch {
-                stageSessionAndChildrenForReupload(sessionId: sid, priority: backlogPriority)
-                totalStaged += 1
-            }
-            // Advance cursor to the OLDEST in this window so the next
-            // pass picks up strictly older sessions.
-            if let oldest = batch.last?.updatedAt {
-                UserDefaults.standard.set(oldest, forKey: cursorKey)
-            }
-            passes += 1
-            iCloudLogger.info("[iCloud] historicalBacklogScan: pass=\(passes) staged=\(batch.count) cumulative=\(totalStaged) cursorNext=\(batch.last?.updatedAt ?? 0)")
-
-            // Wait for the previous batch to drain before staging the
-            // next one. Otherwise the dirty queue grows monotonically
-            // (12 windows × 100 sessions = 1200 staged in ~3s, push
-            // hasn't kept up) and we lose the "small bites" benefit —
-            // SyncCore would just see the same single-shot 200k+
-            // backlog at the end. Threshold is one-window-worth of
-            // children: ~100 sessions × ~70 messages + files, give it
-            // room without letting it stall forever.
-            //
-            // Poll every 5s; bail with a hard cap of 30 min per window
-            // so a stuck push doesn't permanently freeze pagination.
-            // Note: countDirtyRecords includes user-driven priority=0
-            // writes, but those are usually a tiny fraction of the
-            // backlog priority=1 rows during initial migration.
-            let drainThreshold = 5_000
-            let drainDeadline = Date().addingTimeInterval(30 * 60)
-            while Date() < drainDeadline, !Task.isCancelled {
-                let dirty = countDirtyRecords()
-                if dirty.total < drainThreshold { break }
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-            }
-            // Brief pause between successful drains so other actor work
-            // (chat writes, view loads) gets cycles even if push is
-            // saturating CK.
-            try? await Task.sleep(nanoseconds: 250_000_000)
+        default:                return type
         }
     }
 
@@ -496,44 +135,6 @@ extension ChatStore {
     /// Backfill: merge all remote_sessions and remote_messages into local tables.
     /// Called after code change that introduced mergeRemoteSession, to retroactively merge
     /// data that was fetched before the merge logic existed.
-    func backfillRemoteToLocal() {
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: starting")
-        // 1. Merge remote sessions that don't exist locally
-        let sCount = execCount("""
-            INSERT OR IGNORE INTO sessions (id, title, category, model_id, created_at, updated_at, remote_origin_device_id)
-            SELECT rs.id, rs.title, rs.category, rs.model_id, rs.created_at, rs.updated_at, rs.device_id
-            FROM remote_sessions rs
-            WHERE NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = rs.id)
-        """)
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: inserted \(sCount) sessions")
-
-        // 2. Merge remote messages into local messages for sessions that exist locally
-        // [T-ios-listsessions-part-flags] compute the bitmask inline so remote-
-        // inserted rows carry correct flags (never left at DEFAULT 0).
-        let mCount = execCount("""
-            INSERT OR IGNORE INTO messages (id, session_id, role, parts_json, created_at, token_usage, sort_order, reasoning_content, stream_interrupt_count, updated_at, part_flags)
-            SELECT rm.id, rm.session_id, rm.role, rm.parts_json, rm.created_at, rm.token_usage, rm.sort_order, rm.reasoning_content, rm.stream_interrupt_count, rm.created_at, \(Self.partFlagsSQLExpr("rm.parts_json"))
-            FROM remote_messages rm
-            WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.id = rm.session_id)
-              AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.id = rm.id)
-        """)
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: inserted \(mCount) messages")
-
-        iCloudLogger.info("[iCloud] backfillRemoteToLocal: done")
-    }
-
-    /// Execute SQL and return number of changes. Returns 0 on error.
-    private func execCount(_ sql: String) -> Int {
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_step(stmt)
-            sqlite3_finalize(stmt)
-            return Int(sqlite3_changes(db))
-        }
-        sqlite3_finalize(stmt)
-        return 0
-    }
-
     /// Mark a session as successfully synced to iCloud.
     func markSessionSynced(id: String) {
         let sql = "UPDATE sessions SET last_synced_at = ? WHERE id = ?"
@@ -553,28 +154,12 @@ extension ChatStore {
         let operation: String
     }
 
-    /// Record types belonging to the V2 sync surface. Used to filter
-    /// dirty rows so v1-only / dual-write rows don't starve V2 sends.
-    /// Note: `EnvVarItem` has no V2 suffix but IS v2 — the per-key env
-    /// var record introduced after EnvVarV2 (which is legacy whole-file
-    /// and being phased out, but kept here so any remaining dirty rows
-    /// can still drain).
     fileprivate static let v2SyncRecordTypes: [String] = [
         "SessionV2", "MessageV2", "CompactMarkerV2", "SessionFileV2",
         "FolderV2",
-        "SkillV2", "ProviderConfigV2", "EnvVarV2", "EnvVarItem",
+        "SkillV2", "EnvVarItem",
         "EnvVarStateItem",  // [T-envvar-disable]
         "SyncDeviceV2", "SoulV2",
-        // File-backed singletons. Without these in the whitelist,
-        // markDirty wrote a dirty row but loadDirtyRecords(v2Only:true)'s
-        // WHERE-IN clause filtered them out, so they never got pushed
-        // and the CloudKit Dev schema never got auto-created — root
-        // cause of the dashboard's persistent NOT_FOUND on these types
-        // (T-soulv2-memory-whitelist).
-        // v3 per-record provider sync (T-provider-sync-v3). The legacy
-        // "ProviderConfigV2" remains in the whitelist too — outbound is
-        // dual-written until all peers upgrade; inbound v2 is dropped
-        // on v3 builds (ProviderV3Bootstrap.isEnabled gate).
         "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3",
         // [T-icloud-thinking-rules-sync] Per-rule custom thinking rules. Omitting a
         // type here is the exact failure MCPServersV2 hit below: dirty rows get
@@ -585,9 +170,6 @@ extension ChatStore {
         // rows are written but filtered out by loadDirtyRecords, so the roster
         // would never upload and the failure would be SILENT.
         "SubAgentV3",
-        // [T-mcp-per-server-sync] Per-server MCP records. The legacy
-        // whole-file MCPServersV2 type is gone: it never uploaded once (it was
-        // never in this whitelist), so no cloud record of it exists to drain.
         "MCPServerItem",
     ]
 
@@ -596,16 +178,6 @@ extension ChatStore {
     fileprivate static let v2SyncRecordTypesSQL: String =
         v2SyncRecordTypes.map { "'\($0)'" }.joined(separator: ",")
 
-    /// Load dirty records for sync. `v2Only=true` filters to record types
-    /// the v2 SyncCore knows how to build (suffix `V2`). Without the filter,
-    /// v1 dual-write rows (Session/Message/...) sit at the head of the
-    /// priority+created_at ordering forever — v2 has no builder for them so
-    /// they get kept-as-dirty every round, starving real V2 rows behind them.
-    /// DIAG (T-memory-row-vanish): one-shot probe — call from SyncCore to
-    /// dump every distinct record_type currently sitting in
-    /// sync_dirty_records, regardless of any v2/v1 whitelist filter.
-    /// Lets us confirm whether MemoryGlobalV2 / MemoryDailyV2 are in the
-    /// table at all when v2Only's WHERE-IN filter would hide them.
     func dumpAllDirtyTypes() -> [(type: String, count: Int)] {
         var result: [(type: String, count: Int)] = []
         var stmt: OpaquePointer?
@@ -622,25 +194,7 @@ extension ChatStore {
     }
 
     func loadDirtyRecords(v2Only: Bool = false) -> [DirtyRecord] {
-        // Order Sessions first so receiving device creates sessions before messages arrive
-        // Order:
-        //   1. priority ASC — user-driven writes (priority=0) before
-        //      migration backlog (priority=1). Critical so a freshly
-        //      typed message is never starved by 28k legacy rows.
-        //   2. parent type before child type — Session/SessionV2 before
-        //      Message/MessageV2, so a peer applying the inbound batch
-        //      sees parents before their children.
-        //   3. created_at ASC within the same priority/type — push the
-        //      oldest dirty first so the queue drains FIFO.
         let whereClause = v2Only ? "WHERE record_type IN (\(Self.v2SyncRecordTypesSQL))" : ""
-        // [T-icloud-sync-tier2-fifo] Oldest first within each priority+type
-        // group, as the numbered comment above always said. The code had
-        // `created_at DESC`, which meant a backlog of N > 100 rows never
-        // drained its oldest entries: every send took the 100 newest, new
-        // writes kept arriving, and the tail aged forever. "What the user
-        // just touched" is already prioritised by priority=0 vs the
-        // migration backlog at priority=1; within one priority, FIFO is the
-        // only order that guarantees every row eventually ships.
         let sql = """
             SELECT record_type, record_id, zone_name, operation FROM sync_dirty_records
             \(whereClause)
@@ -669,24 +223,6 @@ extension ChatStore {
         }
         sqlite3_finalize(stmt)
         return records
-    }
-
-    /// V2-only dirty counts split by priority. priority=0 → user writes,
-    /// priority=1 → migration backlog. Used by the iCloud Sync sheet to
-    /// show 'Pending push (new)' vs 'Pending push (migration)' rows.
-    func countDirtyV2ByPriority() -> (newCount: Int, migrationCount: Int) {
-        let sql = "SELECT priority, COUNT(*) FROM sync_dirty_records WHERE record_type IN (\(Self.v2SyncRecordTypesSQL)) GROUP BY priority"
-        var stmt: OpaquePointer?
-        var newCount = 0, migrationCount = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let p = Int(sqlite3_column_int(stmt, 0))
-                let c = Int(sqlite3_column_int(stmt, 1))
-                if p == 0 { newCount = c } else { migrationCount += c }
-            }
-        }
-        sqlite3_finalize(stmt)
-        return (newCount, migrationCount)
     }
 
     func countDirtyRecords() -> (total: Int, byType: [String: Int]) {
@@ -875,37 +411,6 @@ extension ChatStore {
         return .applied(pulledFromCloud: portables.count, localDeleted: locallyDeleted)
     }
 
-    /// Drop all priority=1 dirty rows (migration backlog). Used by Cancel
-    /// Migration in the Sync sheet — keeps user-driven (priority=0) rows
-    /// so freshly typed messages keep flowing while history backfill stops.
-    /// Returns the number of rows deleted.
-    @discardableResult
-    func clearMigrationBacklog() -> Int {
-        let sql = "DELETE FROM sync_dirty_records WHERE priority = 1"
-        var stmt: OpaquePointer?
-        var deleted = 0
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_step(stmt)
-            deleted = Int(sqlite3_changes(db))
-        }
-        sqlite3_finalize(stmt)
-        iCloudLogger.info("[iCloud] clearMigrationBacklog: dropped \(deleted) priority=1 rows")
-        return deleted
-    }
-
-    /// Count V2 records that exist locally but have not yet been pushed
-    /// to v2's shared zone (i.e. would be backfilled if migration ran).
-    /// We approximate by total local row counts minus the cumulative
-    /// pushedCumulative counter — exact enough for the "Historical Data"
-    /// label in the Sync sheet.
-    func countLocalV2Eligible() -> Int {
-        let sessions = queryInt64("SELECT COUNT(*) FROM sessions")
-        let messages = queryInt64("SELECT COUNT(*) FROM messages")
-        let markers = queryInt64("SELECT COUNT(*) FROM compact_markers")
-        // session files = (rough heuristic) sum of file_count column if it exists; otherwise 0
-        return Int(sessions + messages + markers)
-    }
-
     /// Clear a dirty row after the transport acknowledged it.
     ///
     /// [T-sync-message-resurrection] `ifOperation` is the operation that was
@@ -940,11 +445,6 @@ extension ChatStore {
         sqlite3_finalize(stmt)
     }
 
-    /// Record one or more record names as confirmed saved on iCloud.
-    /// Idempotent — INSERT OR IGNORE on the recordName primary key.
-    /// Used by the v2 transport to feed the migration UI's accurate
-    /// "unique records pushed" counter, which is otherwise inflated by
-    /// every relaunch re-marking already-pushed records dirty.
     func markRecordsPushed(_ recordNames: [String]) {
         guard !recordNames.isEmpty else { return }
         exec("BEGIN TRANSACTION")
@@ -961,12 +461,6 @@ extension ChatStore {
         exec("COMMIT")
     }
 
-    /// [T-icloud-migration-reset] Wipe the pushed-record ledger so a migration
-    /// restarted from scratch re-counts (and re-pushes) everything.
-    ///
-    /// Only for the explicit "reset migration progress" action. Clearing this
-    /// on any other path would make already-uploaded records look un-pushed and
-    /// send them again. Returns the row count removed, for the log.
     @discardableResult
     func clearAllPushedRecords() -> Int {
         let before = countPushedRecords()
@@ -975,8 +469,6 @@ extension ChatStore {
         return before
     }
 
-    /// Distinct count of recordNames in `sync_pushed_records`. The
-    /// migration UI's "Records pushed" numerator.
     func countPushedRecords() -> Int {
         var count = 0
         var stmt: OpaquePointer?

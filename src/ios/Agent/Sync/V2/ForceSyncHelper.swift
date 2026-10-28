@@ -73,9 +73,9 @@ enum ForceSyncHelper {
             count += 1
         }
         for entry in store.modelEntries {
-            // .uuid, not .id — mirrors the store's own markDirty call sites
+            // .id, not .id — mirrors the store's own markDirty call sites
             // (the v3 record is keyed by the row uuid).
-            await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: entry.uuid)
+            await ChatStore.shared.markDirty(recordType: "ProviderModelEntryV3", recordId: entry.id)
             count += 1
         }
         for group in store.modelGroups {

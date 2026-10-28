@@ -1,17 +1,5 @@
 import Foundation
 
-/// On-the-wire types for the `.minisbak` backup package.
-///
-/// Spec: `docs/backup-restore-design.md` §2 / §2.1. Everything in this file is
-/// the FORMAT, deliberately kept free of any read-side dependency so the
-/// importer (a later stage) can link the same declarations.
-///
-/// Two rules from §2.2 that shape every type here:
-///   - Unknown fields are ignored, missing fields get defaults. So every
-///     decodable field that isn't structurally required is `Optional` or has a
-///     default; there are no "must exist" assertions anywhere in this file.
-///   - Records carry `t` (type) and `v` (record version) so a reader can
-///     dispatch by type and migrate per record.
 enum BackupFormat {
     /// Format major version. A reader that doesn't recognise it must refuse the
     /// package and tell the user to update (§2.2 rule 1) — never attempt a
@@ -252,11 +240,6 @@ struct BackupManifest: Codable {
         }
     }
 
-    /// §3.4. `maxFileBytes == nil` means unlimited, which is the DEFAULT —
-    /// unlike iCloud, which ships a finite cap. Rationale in the design doc:
-    /// this is a user-initiated migration package, so silently dropping files
-    /// would create exactly the "thought it was backed up, it wasn't" gap a
-    /// backup must never have.
     struct Limits: Codable {
         var maxFileBytes: Int64?
         var skippedFiles: Int
@@ -402,8 +385,6 @@ struct BackupBlobIndexEntry: Codable {
 
 // MARK: - JSONL records
 
-/// Envelope for every `data/*.jsonl` line (§2.2 rule 3): `t` dispatches, `v`
-/// allows per-record migration on the way in.
 struct BackupRecordEnvelope<Payload: Codable>: Codable {
     var t: String
     var v: Int
@@ -416,35 +397,6 @@ struct BackupRecordEnvelope<Payload: Codable>: Codable {
     }
 }
 
-/// [T-backup-thinking-rules] One user-authored thinking rule, as carried in
-/// `data/thinking_rules.jsonl`.
-///
-/// Field-for-field the same shape as `SyncedProviderThinkingRuleV3`
-/// (Agent/Sync/V2/SyncedTypes.swift) on purpose: that record already crosses
-/// devices through iCloud and its layout is proven, so mirroring it keeps one
-/// definition of what a portable rule is instead of inventing a second.
-///
-/// `wireFormatJson` is carried OPAQUELY — it is the serialized
-/// `ThinkingWireFormat` (including `extraBodyToggle` custom request-body
-/// params), and the DDL deliberately stores it as one JSON column so a new
-/// wire-format case needs no migration. The backup must not try to interpret
-/// it either.
-///
-/// Built-in rules are never written here: they ship with the app, and
-/// restoring an old definition onto a newer build would resurrect or duplicate
-/// a rule the app already defines. The exporter reads
-/// `allCustomThinkingRuleIds()`, whose SQL is `WHERE is_builtin = 0`.
-/// [T-subagent-own-store] One sub agent definition, as carried in
-/// `data/sub_agents.jsonl`.
-///
-/// Same approach as BackupThinkingRuleRecord below: field-for-field the shape
-/// of the sync record (`SyncedSubAgentV3`), so there is one definition of what
-/// a portable sub agent is rather than two that can drift.
-///
-/// The BUILT-IN is never written here. It ships with the app and its name and
-/// description are canonical (the delegating model matches on them), so
-/// restoring an old package's copy onto a newer build could resurrect stale
-/// canonical text — the same reasoning that keeps built-in thinking rules out.
 struct BackupSubAgentRecord: Codable {
     var id: String
     var name: String

@@ -14,6 +14,25 @@ stubs = stubs.replace('struct TestSession { let id: String }', 'struct TestSessi
 stubs = stubs.replace('struct TestGroup { let id: String }', 'struct TestGroup: Identifiable { let id: String; var name: String { id } }')
 stubs = stubs.replace('final class ProviderConfigStore {', 'final class ProviderConfigStore: ObservableObject {\n    var modelGroups: [TestGroup] = []')
 stubs += '''
+func AppLocalized(_ value: String) -> String { value }
+@MainActor final class AIChatViewModel: ObservableObject {
+    var botMemoryOwner: BotSessionOwner? = nil
+}
+enum SyncV2Bootstrap { static var isEnabled = false }
+@MainActor final class SyncCore {
+    static let shared = SyncCore()
+    var userOnSyncSheet = false
+    var isRunning = false
+    var totalSent = 0
+    var totalReceived = 0
+    enum Trigger { case manual }
+    func fetchNow(trigger: Trigger) async {}
+    func sendNow(trigger: Trigger) async {}
+}
+extension ChatStore {
+    struct DirtyCounts { var byType: [String: Int] = [:] }
+    func countDirtyRecords() -> DirtyCounts { DirtyCounts() }
+}
 struct AIChatView: View {
     let sessionId: String
     var body: some View { EmptyView() }
@@ -42,6 +61,9 @@ with tempfile.TemporaryDirectory(prefix='minis-memory-ui-') as temp:
     folder = root / 'Views/ContentView/Bots'
     sources = [str(folder / (name + '.swift')) for name in [
         'BotWorkspaceStore', 'BotWorkspaceStore+Sessions', 'BotMemoryStore', 'BotMemoryView', 'BotWorkspaceView']]
+    sources += [str(root / path) for path in [
+        'Views/Chat/SessionMemoryView.swift', 'Views/Settings/MemoryManagementView.swift',
+        'Views/Sync/SyncStatusView.swift']]
     subprocess.run(['xcrun', 'swiftc', '-typecheck', '-swift-version', '5', '-sdk', sdk,
                     '-target', 'arm64-apple-ios16.0', *sources, str(stub)], check=True, timeout=180)
     print('PASS: shipping Bot/memory SwiftUI screens type-check for iOS 16 with app-service boundaries stubbed')

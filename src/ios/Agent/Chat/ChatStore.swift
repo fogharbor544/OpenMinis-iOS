@@ -1,69 +1,3 @@
-//
-//  ChatStore.swift
-//  Minis - chat persistence (Agent/Chat)
-//
-//  ChatStore - the SQLite-backed store (an actor) for chat sessions, messages,
-//  folders, media and compaction markers, plus the bookkeeping iCloud sync
-//  and backup restore need.
-//
-//  Map of the ChatStore files (all in Agent/Chat/)
-//  ==============================================
-//
-//    ChatStore.swift          this file: the actor - every stored property,
-//        init / deinit, the protected-data reboot guard, reload / close for
-//        backup restore, sync zone name and the deferred sync dirty marks
-//    ChatStoreModels.swift    the persisted data model (ChatSession,
-//        ChatFolder, RawMessage, ContentPart, CompactMarker, ...)
-//    Storage
-//        ChatStore+Schema           open, createTables, migrations, backfills
-//        ChatStore+SessionCRUD      create session, part_flags bitmask
-//        ChatStore+SessionList      listSessions, row decoding, preview text
-//        ChatStore+StoredPreview    persisted list preview
-//        ChatStore+SessionQueries   sessions-tool queries, getSession, updates
-//        ChatStore+Search           session search and snippets
-//        ChatStore+Folders          folders (groups)
-//        ChatStore+SessionDeletion  memory flag, delete sessions (local / cloud)
-//        ChatStore+Messages         message CRUD
-//        ChatStore+Media            media files
-//        ChatStore+CompactMarkers   compaction markers
-//        ChatStore+Tombstones       delete tombstones (resurrection guard)
-//        ChatStore+WebAppShortcuts  web-app shortcuts
-//        ChatStore+Maintenance      pruning, session repair
-//        ChatStore+UsageStats       token usage statistics
-//        ChatStore+Helpers          shared helpers (sort order, touch, binding)
-//    Sync and restore
-//        ChatStore+SyncDirty          dirty tracking, backlog, force sync / pull
-//        ChatStore+SyncRemoteSessions inbound sessions and messages
-//        ChatStore+SyncRemoteRecords  devices, media, skills, memories,
-//                                     provider configs, env vars, sizes
-//        ChatStore+BackupRestore      backup restore writes
-//    Conversion
-//        ContentPart+ProviderConversion  [ContentPart] -> Anthropic / Gemini
-//        RawMessage+Conversion           RawMessage -> ChatMessage / AgentMessage
-//
-//  Rules that keep this split working
-//  ==================================
-//
-//  - Stored properties stay in this actor body (extensions cannot hold them),
-//    in the order they had before the split. Extension members stay
-//    actor-isolated exactly like members declared here.
-//  - Each file declares its own file-private loggers (`logger` "ChatStore",
-//    `memDiagLogger`, `iCloudLogger`) where it logs.
-//  - Members used from another file are internal; treat them as private to
-//    the store. Methods that used to be private live in extensions (direct
-//    calls); a method declared in the actor body is dispatched through the
-//    actor's method table in unoptimised builds.
-//  - New code goes into the file of its concern (or a new ChatStore+X file).
-//  - Source-scanning tests (MinisTests/Standalone) read the files split out of
-//    the old ChatStore.swift together (chatStoreSource() lists them).
-//
-//  History: the files above other than this one were split out of
-//  ChatStore.swift (~8.8k lines). The code was moved verbatim; the differences
-//  are the repeated import list, per-file logger copies, dropped `private` /
-//  `fileprivate`, the extension wrappers (the sync extension, one
-//  `extension ChatStore` before, is three now) and one doc comment put back on
-//  its function (see ChatStore+CompactMarkers.swift).
-//
 
 import Foundation
 import SQLite3
@@ -156,26 +90,6 @@ actor ChatStore {
         dirtySessionIds.insert(sessionId)
     }
 
-    /// [T-ios27-scene-create-watchdog] Everything here runs inside the
-    /// `dispatch_once` for `ChatStore.shared`, so ANY thread that touches the
-    /// singleton afterwards — the main thread during scene creation, most
-    /// importantly — blocks until this returns. It must therefore never do
-    /// anything of unbounded duration.
-    ///
-    /// The crash this guards against: on iOS 27.0 a background task entered
-    /// this initializer first, and an `iCloudLogger.info` inside `createTables`
-    /// went NSLog -> libtrace -> NSNotificationCenter post ->
-    /// `-[NSOperation waitUntilFinished]` and parked there. The main thread hit
-    /// `ChatStore.shared` from `ContentView.body` and sat in
-    /// `_dispatch_once_wait` until the 10 s scene-create watchdog killed the
-    /// app (0.161 s of app CPU against 10 s of wall clock).
-    ///
-    /// Two rules keep this bounded, both enforced below:
-    ///   1. No logging escapes to the system stack — `withDeferredLogging`
-    ///      buffers it and flushes after the once token is released.
-    ///   2. No optional/bulk work runs here. Schema creation must stay (nothing
-    ///      can query before it), but data backfills are deferred to
-    ///      `runDeferredMigrations()`, called off the init path.
     init() {
         let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
         let baseURL = libraryURL.appendingPathComponent("MinisChat", isDirectory: true)
@@ -273,7 +187,6 @@ actor ChatStore {
 
     // MARK: - Sync Zone Name
 
-    /// Zone name for dirty record tracking. Set by CloudSyncEngine on init.
     var syncZoneName: String = ""
 
     func setSyncZoneName(_ name: String) {
@@ -332,7 +245,7 @@ actor ChatStore {
         // Trigger a single debounced send for all the dirty records
         if #available(iOS 17.0, *) {
             Task { @MainActor in
-                CloudSyncEngine.shared.scheduleSend()
+                if SyncV2Bootstrap.isEnabled { SyncCore.shared.scheduleSend() }
             }
         }
     }

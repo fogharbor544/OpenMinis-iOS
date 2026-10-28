@@ -97,9 +97,6 @@ extension AIChatViewModel {
             // a capability the prompt does not describe honestly gets misused).
             + ((isHelper || !Self.toolEnabled(.agents)) ? "" :
                "- subagent_task: Delegate a self-contained task to a sub agent that runs its own tool loop in an isolated hidden session, and inspect or stop the ones you started. Full contract in the tool schema. Two things it does not say: the `<agent_callback>` result and progress messages are written by the system, not typed by the user; and while a sub agent runs the user sees it in the tool bar and can watch or stop it.\n")
-            // [T-sub-agents-v1] The roster the model chooses from, same gate as
-            // the bullet above. Generated from the same list the tool schema's
-            // enumValues use, so a name can never appear in one and not the other.
             + ((isHelper || !Self.toolEnabled(.agents)) ? "" : Self.subAgentRosterSection())
             + "- memory_write: Manage scoped long-term entries when available.\n"
             + "- memory_get: Recall memories with keyword search. Check memory at the start of new topics to leverage past knowledge.\n"

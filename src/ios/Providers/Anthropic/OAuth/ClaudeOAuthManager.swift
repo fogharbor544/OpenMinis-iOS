@@ -14,11 +14,6 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
     // MARK: - OAuth Config
 
     private let authURL = "https://claude.ai/oauth/authorize"
-    // [T-oauth-cloudflare-403 issue #360] `claude.ai`, not the legacy
-    // `console.anthropic.com`. The console host is the endpoint the CLI moved
-    // off; requests to it are fronted by a Cloudflare policy that answers a
-    // client failing the bot check with 403 + an HTML "Just a moment…" challenge
-    // rather than JSON, so token exchange and silent refresh both dead-ended.
     private let tokenURL = "https://claude.ai/v1/oauth/token"
     private let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private let callbackPort: UInt16 = 54545
@@ -266,7 +261,6 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
         )
     }
 
-    // MARK: - Legacy singleton Keychain (for migration)
 
     static let legacyKeychainService = "com.openminis.app.claude-oauth"
     static let legacyKeychainAccount = "token"
@@ -428,8 +422,6 @@ final class OAuthCallbackServer: @unchecked Sendable {
 
     private let port: UInt16
     private let callbackPath: String
-    /// Lowercased hosts allowed to trigger a CORS preflight (OPTIONS) reply.
-    /// Empty set → OPTIONS requests are answered with 404 (legacy behavior).
     private let optionsCORSAllowedHosts: Set<String>
     private var listenSocket: Int32 = -1
     private var continuation: CheckedContinuation<OAuthCallbackResult, Error>?

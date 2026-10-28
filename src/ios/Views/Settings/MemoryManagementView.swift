@@ -15,7 +15,7 @@ struct MemoryManagementView: View {
         List {
             Section {
                 Toggle(AppLocalized("settings_memory_global_enabled"), isOn: $memoryGlobalEnabled)
-            } footer: { Text(AppLocalized("settings_memory_global_enabled_footer")) }
+            } footer: { Text("New Bot and group conversations use this memory setting. Existing conversations keep their own setting.") }
             Section("Bot Memories") {
                 ForEach(bots.data.bots) { bot in
                     NavigationLink(bot.name) { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }

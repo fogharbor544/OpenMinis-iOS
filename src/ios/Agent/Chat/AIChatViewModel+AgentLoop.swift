@@ -91,12 +91,6 @@ extension AIChatViewModel {
         do {
             try await runAgentLoopCore(resumingAt: existingMsgIdx, committedBlocks: committedBlocks)
         } catch {
-            // [T-ctx-measure-outbound] A context-length rejection is the one
-            // ground truth that our size estimate was too low (a borrowed ratio
-            // after a model switch, a stale one on a legacy session, content the
-            // estimator under-reads). Raise the ratio so the retry / next send
-            // compacts instead of being rejected again, then surface the error
-            // exactly as before.
             let text = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             noteContextOverflow(errorText: text, modelId: nil)
             throw error
@@ -241,15 +235,6 @@ extension AIChatViewModel {
             userSystemPrompt += "\n\n" + mcpFragment
         }
 
-        // [T-memory-toggle-gates-injection-and-tools-ios] Memory injection
-        // (GLOBAL.md + recent daily logs) is gated by the per-session
-        // memoryEnabled toggle. SOUL.md (identity / persona) is rendered
-        // by SystemPromptBuilder.identitySection() above and is NOT
-        // affected by this toggle.
-        // [T-memory-enabled-new-session-bug DIAG] vm.memoryEnabled is the
-        // value the injection actually keys off. Trace it against the
-        // session so a repro shows whether loadSession seeded it from the
-        // global default.
         AppLogger(category: "MemDiag").info("[MemDiag] inject-decision sid=\(self.sessionId?.prefix(8) ?? "nil") vm.memoryEnabled=\(self.memoryEnabled)")
         if let fragment = botMemoryFragment() { userSystemPrompt += "\n\n" + fragment }
         // Authoritative memory-status footer (overrides any earlier
@@ -924,18 +909,6 @@ extension AIChatViewModel {
             // Phase B: route through effectiveAgentHistory() so compact summary is
             // synthesized at inference time instead of baked into agentHistory.
             var contextHistory = effectiveAgentHistory()
-            // [T-longctx-persona-reminder-cachebreak] Past ~100k tokens,
-            // remind the model that the user's SOUL.md / GLOBAL.md rules at
-            // the head of the system prompt still apply (issue #37).
-            //
-            // This used to rewrite the outbound copy's LAST message on every
-            // round, which broke the prompt cache (the "last message" differs
-            // each round, so already-cached history kept changing) and fused
-            // the reminder onto tool_result content (a file_read looked like
-            // it carried an injected tag). Now it is APPENDED to agentHistory
-            // as its own persisted message, at most once per
-            // `kPersonaReminderRearmTokens` of context growth — earlier bytes
-            // are never touched, so the cache prefix still hits.
             if personaReminderIsDue(contextTokens: turnUsage.latestContextTokens) {
                 appendPersonaReminderToHistory(contextTokens: turnUsage.latestContextTokens)
                 contextHistory = effectiveAgentHistory()
@@ -2291,15 +2264,6 @@ extension AIChatViewModel {
             }
         }
 
-        // hitTurnLimit stays true only when the while-condition itself failed
-        // — meaning the model kept producing tool calls for maxAgentTurns
-        // iterations straight. Surface why we stopped + arm canResume so the
-        // user can continue from here. Mirrors Android ChatViewModel.
-        // finalizeAtTurnLimit. (Earlier draft used `turnCount >= max` which
-        // false-positived: the `defer { turnCount += 1 }` runs even on break,
-        // so a happy-path break on the final allowed iteration would inflate
-        // turnCount to max and slap a fake "200 turns hit" error on every
-        // ordinary completion — exactly the v1.4.0-dev bug user hit.)
         if hitTurnLimit, msgIdx >= 0, msgIdx < messages.count {
             // [T-agent-wrapup-turn] Report the cap that actually applied: a
             // helper stops at helperConfig.maxTurns, not the 200 of a

@@ -3,23 +3,6 @@ import SQLite3
 
 private let logger = AppLogger(category: "ProviderConfigDB")
 
-/// SQLite-backed persistence for ProviderConfig (v3 sync architecture).
-///
-/// Replaces the file-level last-write-wins of `provider-config.json` with
-/// per-row storage so each instance / entry / group can be synced as its
-/// own CloudKit record. Deletes propagate via CKRecord `op="delete"`
-/// instead of application-layer tombstones — a deleted row is gone for
-/// good and cannot be resurrected by a peer's stale snapshot.
-///
-/// **Downgrade safety**: `provider-config.json` is kept side-by-side and
-/// rewritten on every mutate so a user reverting to a v2 build sees a
-/// fully-current ProviderConfig snapshot. The JSON is read-only-by-v3
-/// after the initial migration; SQLite is authoritative.
-///
-/// **Threading**: this is an `actor`, so callers must `await` mutates.
-/// `ProviderConfigStore` (the `@MainActor` ObservableObject) keeps an
-/// in-memory cache that UI reads synchronously; mutates kick off
-/// `Task { await db.* }` for the DB write. See S3 for the wire-up.
 actor ProviderConfigDB {
 
     // MARK: - File locations
@@ -33,7 +16,6 @@ actor ProviderConfigDB {
         return base.appendingPathComponent("provider-config.db")
     }
 
-    static let schemaVersion: Int32 = 2
 
     private let dbURL: URL
     private var db: OpaquePointer?
@@ -67,7 +49,7 @@ actor ProviderConfigDB {
         Self.exec(db: handle, "PRAGMA foreign_keys = ON")
         Self.exec(db: handle, "PRAGMA synchronous = NORMAL")
 
-        try Self.runMigrations(db: handle)
+        Self.createSchema(db: handle)
 
         logger.info("[v3] ProviderConfigDB opened at \(resolvedURL.path)")
     }
@@ -78,232 +60,112 @@ actor ProviderConfigDB {
 
     // MARK: - Schema (DDL)
 
-    /// Applies any pending schema migrations up to `schemaVersion`. Idempotent.
-    /// Tracks current version via `PRAGMA user_version`. Each upgrade step is
-    /// a single TRANSACTION so a crash partway leaves the DB at the previous
-    /// version (which the next launch re-attempts cleanly).
-    private static func runMigrations(db: OpaquePointer) throws {
-        var current: Int32 = 0
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK,
-           sqlite3_step(stmt) == SQLITE_ROW {
-            current = sqlite3_column_int(stmt, 0)
-        }
-        sqlite3_finalize(stmt)
-
-        // [T-provider-custom-user-agent-persist] Idempotent column backstops MUST
-        // run on EVERY open, BEFORE the version-gated early return below. The
-        // `custom_user_agent` column was added WITHOUT a schemaVersion bump, so a
-        // DB already at the current user_version (the common case for existing
-        // installs) would hit the early return and never gain the column — then
-        // the SELECT/INSERT that reference it fail to prepare, loadAllInstanceRows
-        // returns [], and EVERY provider silently disappears. Running the ensure
-        // here repairs any DB regardless of user_version. (The group-tombstone
-        // backstop also belongs here for the same reason; kept idempotent.)
-        Self.ensureInstanceCustomUAColumn(db: db)
-        Self.ensureGroupTombstoneColumns(db: db)
-        // [T-icloud-agentloop-wipe] Same reasoning: provider_agent_loop_ids was
-        // created ONLY inside the `current < 1` block, so a DB that reached this
-        // version by another route has no such table and every agent-loop
-        // read/write against it fails silently.
-        Self.ensureAgentLoopTable(db: db)
-        // [T-thinking-rules-phase2] Same unconditional placement and same reason: a DB
-        // already at the current user_version must still gain this table.
-        Self.ensureThinkingRulesTable(db: db)
-
-        if current >= schemaVersion {
-            logger.info("[v3] schema up-to-date at version \(current)")
-            return
-        }
-
-        logger.info("[v3] migrating schema \(current) → \(schemaVersion)")
-        exec(db: db, "BEGIN IMMEDIATE")
-
-        if current < 1 {
-            // ── v1: initial schema ──
-            //
-            // Sync-domain tables: one row per CloudKit V3 record. updated_at
-            // drives LWW. extras_json carries unknown fields from newer
-            // builds so we don't round-trip-strip them (the exact failure
-            // mode that pinned v2 into a ping-pong loop when a stale build
-            // dropped the deletedInstances field).
-
-            exec(db: db, """
-                CREATE TABLE provider_instances (
-                    id                       TEXT PRIMARY KEY,
-                    label                    TEXT NOT NULL,
-                    provider_type            TEXT NOT NULL,
-                    credential_type          TEXT,
-                    custom_base_url          TEXT,
-                    append_v1_suffix         INTEGER NOT NULL DEFAULT 1,
-                    image_endpoint_mode      TEXT,
-                    image_endpoint_resolved  TEXT,
-                    custom_user_agent        TEXT,
-                    azure_mode               INTEGER NOT NULL DEFAULT 0,
-                    is_enabled               INTEGER NOT NULL DEFAULT 1,
-                    sort_order               INTEGER NOT NULL DEFAULT 0,
-                    secret_blob              TEXT,
-                    secret_kind              TEXT,
-                    secret_updated_at        REAL,
-                    created_at               REAL NOT NULL,
-                    updated_at               REAL NOT NULL,
-                    extras_json              TEXT
-                )
-            """)
-
-            exec(db: db, """
-                CREATE TABLE provider_model_entries (
-                    id                       TEXT PRIMARY KEY,
-                    provider_instance_id     TEXT NOT NULL,
-                    base_model_json          TEXT NOT NULL,
-                    overrides_json           TEXT,
-                    is_custom                INTEGER NOT NULL DEFAULT 0,
-                    is_hidden                INTEGER NOT NULL DEFAULT 0,
-                    user_modified_at         REAL,
-                    sort_order               INTEGER NOT NULL DEFAULT 0,
-                    updated_at               REAL NOT NULL,
-                    extras_json              TEXT,
-                    FOREIGN KEY(provider_instance_id) REFERENCES provider_instances(id) ON DELETE CASCADE
-                )
-            """)
-            exec(db: db, "CREATE INDEX idx_entries_instance ON provider_model_entries(provider_instance_id)")
-
-            exec(db: db, """
-                CREATE TABLE provider_model_groups (
-                    id                       TEXT PRIMARY KEY,
-                    name                     TEXT NOT NULL,
-                    strategy                 TEXT NOT NULL,
-                    fallback_strategy        TEXT NOT NULL,
-                    default_thinking_level   TEXT,
-                    context_limit_tokens     INTEGER,
-                    context_limit_remembered INTEGER,
-                    member_entry_ids_json    TEXT NOT NULL,
-                    sort_order               INTEGER NOT NULL DEFAULT 0,
-                    updated_at               REAL NOT NULL,
-                    extras_json              TEXT
-                )
-            """)
-
-            // ── local-only tables (NOT synced, per-device state) ──
-
-            exec(db: db, """
-                CREATE TABLE provider_local_kv (
-                    key   TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            """)
-
-            exec(db: db, """
-                CREATE TABLE provider_session_bindings (
-                    session_id    TEXT PRIMARY KEY,
-                    binding_json  TEXT NOT NULL,
-                    updated_at    REAL NOT NULL
-                )
-            """)
-
-            exec(db: db, """
-                CREATE TABLE provider_session_inference_configs (
-                    session_id    TEXT PRIMARY KEY,
-                    config_json   TEXT NOT NULL,
-                    updated_at    REAL NOT NULL
-                )
-            """)
-
-            exec(db: db, """
-                CREATE TABLE provider_agent_loop_ids (
-                    kind       TEXT NOT NULL,
-                    target_id  TEXT NOT NULL,
-                    sort_order INTEGER NOT NULL,
-                    PRIMARY KEY (kind, target_id)
-                )
-            """)
-        }
-
-        if current < 2 {
-            // ── v2: member-level add/remove tombstones on groups ──
-            //
-            // [T-icloud-provider-sync-consistency] Group memberEntryIds are
-            // merged as a per-member timestamp CRDT on inbound (two devices
-            // each adding a model never clobber each other). added_members_json
-            // / removed_members_json map entryId → epoch seconds. Both columns
-            // are added idempotently below.
-            //
-            // IMPORTANT: these ALTERs run via ensureGroupTombstoneColumns(),
-            // NOT inline, because an earlier build of this migration added ONLY
-            // removed_members_json and then bumped user_version to 2 — on those
-            // DBs `current >= 2` skips this block entirely, leaving
-            // added_members_json missing forever. A SELECT that lists the
-            // missing column then fails to prepare and returns ZERO group rows,
-            // which save() promptly persisted back as "no groups" and pushed to
-            // iCloud — wiping every group. The fix is to make column creation
-            // idempotent AND run it unconditionally on every open (below),
-            // independent of user_version.
-        }
-
-        exec(db: db, "PRAGMA user_version = \(schemaVersion)")
-        exec(db: db, "COMMIT")
-        logger.info("[v3] schema migration complete")
-
-        // Both idempotent column backstops now run UNCONDITIONALLY at the top of
-        // this function (before the version-gated early return), so they are not
-        // repeated here. See the note there.
-    }
-
-    /// Add `custom_user_agent` to provider_instances if absent. Idempotent —
-    /// safe to call on every DB open. The column was introduced after the
-    /// original v1 schema, so any DB created by an earlier build lacks it; a
-    /// SELECT/INSERT that references the missing column would otherwise fail to
-    /// prepare and silently drop the per-provider custom UA (it round-trips
-    /// only through in-memory + JSON mirror, so it looked set until a cold
-    /// start reloaded from this DB and read it back as nil → "UA reverts to
-    /// default after a while"). [T-provider-custom-user-agent-persist]
-    private static func ensureInstanceCustomUAColumn(db: OpaquePointer) {
-        var existing = Set<String>()
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "PRAGMA table_info(provider_instances)", -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let c = sqlite3_column_text(stmt, 1) { existing.insert(String(cString: c)) }
-            }
-        }
-        sqlite3_finalize(stmt)
-        // Empty set = table doesn't exist yet (brand-new DB, before the v1
-        // CREATE TABLE runs — which already includes the column). Skip the ALTER
-        // so we don't log a spurious "no such table" error; nothing to repair.
-        guard !existing.isEmpty else { return }
-        if !existing.contains("custom_user_agent") {
-            exec(db: db, "ALTER TABLE provider_instances ADD COLUMN custom_user_agent TEXT")
-            logger.info("[v3] schema repair: added missing column custom_user_agent")
-        }
-        // [T-ios-azure-openai] Same idempotent backstop for the azure_mode column
-        // (added after v1 schema, no schemaVersion bump). Without it, a DB at the
-        // current user_version never gains the column → the instance SELECT/INSERT
-        // that reference it fail to prepare and every provider disappears.
-        if !existing.contains("azure_mode") {
-            exec(db: db, "ALTER TABLE provider_instances ADD COLUMN azure_mode INTEGER NOT NULL DEFAULT 0")
-            logger.info("[v3] schema repair: added missing column azure_mode")
-        }
-    }
-
-    /// Add `removed_members_json` / `added_members_json` to provider_model_groups
-    /// if absent. Idempotent — safe to call on every DB open. Guards against a
-    /// partial earlier migration that left only one of the two columns.
-    private static func ensureGroupTombstoneColumns(db: OpaquePointer) {
-        var existing = Set<String>()
-        var stmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "PRAGMA table_info(provider_model_groups)", -1, &stmt, nil) == SQLITE_OK {
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                if let c = sqlite3_column_text(stmt, 1) { existing.insert(String(cString: c)) }
-            }
-        }
-        sqlite3_finalize(stmt)
-        if !existing.contains("removed_members_json") {
-            exec(db: db, "ALTER TABLE provider_model_groups ADD COLUMN removed_members_json TEXT NOT NULL DEFAULT '{}'")
-            logger.info("[v3] schema repair: added missing column removed_members_json")
-        }
-        if !existing.contains("added_members_json") {
-            exec(db: db, "ALTER TABLE provider_model_groups ADD COLUMN added_members_json TEXT NOT NULL DEFAULT '{}'")
-            logger.info("[v3] schema repair: added missing column added_members_json")
-        }
+    private static func createSchema(db: OpaquePointer) {
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_instances (
+                                id                       TEXT PRIMARY KEY,
+                                label                    TEXT NOT NULL,
+                                provider_type            TEXT NOT NULL,
+                                credential_type          TEXT,
+                                custom_base_url          TEXT,
+                                append_v1_suffix         INTEGER NOT NULL DEFAULT 1,
+                                image_endpoint_mode      TEXT,
+                                image_endpoint_resolved  TEXT,
+                                custom_user_agent        TEXT,
+                                azure_mode               INTEGER NOT NULL DEFAULT 0,
+                                is_enabled               INTEGER NOT NULL DEFAULT 1,
+                                sort_order               INTEGER NOT NULL DEFAULT 0,
+                                secret_blob              TEXT,
+                                secret_kind              TEXT,
+                                secret_updated_at        REAL,
+                                created_at               REAL NOT NULL,
+                                updated_at               REAL NOT NULL,
+                                extras_json              TEXT
+                            )
+        """)
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_model_entries (
+                                id                       TEXT PRIMARY KEY,
+                                provider_instance_id     TEXT NOT NULL,
+                                base_model_json          TEXT NOT NULL,
+                                overrides_json           TEXT,
+                                is_custom                INTEGER NOT NULL DEFAULT 0,
+                                is_hidden                INTEGER NOT NULL DEFAULT 0,
+                                user_modified_at         REAL,
+                                sort_order               INTEGER NOT NULL DEFAULT 0,
+                                updated_at               REAL NOT NULL,
+                                extras_json              TEXT,
+                                FOREIGN KEY(provider_instance_id) REFERENCES provider_instances(id) ON DELETE CASCADE
+                            )
+        """)
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_model_groups (
+                                id                       TEXT PRIMARY KEY,
+                                name                     TEXT NOT NULL,
+                                strategy                 TEXT NOT NULL,
+                                fallback_strategy        TEXT NOT NULL,
+                                default_thinking_level   TEXT,
+                                context_limit_tokens     INTEGER,
+                                context_limit_remembered INTEGER,
+                                member_entry_ids_json    TEXT NOT NULL,
+                                sort_order               INTEGER NOT NULL DEFAULT 0,
+                                updated_at               REAL NOT NULL,
+                                extras_json              TEXT,
+                                removed_members_json TEXT NOT NULL DEFAULT '{}',
+                                added_members_json TEXT NOT NULL DEFAULT '{}'
+                            )
+        """)
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_local_kv (
+                                key   TEXT PRIMARY KEY,
+                                value TEXT
+                            )
+        """)
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_session_bindings (
+                                session_id    TEXT PRIMARY KEY,
+                                binding_json  TEXT NOT NULL,
+                                updated_at    REAL NOT NULL
+                            )
+        """)
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_session_inference_configs (
+                                session_id    TEXT PRIMARY KEY,
+                                config_json   TEXT NOT NULL,
+                                updated_at    REAL NOT NULL
+                            )
+        """)
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_agent_loop_ids (
+                                kind       TEXT NOT NULL,
+                                target_id  TEXT NOT NULL,
+                                sort_order INTEGER NOT NULL,
+                                PRIMARY KEY (kind, target_id)
+                            )
+        """)
+        exec(db: db, """
+            CREATE TABLE IF NOT EXISTS provider_thinking_rules (
+                            id                TEXT PRIMARY KEY,
+                            instance_id       TEXT NOT NULL,
+                            sort_order        INTEGER NOT NULL,
+                            scope_kind        TEXT NOT NULL,
+                            scope_pattern     TEXT,
+                            wire_format_json  TEXT NOT NULL,
+                            echo_field        TEXT,
+                            echo_timing       TEXT,
+                            label             TEXT NOT NULL DEFAULT '',
+                            is_builtin        INTEGER NOT NULL DEFAULT 0,
+                            created_at        REAL NOT NULL DEFAULT 0,
+                            updated_at        REAL NOT NULL DEFAULT 0
+                        )
+        """)
+        exec(db: db, """
+            CREATE INDEX IF NOT EXISTS idx_entries_instance ON provider_model_entries(provider_instance_id)
+        """)
+        exec(db: db, """
+            CREATE INDEX IF NOT EXISTS idx_thinking_rules_instance
+                        ON provider_thinking_rules (instance_id, sort_order)
+        """)
     }
 
     // MARK: - Member-timestamp map JSON codec
@@ -346,8 +208,6 @@ actor ProviderConfigDB {
 
     // MARK: - Read API (used by ProviderConfigStore cache hydration in S3)
 
-    /// Whether the DB has been populated. False = newly created, expects
-    /// migration from `provider-config.json` next (Stage S2).
     func isEmpty() -> Bool {
         guard let db else { return true }
         var stmt: OpaquePointer?
@@ -435,12 +295,6 @@ actor ProviderConfigDB {
 
     func loadAllGroupRows() -> [[String: Any]] {
         guard let db else { return [] }
-        // [T-icloud-provider-sync-consistency] Self-heal: guarantee the two
-        // member-tombstone columns exist before SELECTing them. A DB left by a
-        // partial earlier migration (removed_members_json present,
-        // added_members_json missing) would otherwise fail to prepare the SELECT
-        // below — returning ZERO rows, which dumpProviderConfig + save() then
-        // persisted as "no groups" and pushed to iCloud, wiping every group.
         Self.ensureGroupTombstoneColumns(db: db)
 
         var stmt: OpaquePointer?
@@ -480,8 +334,6 @@ actor ProviderConfigDB {
         return rows
     }
 
-    /// Minimal group read using only columns present since schema v1. Used as a
-    /// last-resort fallback so a schema anomaly can never cause groups to vanish.
     private func loadAllGroupRowsCore() -> [[String: Any]] {
         guard let db else { return [] }
         var stmt: OpaquePointer?
@@ -529,21 +381,7 @@ actor ProviderConfigDB {
         return Self.optText(stmt, 0)
     }
 
-    // MARK: - Write API (used by migration + S3 mutate-path redirects)
 
-    /// Bulk-replace the entire sync-domain content of the DB from a
-    /// `ProviderConfig` value. Used during one-shot migration from
-    /// `provider-config.json` (Stage S2) and from
-    /// `ProviderConfigStore.applyMergedConfigFromSync` (Stage S3).
-    ///
-    /// Wraps the whole replace in a single transaction so a crash partway
-    /// leaves the prior contents intact. Per-row updated_at defaults to
-    /// the legacy `userModifiedAt` if present, otherwise the per-row
-    /// createdAt, otherwise `now`.
-    /// - Parameter preserveLocalOnlyStateIfEmpty: guard for the INBOUND-SYNC
-    ///   caller only. See the agent-loop block below — the guard must NOT be on
-    ///   for a user-initiated save, because clearing every agent-loop model is a
-    ///   legitimate action that also funnels through here via `save()`.
     func bulkReplace(from config: ProviderConfig, preserveLocalOnlyStateIfEmpty: Bool = false) {
         guard let db else { return }
         let now = Date().timeIntervalSince1970
@@ -630,7 +468,7 @@ actor ProviderConfigDB {
             let baseJSON = (try? Self.jsonString(entry.baseModel)) ?? "{}"
             let overridesJSON: String? = entry.overrides.isEmpty ? nil : (try? Self.jsonString(entry.overrides))
             let userMod = entry.userModifiedAt?.timeIntervalSince1970
-            if let r = storedEntry[entry.uuid],
+            if let r = storedEntry[entry.id],
                (r["provider_instance_id"] as? String) == entry.providerInstanceId,
                (r["base_model_json"] as? String) == baseJSON,
                (r["overrides_json"] as? String) == overridesJSON,
@@ -642,7 +480,7 @@ actor ProviderConfigDB {
             }
             entryChanged += 1
             upsertEntryRow(
-                id: entry.uuid,
+                id: entry.id,
                 providerInstanceId: entry.providerInstanceId,
                 baseModelJson: baseJSON,
                 overridesJson: overridesJSON,
@@ -651,10 +489,10 @@ actor ProviderConfigDB {
                 userModifiedAt: userMod,
                 sortOrder: idx,
                 updatedAt: now,
-                extrasJson: storedEntry[entry.uuid]?["extras_json"] as? String
+                extrasJson: storedEntry[entry.id]?["extras_json"] as? String
             )
         }
-        let keepEntry = Set(config.modelEntries.map(\.uuid))
+        let keepEntry = Set(config.modelEntries.map(\.id))
         for id in storedEntry.keys where !keepEntry.contains(id) { deleteEntryRow(id: id) }
 
         // Groups
@@ -793,10 +631,6 @@ actor ProviderConfigDB {
     }
     // END GroupRewriteNote
 
-    /// Build a `ProviderConfig` value from the current DB contents.
-    /// Used by ProviderConfigStore (S3) to (a) hydrate its in-memory
-    /// cache after launch and (b) re-serialize provider-config.json as
-    /// the downgrade safety mirror after every mutate.
     func dumpProviderConfig() -> ProviderConfig {
         let instanceRows = loadAllInstanceRows()
         let entryRows = loadAllEntryRows()
@@ -893,7 +727,7 @@ actor ProviderConfigDB {
                 return nil
             }()
             let entry = ModelEntry(
-                uuid: id,
+
                 providerInstanceId: instanceId,
                 model: baseModel,
                 overrides: overrides,
@@ -1062,23 +896,6 @@ actor ProviderConfigDB {
         sqlite3_finalize(stmt)
         if let localTs, localTs >= updatedAt { return false }
 
-        // [T-ios-hidden-models-restored] Overlay guard — mirror the V2 merge's
-        // userModifiedAt-aware conflict resolution (CloudSyncEngine
-        // mergeProviderConfig) that this V3 per-record path was missing.
-        //
-        // The row-level updated_at LWW above is blind to WHO made the change:
-        // bulkReplace stamps updated_at = userModifiedAt ?? now, so a peer
-        // device's never-touched entry re-stamps to "now" on every save and
-        // perpetually looks fresher than a locally-hidden entry whose
-        // updated_at is frozen at the hide time. After an app update changes
-        // model metadata, the peer marks ALL its entries dirty and the inbound
-        // batch stomped every local isHidden back to false — the "100+ hidden
-        // models all restored" report.
-        //
-        // Rule: the USER-INTENT overlay (isHidden / overrides / userModifiedAt)
-        // only moves forward — a remote with no userModifiedAt (never edited
-        // there) or an older stamp keeps the local overlay; the remote's
-        // API-truth fields (baseModelJson etc.) still apply via updated_at LWW.
         var effIsHidden = isHidden
         var effOverridesJson = overridesJson
         var effUserModifiedAt = userModifiedAt
@@ -1436,11 +1253,7 @@ actor ProviderConfigDB {
         sqlite3_step(stmt)
     }
 
-    /// [T-provider-entry-composite-key] Persist the legacyUuid→compositeKey map
-    /// (JSON) into provider_local_kv so deferred normalization survives restarts.
-    func setLegacyUuidMapKV(_ json: String) {
-        setLocalKVRow("legacyUuidMap", value: json)
-    }
+
 
     private func upsertSessionBindingRow(sessionId: String, bindingJson: String, updatedAt: Double) {
         guard let db else { return }
@@ -1528,71 +1341,9 @@ actor ProviderConfigDB {
         return Int(sqlite3_column_int(stmt, 0))
     }
 
-    /// [T-icloud-agentloop-wipe] Idempotent creation backstop.
-    ///
-    /// `provider_agent_loop_ids` was only ever created inside the `if current < 1`
-    /// migration block, with no `ensure…` counterpart — the exact shape of the
-    /// documented add-column trap in this file, where a table that exists only
-    /// in a version-gated branch goes missing on a DB that skipped that branch
-    /// and every read/write against it then fails silently. Called on open so
-    /// the table is guaranteed present regardless of migration history.
-    static func ensureAgentLoopTable(db: OpaquePointer) {
-        exec(db: db, """
-            CREATE TABLE IF NOT EXISTS provider_agent_loop_ids (
-                kind       TEXT NOT NULL,
-                target_id  TEXT NOT NULL,
-                sort_order INTEGER NOT NULL,
-                PRIMARY KEY (kind, target_id)
-            )
-        """)
-    }
 
-    /// [T-thinking-rules-phase2] User-authored thinking rules, one row per rule.
-    ///
-    /// A SEPARATE TABLE rather than a column on `provider_instances`, for three reasons:
-    ///   1. It is a one-to-many relation with an explicit order — exactly what the other
-    ///      ordered local-only state (`provider_agent_loop_ids`) already models this way.
-    ///   2. `bulkReplace` DELETEs the seven config tables and rewrites them from an
-    ///      inbound sync payload. This table is deliberately NOT in that list, so a
-    ///      provider-config sync from another device cannot wipe rules the peer's build
-    ///      does not know about — the failure mode that erased agent-loop selections in
-    ///      OpenMinis#98 and cost days to characterise.
-    ///   3. Adding a column would have to be written into BOTH the `CREATE TABLE` DDL and
-    ///      an idempotent ensure*, and forgetting either half is precisely how
-    ///      `custom_user_agent` made every provider vanish. A new table has one
-    ///      creation site and no such asymmetry.
-    ///
-    /// Called unconditionally on every open, BEFORE the version-gated early return, for
-    /// the same reason the three ensures above it are: a DB already at the current
-    /// user_version would otherwise skip creation entirely and every read/write against
-    /// this table would fail silently.
-    ///
-    /// `wire_format_json` stores the encoded `ThinkingWireFormat`; keeping it as JSON
-    /// rather than exploding it into typed columns means adding a wire-format case later
-    /// is a pure code change with no migration.
-    static func ensureThinkingRulesTable(db: OpaquePointer) {
-        exec(db: db, """
-            CREATE TABLE IF NOT EXISTS provider_thinking_rules (
-                id                TEXT PRIMARY KEY,
-                instance_id       TEXT NOT NULL,
-                sort_order        INTEGER NOT NULL,
-                scope_kind        TEXT NOT NULL,
-                scope_pattern     TEXT,
-                wire_format_json  TEXT NOT NULL,
-                echo_field        TEXT,
-                echo_timing       TEXT,
-                label             TEXT NOT NULL DEFAULT '',
-                is_builtin        INTEGER NOT NULL DEFAULT 0,
-                created_at        REAL NOT NULL DEFAULT 0,
-                updated_at        REAL NOT NULL DEFAULT 0
-            )
-        """)
-        // Ordered reads are the hot path (every request resolves rules for one instance).
-        exec(db: db, """
-            CREATE INDEX IF NOT EXISTS idx_thinking_rules_instance
-            ON provider_thinking_rules (instance_id, sort_order)
-        """)
-    }
+
+
 
     /// [T-icloud-agentloop-wipe] Returns nil when the READ ITSELF failed, and
     /// `[]` only for a successful scan that found no rows.
@@ -1657,8 +1408,6 @@ actor ProviderConfigDB {
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 
-    /// Convenience: counts across the four sync-domain tables. Helpful for
-    /// debug RPC + post-migration sanity checks.
     func counts() -> (instances: Int, entries: Int, groups: Int) {
         guard let db else { return (0, 0, 0) }
         func one(_ sql: String) -> Int {
@@ -1945,8 +1694,6 @@ extension ProviderConfigDB {
         return ok
     }
 
-    /// Every custom rule id across all instances — used to enumerate what needs
-    /// backfilling onto the sync queue for users who authored rules before sync existed.
     func allCustomThinkingRuleIds() -> [String] {
         guard let db else { return [] }
         var stmt: OpaquePointer?

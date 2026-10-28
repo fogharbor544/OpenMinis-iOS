@@ -2,15 +2,7 @@ import Foundation
 
 private let logger = AppLogger(category: "SyncCore")
 
-/// Top-level entry point for the v2 sync stack. Called once at app launch
-/// from MinisApp.swift. Wires Syncable types into the registry, registers
-/// ChatStore-backed hydrators, hooks ICloudSharedZoneTransport into
-/// SyncCore, and (optionally) runs the v1→v2 migration engine.
-///
-/// Gated by `UserDefaults.cloudSync.v2.enabled` (default false). When
-/// disabled, this function is a no-op and v1 CloudSyncEngine continues
-/// to drive sync. Once the flag flips on, v1 is paused and v2 takes over
-/// (at app start; an in-place hot-swap mid-session is not supported).
+/// The only sync engine; fresh installations opt in explicitly.
 enum SyncV2Bootstrap {
 
     /// [T-ios-icloud-ckrecordid-nilname-crash] Per-step guard for the
@@ -83,14 +75,6 @@ enum SyncV2Bootstrap {
             return
         }
 
-        // [T-ios-reboot-keychain-identity-rotation] Same guard as
-        // CloudSyncEngine.start, for the same reason: this runs from
-        // scenePhase→.active, which iOS can deliver on a background relaunch
-        // BEFORE first unlock after a reboot. The Keychain is unreadable then, so
-        // `DeviceIdentity.deviceId` returns a throwaway id — and both
-        // `setSyncZoneName` below and the `registerDevice(recordId:)` call further
-        // down would bake it in, tagging every dirty row for a zone that is not
-        // this device's. Bail and let the post-unlock activation start v2 for real.
         guard !DeviceIdentity.isProvisional else {
             // [T-icloud-device-provisional-retry] On iOS a later scenePhase →
             // .active retries this. On an iPad app running on macOS Apple does
@@ -122,11 +106,6 @@ enum SyncV2Bootstrap {
         SyncedTypesBootstrap.registerAll()
         logger.info("[SyncCore] v2 startup STEP=typesRegistered count=\(SyncableTypeRegistry.shared.count)")
 
-        // 1b. Set ChatStore.syncZoneName so markDirty actually writes
-        // rows. v1's CloudSyncEngine.start does this; v2 paused v1 so
-        // we must do it ourselves. The zone-name string is shared
-        // across engines (it tags dirty rows; the v2 transport ignores
-        // it on send and re-derives from the registry).
         await ChatStore.shared.setSyncZoneName(DeviceIdentity.zoneName)
         logger.info("[SyncCore] v2 startup STEP=zoneNameSet")
 
@@ -156,27 +135,6 @@ enum SyncV2Bootstrap {
         SyncCore.shared.bootDelayUntil = bootDeadline
         logger.info("[SyncCore] v2 startup STEP=deferring network boot by \(Int(bootDelay))s")
         Task { @MainActor in
-            // [T-ios-icloud-ckrecordid-nilname-crash] Outer guards around the
-            // deferred startup so a single bad CloudKit interaction (e.g. a
-            // dirty record with an empty/invalid recordName that iOS 26.6
-            // Beta rejects via NSException, dirty migration row, unexpected
-            // CKError) cannot take launch down with it.
-            //
-            // Two complementary layers:
-            //   1. **Input validation at the call site** is the only
-            //      effective ObjC-NSException guard. Inside async code on
-            //      Swift concurrency, an NSException raised by an awaited
-            //      Apple-framework call escalates straight to
-            //      `objc_terminate → SIGABRT` because the await boundary
-            //      drops the @try frame. The dedicated fix is the
-            //      `isValidCKRecordName` precheck in
-            //      `ICloudSharedZoneTransport.send` (the actual crash
-            //      site at line 657 in build 49).
-            //   2. **Per-step Swift do/catch** via `runGuarded` so any
-            //      throwing path (a future CloudKit step that surfaces a
-            //      `throws` instead of NSException) doesn't abort the
-            //      remaining startup steps. The outer do/catch catches
-            //      anything `runGuarded` re-throws (currently nothing).
             do {
                 try? await Task.sleep(nanoseconds: UInt64(bootDelay * 1_000_000_000))
                 logger.info("[SyncCore] v2 startup STEP=coreStart begin (post-delay)")
@@ -210,24 +168,8 @@ enum SyncV2Bootstrap {
                     }
                 }
                 logger.info("[SyncCore] v2 startup STEP=device registered (deviceId=\(DeviceIdentity.deviceId.prefix(8)))")
-                // Start the periodic dirty scanner. Under v1 this was kicked
-                // off by CloudSyncEngine.start(); but v2 paused v1, so the
-                // scanner was never running — and any record type that
-                // relies on the scanner (skills mtime, config files, and now
-                // memory files) silently stopped detecting on-disk edits.
-                // Scanner is idempotent and safe to start regardless of v1
-                // state.
                 SyncDirtyScanner.shared.start()
                 logger.info("[SyncCore] v2 startup STEP=dirtyScanner started")
-                // Flush whatever ended up in the dirty queue during launch /
-                // migration / scanner first-tick. scheduleSend's debounce-
-                // cancel chain can keep getting reset for minutes when many
-                // markDirty calls happen in close succession (observed on
-                // pix: forceFullSync staged 24k rows and the queue never
-                // drained because every markDirty cancelled the in-flight
-                // 3s sleep). sendNow runs immediately and guards against
-                // re-entry via isSending, so it's safe to call here even
-                // if a scheduleSend timer fires concurrently.
                 await runGuarded("initialFlush") {
                     await SyncCore.shared.sendNow(trigger: .manual)
                 }

@@ -300,9 +300,6 @@ struct ProviderInstanceDetailView: View {
                 azureModeSection(instance)
             }
 
-            // MARK: Image Generation Endpoint (OpenAI-compatible providers)
-            // Lets the user override the auto-probe choice between
-            // /v1/images/generations and /v1/chat/completions for image output.
             if instance.supportsImageEndpointSetting {
                 imageEndpointSection(instance)
             }
@@ -361,10 +358,6 @@ struct ProviderInstanceDetailView: View {
                 HStack {
                     Text("Models")
                     Spacer()
-                    // [T-mimo-shadow-voice] Refresh always available now — the
-                    // fetch never wipes voice seed entries (replaceEntries
-                    // preserves them), so even a vendor whose /v1/models omits its
-                    // voice models can safely refresh to pull its text models.
                     do {
                         Button {
                             refreshModels(instance)
@@ -669,8 +662,6 @@ struct ProviderInstanceDetailView: View {
                 .onSubmit { saveCustomBaseURL(instance) }
                 .onDisappear { saveCustomBaseURL(instance) }
 
-            // [T-mimo-shadow-voice] /v1 toggle always shown — instances are no
-            // longer classified voice-only; this is a normal endpoint setting.
             Toggle("Auto Append \"/v1\"", isOn: Binding(
                 get: { instance.appendV1Suffix },
                 set: { newValue in
@@ -1984,7 +1975,7 @@ struct ModelEntryDetailSheet: View {
         }
 
         let updatedEntry = ModelEntry(
-            uuid: entry.uuid,
+
             providerInstanceId: entry.providerInstanceId,
             model: updatedBaseModel,
             overrides: newOverrides,

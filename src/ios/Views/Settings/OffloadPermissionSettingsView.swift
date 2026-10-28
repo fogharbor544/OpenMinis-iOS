@@ -99,13 +99,6 @@ private struct CommandPermissionRow: View {
     let command: OffloadCommandInfo
     @ObservedObject private var manager = OffloadPermissionManager.shared
 
-    @State private var level: OffloadPermissionLevel
-
-    init(command: OffloadCommandInfo) {
-        self.command = command
-        _level = State(initialValue: OffloadPermissionManager.shared.permissionLevel(for: command.name))
-    }
-
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -115,15 +108,15 @@ private struct CommandPermissionRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Picker("", selection: $level) {
+            Picker("Permission", selection: Binding(
+                get: { manager.permissionLevel(for: command.name) },
+                set: { manager.setPermissionLevel($0, for: command.name) }
+            )) {
                 ForEach(OffloadPermissionLevel.allCases, id: \.self) { lvl in
                     Text(lvl.displayName).tag(lvl)
                 }
             }
             .pickerStyle(.menu)
-            .onChange(of: level) { newValue in
-                manager.setPermissionLevel(newValue, for: command.name)
-            }
         }
     }
 }

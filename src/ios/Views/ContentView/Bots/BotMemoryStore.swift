@@ -170,7 +170,7 @@ enum BotMemoryError: LocalizedError {
         try execute("BEGIN IMMEDIATE")
         do {
             for var version in lineage {
-                version.status = "deleted"; version.content = ""; version.evidence = ""; version.grants = []; version.updatedAt = Date()
+                version.status = "deleted"; version.content = ""; version.scope = ""; version.evidence = ""; version.grants = []; version.updatedAt = Date()
                 try write(version)
             }
             try execute("COMMIT")
@@ -184,7 +184,7 @@ enum BotMemoryError: LocalizedError {
         try execute("BEGIN IMMEDIATE")
         do {
             for var entry in owned {
-                entry.status = "deleted"; entry.content = ""; entry.evidence = ""; entry.grants = []; entry.updatedAt = Date()
+                entry.status = "deleted"; entry.content = ""; entry.scope = ""; entry.evidence = ""; entry.grants = []; entry.updatedAt = Date()
                 try write(entry)
             }
             try execute("COMMIT")

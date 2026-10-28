@@ -1,4 +1,5 @@
 import Foundation
+enum ProgrammaticPromptOrigin { case job(jobId: String) }
 
 @MainActor final class AIChatViewModel {
     struct FileToolResult { let output: String; let success: Bool }
@@ -13,7 +14,7 @@ import Foundation
     var sessionId: String?
     var memoryEnabled = true
     var messages: [Message] = []
-    var programmaticTurnOrigin: String?
+    var programmaticTurnOrigin: ProgrammaticPromptOrigin?
 }
 
 @main struct BotMemoryRuntimeTests {
@@ -39,6 +40,13 @@ import Foundation
         let other = AIChatViewModel(); other.sessionId = "private-b"
         precondition(!other.executeBotMemoryGet("{}").output.contains(words))
         let group = AIChatViewModel(); group.sessionId = "group-a"
+        group.programmaticTurnOrigin = .job(jobId: "bot-room-\(room.id)")
+        precondition(group.botMemorySource?.text == "I always prefer diagrams")
+        group.programmaticTurnOrigin = .job(jobId: "unrelated-schedule")
+        precondition(group.botMemorySource == nil)
+        group.programmaticTurnOrigin = nil
+        group.messages = [.init(content: "I usually use clear charts")]
+        precondition(group.botMemorySource?.text == "I usually use clear charts")
         precondition(!group.executeBotMemoryGet("{}").output.contains(words))
         try BotMemoryStore.shared.setGrants(id: saved[0].id, owner: saved[0].owner, grants: ["room:\(room.id)"])
         precondition(group.executeBotMemoryGet("{}").output.contains(words))
@@ -46,7 +54,7 @@ import Foundation
         precondition(!group.executeBotMemoryGet("{}").output.contains(words))
         vm.messages = [.init(content: words)] // New UI UUID, same persisted source text.
         precondition(!vm.executeBotMemoryWrite(json).success)
-        vm.programmaticTurnOrigin = "scheduled-job"
+        vm.programmaticTurnOrigin = .job(jobId: "scheduled-job")
         precondition(vm.botMemorySource == nil && !vm.executeBotMemoryWrite(json).success)
         vm.programmaticTurnOrigin = nil
         vm.memoryEnabled = false

@@ -251,7 +251,9 @@ extension AIChatViewModel {
         // session so a repro shows whether loadSession seeded it from the
         // global default.
         AppLogger(category: "MemDiag").info("[MemDiag] inject-decision sid=\(self.sessionId?.prefix(8) ?? "nil") vm.memoryEnabled=\(self.memoryEnabled)")
-        if memoryEnabled {
+        if botMemoryOwner != nil {
+            if let fragment = botMemoryFragment() { userSystemPrompt += "\n\n" + fragment }
+        } else if memoryEnabled {
             if let memoryFragment = Self.loadGlobalMemoryFragment() {
                 userSystemPrompt += "\n\n" + memoryFragment
             }
@@ -1091,7 +1093,9 @@ extension AIChatViewModel {
                 // the gate from the first injection site — fallback to a
                 // new provider must respect the per-session memoryEnabled
                 // toggle the same way the initial system prompt did.
-                if memoryEnabled {
+                if botMemoryOwner != nil {
+                    if let fragment = botMemoryFragment() { userSystemPrompt += "\n\n" + fragment }
+                } else if memoryEnabled {
                     if let memoryFragment = Self.loadGlobalMemoryFragment() {
                         userSystemPrompt += "\n\n" + memoryFragment
                     }

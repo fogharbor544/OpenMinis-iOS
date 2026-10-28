@@ -34,6 +34,14 @@ jobs:
             src/ios/Views/ContentView/Bots/BotWorkspaceStore+Sessions.swift \
             src/ios/Views/ContentView/Bots/BotRoomRunner.swift \
             src/ios/Views/ContentView/Bots/BotWorkspaceView.swift \
+            src/ios/Views/ContentView/Bots/BotMemoryStore.swift \
+            src/ios/Views/ContentView/Bots/BotMemoryView.swift \
+            src/ios/Views/ContentView/Bots/AIChatViewModel+BotMemory.swift \
+            src/ios/Agent/Chat/AIChatViewModel+MemoryTools.swift \
+            src/ios/Agent/Chat/AIChatViewModel+AgentLoop.swift \
+            src/ios/Agent/Chat/AIChatViewModel+ToolDefinitions.swift \
+            src/ios/Views/Chat/SessionMemoryView.swift \
+            src/ios/Views/Chat/MemoryWriteRevoker.swift \
             src/ios/Views/ContentView/ContentView.swift \
             src/ios/Views/ContentView/ContentView+SessionList.swift \
             src/ios/MinisTests/BrowserBookmarkStoreTests.swift \
@@ -48,6 +56,10 @@ jobs:
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"
           "$RUNNER_TEMP/bot-tests"
+      - name: Bot memory entries
+        run: |
+          swiftc src/ios/Views/ContentView/Bots/BotMemoryStore.swift src/ios/MinisTests/Standalone/BotMemoryEntryTests.swift -lsqlite3 -o "$RUNNER_TEMP/bot-memory-tests"
+          "$RUNNER_TEMP/bot-memory-tests"
       - name: Browser storage behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
       - name: Schedule editing behavior tests

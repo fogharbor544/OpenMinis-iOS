@@ -62,6 +62,7 @@ extension AIChatViewModel {
 
     /// Execute a memory_write tool call: prepend a timestamped entry to today's daily log.
     func executeMemoryWrite(from json: String) -> FileToolResult {
+        if botMemoryOwner != nil { return executeBotMemoryWrite(json) }
         guard memoryEnabled else {
             return FileToolResult(output: "Memory saving is disabled for this session. Use /memory to re-enable.", success: false)
         }
@@ -124,6 +125,7 @@ extension AIChatViewModel {
     /// keywords they contain, sorted by confidence descending. The model can decide
     /// how to use partial matches.
     func executeMemoryGet(from json: String) -> FileToolResult {
+        if botMemoryOwner != nil { return executeBotMemoryGet(json) }
         // [T-memory-toggle-gates-injection-and-tools-ios] Defense in depth:
         // when memory is disabled, makeAgentTools() drops memory_get from
         // the registered tools, so the model normally cannot emit this

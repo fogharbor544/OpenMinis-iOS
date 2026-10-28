@@ -22,7 +22,16 @@ enum MemoryWriteRevoker {
     /// Returns a user-facing result string — `"Removed from <date>.md"` on
     /// success, otherwise a not-found / write-error message. Callers surface it
     /// directly in an alert or toast.
-    static func revoke(writtenContent: String) -> String {
+    @MainActor static func revoke(writtenContent: String, toolOutput: String? = nil) -> String {
+        if let output = toolOutput, output.hasPrefix("Remembered [") {
+            guard let end = output.firstIndex(of: "]") else { return "Invalid memory reference." }
+            let id = String(output[output.index(output.startIndex, offsetBy: 12)..<end])
+            do {
+                guard let entry = try BotMemoryStore.shared.entries().first(where: { $0.id == id }) else { return "Memory entry not found." }
+                try BotMemoryStore.shared.forget(id: id, owner: entry.owner)
+                return "Memory forgotten."
+            } catch { return error.localizedDescription }
+        }
         let written = writtenContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !written.isEmpty else {
             return AppLocalized("No written content to revoke.")

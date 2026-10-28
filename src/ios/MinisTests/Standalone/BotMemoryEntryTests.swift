@@ -53,6 +53,10 @@ import Foundation
         try store.forgetOwner("bot:a")
         try check(try store.visible(to: "bot:a").isEmpty)
         try check(try store.visible(to: "bot:b").count == 1)
+        let first = try store.save(make("bot:d", "First fact"), userInitiated: true)
+        _ = try store.save(make("bot:d", "Second fact"), userInitiated: true)
+        do { _ = try store.save(make("bot:d", "Second fact"), replacing: first.id, userInitiated: true); fatalError("Reported a correction while leaving the old entry unchanged") }
+        catch is BotMemoryError {}
         print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, evidence and secret refusal")
     }
 }

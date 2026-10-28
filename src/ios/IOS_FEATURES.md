@@ -23,9 +23,11 @@
 
 ## 验证
 
-GitHub Actions 的 `iOS validation` 工作流运行 Swift 语法检查、原有定时任务回归、Bot 存储、浏览器存储、定时任务编辑和群聊调度行为测试。
+GitHub Actions 的 `iOS validation` 工作流运行 Swift 语法检查、原有定时任务回归、Bot 存储、浏览器存储、定时任务编辑、群聊调度、WebKit 网页和能力权限行为测试。
 
-行为测试编译实际存储或调度代码，使用临时目录及受控认证、密码存储、计时器、聊天引擎替身。它们不替代真实 Keychain、WKWebView、模型服务和设备交互测试。
+存储和调度测试编译实际代码，使用临时目录及受控认证、密码存储、计时器、聊天引擎替身。WebKit 测试在 macOS 的真实 WKWebView 中运行实际网页脚本，验证读取、填充、输入事件、不自动提交，以及网站不匹配、修改密码、只读和多密码框的拒绝处理。权限测试运行实际权限管理器，验证禁用、放行、会话授权隔离和撤销。
+
+上述测试已在 [GitHub Actions 运行 40680004272](https://github.com/fogharbor544/OpenMinis-iOS/actions/runs/40680004272) 的第二次执行中全部通过。它们不替代 iPhone 上真实 Keychain、设备认证、应用界面和模型服务的端到端测试。
 
 手动运行工作流并启用 `full_build`，会构建原生依赖和未签名的 iOS 应用。安装到 iPhone 仍需有效签名及设备配置。
 

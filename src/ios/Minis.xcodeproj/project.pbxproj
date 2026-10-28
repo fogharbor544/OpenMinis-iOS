@@ -141,6 +141,8 @@
 		E57000006 /* BrowserManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E57000016 /* BrowserManagementView.swift */; };
 		E57000007 /* BrowserTabPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = E57000017 /* BrowserTabPool.swift */; };
 		E57000008 /* BrowserHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E57000018 /* BrowserHistory.swift */; };
+		B00B00000000000000000001 /* BrowserBookmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00B00000000000000000002 /* BrowserBookmarks.swift */; };
+		B00B00000000000000000003 /* BrowserPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00B00000000000000000004 /* BrowserPasswords.swift */; };
 		E58000001 /* GeminiProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58000011 /* GeminiProvider.swift */; };
 		E58000002 /* GeminiModelsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58000012 /* GeminiModelsAPI.swift */; };
 		E58000003 /* GeminiOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E58000013 /* GeminiOAuthManager.swift */; };
@@ -913,6 +915,8 @@
 		E57000016 /* BrowserManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserManagementView.swift; sourceTree = "<group>"; };
 		E57000017 /* BrowserTabPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserTabPool.swift; sourceTree = "<group>"; };
 		E57000018 /* BrowserHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHistory.swift; sourceTree = "<group>"; };
+		B00B00000000000000000002 /* BrowserBookmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserBookmarks.swift; sourceTree = "<group>"; };
+		B00B00000000000000000004 /* BrowserPasswords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPasswords.swift; sourceTree = "<group>"; };
 		E58000011 /* GeminiProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProvider.swift; sourceTree = "<group>"; };
 		E58000012 /* GeminiModelsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiModelsAPI.swift; sourceTree = "<group>"; };
 		E58000013 /* GeminiOAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiOAuthManager.swift; sourceTree = "<group>"; };
@@ -1891,6 +1895,8 @@
 				E57000016 /* BrowserManagementView.swift */,
 				E57000017 /* BrowserTabPool.swift */,
 				E57000018 /* BrowserHistory.swift */,
+				B00B00000000000000000002 /* BrowserBookmarks.swift */,
+				B00B00000000000000000004 /* BrowserPasswords.swift */,
 				E5CKB0002 /* CookieBackupStore.swift */,
 				E5CAL0002 /* CookieAuditLogger.swift */,
 			);
@@ -3328,6 +3334,8 @@
 				E57000006 /* BrowserManagementView.swift in Sources */,
 				E57000007 /* BrowserTabPool.swift in Sources */,
 				E57000008 /* BrowserHistory.swift in Sources */,
+				B00B00000000000000000001 /* BrowserBookmarks.swift in Sources */,
+				B00B00000000000000000003 /* BrowserPasswords.swift in Sources */,
 				E5CKB0001 /* CookieBackupStore.swift in Sources */,
 				E55000001 /* ISHShellExecutor.m in Sources */,
 				E5L000001 /* FFmpegOffload.m in Sources */,

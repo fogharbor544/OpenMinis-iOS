@@ -112,10 +112,10 @@ final class AgentJob: Identifiable {
     let id: String
     let label: String?
     let origin: AgentJobOrigin
-    let trigger: AgentJobTrigger
+    fileprivate(set) var trigger: AgentJobTrigger
     let target: AgentJobTarget
     /// The prompt text for prompt-carrying targets (nil for `.rerun`).
-    let prompt: String?
+    fileprivate(set) var prompt: String?
     /// Mutable: a wait-mode helper converts to `.followUpParent` when the
     /// user sends a follow-up while it is still running.
     var then: AgentJobThen
@@ -493,6 +493,44 @@ final class AgentJobRegistry: ObservableObject {
         }
         logger.info("[Jobs] \(enabled ? "ENABLE" : "DISABLE") \(job.logLabel)")
         jobsDidChange()
+    }
+
+    /// Edit the existing schedule in place so its cards and run history retain their identity.
+    func updateSchedule(jobId: String, trigger: AgentJobTrigger, prompt: String?) -> Bool {
+        guard let job = jobs[jobId], job.trigger != .immediate,
+              job.state == .pending, !job.fireInFlight else { return false }
+        switch trigger {
+        case .once(let delay):
+            guard delay.isFinite, delay > 0 else { return false }
+        case .loop(let interval, let count):
+            guard interval.isFinite, interval >= 60,
+                  count == nil || count! > job.firedCount + job.skippedCount else { return false }
+        case .cron(let hour, let minute, let days, let start, let end):
+            guard (0...23).contains(hour), (0...59).contains(minute),
+                  days.isSubset(of: Set(1...7)),
+                  ScheduledJobRunner.nextCronDate(hour: hour, minute: minute, days: days,
+                                                 start: start, end: end, from: Date()) != nil else { return false }
+        case .onCompletion(let dependency):
+            guard dependency != job.id, jobs[dependency] != nil else { return false }
+        case .immediate: return false
+        }
+        if job.prompt != nil, prompt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            return false
+        }
+        job.task?.cancel()
+        job.task = nil
+        JobInsuranceNotification.cancel(jobId: job.id)
+        job.trigger = trigger
+        if job.prompt != nil { job.prompt = prompt }
+        if case .loop(_, let count) = trigger {
+            job.remaining = count.map { $0 - job.firedCount - job.skippedCount }
+        } else {
+            job.remaining = nil
+        }
+        job.nextFireAt = nil
+        if job.isEnabled { ScheduledJobRunner.arm(job) }
+        jobsDidChange()
+        return true
     }
 
     /// Drop a job entirely (after cancel).

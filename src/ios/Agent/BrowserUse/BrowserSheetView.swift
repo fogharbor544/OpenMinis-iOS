@@ -8,6 +8,8 @@ struct BrowserSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var addressText: String = ""
     @State private var showHistory = false
+    @State private var showBookmarks = false
+    @State private var showPasswords = false
     @State private var isFullscreen = false
     @FocusState private var addressFocused: Bool
 
@@ -186,6 +188,18 @@ struct BrowserSheetView: View {
                             Image(systemName: "clock.arrow.circlepath")
                         }
                         .disabled(isAgentBusy)
+                        Button {
+                            showBookmarks = true
+                        } label: {
+                            Image(systemName: "bookmark")
+                        }
+                        .accessibilityLabel("Bookmarks")
+                        .disabled(isAgentBusy)
+                        Button { showPasswords = true } label: {
+                            Image(systemName: "key")
+                        }
+                        .accessibilityLabel("Passwords")
+                        .disabled(isAgentBusy || manager == nil)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -206,6 +220,19 @@ struct BrowserSheetView: View {
                     }
                     manager?.loadURL(url)
                 }
+            }
+            .sheet(isPresented: $showBookmarks) {
+                BrowserBookmarksView(store: .shared, currentURL: manager?.currentURL ?? "", currentTitle: manager?.pageTitle ?? "") { url in
+                    if pool.tabs.isEmpty { pool.ensureTabForUI() }
+                    pool.touchActivity()
+                    manager?.loadURL(url)
+                }
+            }
+            .sheet(isPresented: $showPasswords) {
+                if let manager { BrowserPasswordsView(manager: manager) }
+            }
+            .onChange(of: isAgentBusy) { _, busy in
+                if busy { showPasswords = false }
             }
             .onAppear {
                 // Ensure at least one tab exists when opened manually

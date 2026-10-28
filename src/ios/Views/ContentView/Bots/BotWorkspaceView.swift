@@ -230,6 +230,7 @@ private struct BotRoomView: View {
     let roomID: String
     @ObservedObject private var store = BotWorkspaceStore.shared
     @ObservedObject private var runner = BotRoomRunner.shared
+    @ObservedObject private var memory = BotMemoryStore.shared
     @State private var input = ""
     @State private var recipient = ""
     @State private var editing: BotRoom?
@@ -285,6 +286,17 @@ private struct BotRoomView: View {
             }.padding()
         }
         .navigationTitle(room?.name ?? String(localized: "Group"))
+        .safeAreaInset(edge: .bottom) {
+            if let entry = memory.lastSaved, entry.owner == "room:\(roomID)" {
+                HStack {
+                    Text("Remembered: \(entry.content)").font(.caption).lineLimit(2)
+                    Button("Undo") {
+                        do { try memory.forget(id: entry.id, owner: entry.owner) }
+                        catch { store.errorMessage = error.localizedDescription }
+                    }
+                }.padding(8).background(.regularMaterial)
+            }
+        }
         .toolbar {
             Button("Members") { editing = room }.disabled(isRunning)
             NavigationLink("Memory") { BotMemoryView(owner: "room:\(roomID)", title: room?.name ?? "Group Memory") }

@@ -60,6 +60,8 @@ jobs:
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotMemoryStore.swift src/ios/MinisTests/Standalone/BotMemoryEntryTests.swift -lsqlite3 -o "$RUNNER_TEMP/bot-memory-tests"
           "$RUNNER_TEMP/bot-memory-tests"
+      - name: Bot memory runtime boundaries
+        run: python3 src/ios/MinisTests/Standalone/run_bot_memory_runtime_tests.py
       - name: Browser storage behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
       - name: Schedule editing behavior tests

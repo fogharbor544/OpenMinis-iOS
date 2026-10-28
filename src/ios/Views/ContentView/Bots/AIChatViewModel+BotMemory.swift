@@ -18,8 +18,11 @@ extension AIChatViewModel {
             }) else { return nil }
             return (message.id.uuidString, message.text)
         }
-        guard let message = messages.last(where: { $0.role == .user }) else { return nil }
-        return (String(describing: message.id), message.content)
+        guard programmaticTurnOrigin == nil,
+              let message = messages.last(where: { $0.role == .user && !$0.isQueued && !$0.isCompactedHistory }) else { return nil }
+        // UI message UUIDs are regenerated on reload. A content-derived source key is
+        // stable across reloads, so forgotten evidence cannot be re-extracted later.
+        return ("source:" + BotMemoryStore.fingerprint(message.content), message.content)
     }
 
     var botMemoryPolicy: String {
@@ -96,7 +99,7 @@ extension AIChatViewModel {
             guard !(try store.entries()).contains(where: {
                 $0.owner == owner.memoryKey && $0.status != "active" && $0.sourceMessage == source.id && $0.sourceSession == sessionId
             }) else { throw BotMemoryError.invalid("This source message was already forgotten/replaced. Ask for a new user instruction.") }
-            let draft = BotMemoryEntry(owner: owner.memoryKey, content: content, category: category,
+            let draft = BotMemoryEntry(owner: owner.memoryKey, content: explicit ? content : evidence, category: category,
                 scope: args["scope"] as? String ?? "general", sourceSession: sessionId, sourceMessage: source.id,
                 evidence: evidence, automatic: !explicit)
             let entry = try store.save(draft, replacing: action == "replace" ? args["entry_id"] as? String : nil, userInitiated: explicit)

@@ -60,9 +60,15 @@ jobs:
         run: |
           xcodebuild -version
           xcodebuild -downloadComponent MetalToolchain
-          brew install ninja llvm lld libarchive pkg-config meson go
+          brew install ninja llvm lld libarchive pkg-config meson
           echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: deps/rclone-mobile/go.mod
+          cache-dependency-path: deps/rclone-mobile/go.sum
       - name: Native dependencies
+        env:
+          GOTOOLCHAIN: local
         run: |
           bash deps/build_lame.sh
           bash deps/build_ffmpeg.sh

@@ -168,7 +168,7 @@ struct BotConversationsView: View {
     @ObservedObject private var store = BotWorkspaceStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var titles: [String: String] = [:]
-    private var ids: [String] { store.bot(botID)?.conversationIds ?? [store.bot(botID)?.sessionId].compactMap { $0 } }
+    private var ids: [String] { store.bot(botID)?.conversationIds ?? [] }
     var body: some View {
         NavigationStack {
             List(Array(ids.reversed().enumerated()), id: \.element) { index, id in

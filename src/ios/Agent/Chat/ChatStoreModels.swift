@@ -365,7 +365,7 @@ struct CompactMarker: Identifiable, Codable {
     /// is the compacted range, everything after it is "live anchor + new msgs".
     /// `compactedCount` and `summary` are still meaningful for UI; all other
     /// columns are ignored for v2 markers.
-    var version: Int = 1
+    var version: Int = 2
 }
 
 /// Token usage stats stored with a message.

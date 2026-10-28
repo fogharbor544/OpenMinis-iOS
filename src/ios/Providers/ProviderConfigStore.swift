@@ -301,7 +301,7 @@ final class ProviderConfigStore: ObservableObject {
         } else {
             registerDegradedRecovery()
         }
-        Self.setupDBAndMigrate(jsonURL: fileURL) { [weak self] db in
+        Self.setupDB(jsonURL: fileURL) { [weak self] db in
             Task { @MainActor in
                 await self?.adoptDB(db)
             }
@@ -338,26 +338,7 @@ final class ProviderConfigStore: ObservableObject {
                 // the DB dump when V3 is enabled. dumpProviderConfig() never
                 // truncates group memberEntryIds.
                 //
-                // [T-icloud-fresh-restore-provider-groups] Previously this also
-                // required the `migrationCompleted` flag — but that flag is ONLY
-                // set when a local `provider-config.json` was migrated at first
-                // launch. A fresh device restored from iCloud has no JSON, so the
-                // flag stayed false forever, and providers/model-groups that
-                // arrived via inbound sync (written into the V3 DB) were never
-                // loaded authoritatively — they vanished on every relaunch even
-                // though the rows were in the DB. Treat the DB as authoritative
-                // whenever V3 is on AND the DB is non-empty (or migration ran),
-                // and stamp the flag so the rest of the store stays consistent.
-                let migratedFlag = UserDefaults.standard.bool(forKey: "cloudSync.providerV3.migrationCompleted")
-                let dbNonEmpty = !(await db.isEmpty())
-                guard ProviderV3Bootstrap.isEnabled, (migratedFlag || dbNonEmpty) else {
-                    logger.info("[GroupLoad] init: staying on V2 JSON config (v3Enabled=\(ProviderV3Bootstrap.isEnabled) migrated=\(migratedFlag) dbNonEmpty=\(dbNonEmpty))")
-                    return
-                }
-                if !migratedFlag && dbNonEmpty {
-                    UserDefaults.standard.set(true, forKey: "cloudSync.providerV3.migrationCompleted")
-                    logger.info("[GroupLoad] init: V3 DB is authoritative via inbound sync (no local JSON migration) — stamping migrationCompleted")
-                }
+                guard ProviderV3Bootstrap.isEnabled else { return }
                 let fresh = await db.dumpProviderConfig()
                 let jsonGroupMembers = self.config.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
                 let dbGroupMembers = fresh.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
@@ -513,7 +494,7 @@ final class ProviderConfigStore: ObservableObject {
         // this establishes it now; if it is open and non-empty, its dump
         // becomes authoritative again on top of the reloaded JSON seed.
         if self.db == nil {
-            Self.setupDBAndMigrate(jsonURL: fileURL) { [weak self] db in
+            Self.setupDB(jsonURL: fileURL) { [weak self] db in
                 Task { @MainActor in await self?.adoptDB(db) }
             }
         } else {
@@ -532,25 +513,10 @@ final class ProviderConfigStore: ObservableObject {
 
     /// Async DB open + one-shot migration from provider-config.json.
     /// Runs off the main thread so a slow open doesn't block UI launch.
-    private static func setupDBAndMigrate(jsonURL: URL, completion: @escaping (ProviderConfigDB?) -> Void) {
+    private static func setupDB(jsonURL: URL, completion: @escaping (ProviderConfigDB?) -> Void) {
         Task.detached {
             do {
                 let db = try ProviderConfigDB()
-                // Migration: if DB is empty (fresh install or first v3
-                // launch) and JSON exists, ingest the JSON. The
-                // UserDefaults flag prevents re-running migration even
-                // if the DB is later emptied (rare; usually a sync
-                // bulk-replace would re-populate it).
-                let migratedKey = "cloudSync.providerV3.migrationCompleted"
-                let alreadyMigrated = UserDefaults.standard.bool(forKey: migratedKey)
-                if await db.isEmpty(), !alreadyMigrated,
-                   FileManager.default.fileExists(atPath: jsonURL.path) {
-                    let ok = await db.migrateFromLegacyJSON(at: jsonURL)
-                    if ok {
-                        UserDefaults.standard.set(true, forKey: migratedKey)
-                        logger.info("[v3] ProviderConfig migration to SQLite complete")
-                    }
-                }
                 completion(db)
             } catch {
                 logger.error("[v3] ProviderConfigDB open failed: \(error) — staying on JSON-only mode")
@@ -948,21 +914,7 @@ final class ProviderConfigStore: ObservableObject {
     /// deletions. The JSON branch remains for pre-migration / kill-switched
     /// devices.
     func reloadFromDisk() async {
-        // [T-icloud-fresh-restore-provider-groups] Mirror the init gate: the V3
-        // DB is authoritative when V3 is on AND (migration ran OR the DB is
-        // non-empty). On a fresh iCloud-restore device the migrationCompleted
-        // flag is never set (no local JSON to migrate), so without the
-        // dbNonEmpty clause a reload here would fall back to the truncating
-        // V2 JSON path and drop inbound-synced group members.
-        let migratedFlag = UserDefaults.standard.bool(forKey: "cloudSync.providerV3.migrationCompleted")
-        var dbAuthoritative = false
-        if let db, ProviderV3Bootstrap.isEnabled {
-            if migratedFlag {
-                dbAuthoritative = true
-            } else {
-                dbAuthoritative = !(await db.isEmpty())
-            }
-        }
+        let dbAuthoritative = ProviderV3Bootstrap.isEnabled
         if let db, dbAuthoritative {
             let priorMembers = config.modelGroups.reduce(0) { $0 + $1.memberEntryIds.count }
             let fresh = await db.dumpProviderConfig()
@@ -3009,35 +2961,6 @@ final class ProviderConfigStore: ObservableObject {
     /// isolated. Once entries land, `shadowVoiceProviders()` recomputes off the
     /// updated `modelEntries` and the store's `objectWillChange` (fired by
     /// `save()` inside replaceEntries) refreshes the UI — no app restart needed.
-    private static let voiceModalityMigrationKey = "voiceModalityMigration.v1.done"
-    func migrateVoiceModalityIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.voiceModalityMigrationKey) else { return }
-        UserDefaults.standard.set(true, forKey: Self.voiceModalityMigrationKey)
-
-        // Third-party OpenAI-compat instances are the affected population (covers
-        // MiMo/DashScope and any similar mixed vendor); official OpenAI/OpenRouter
-        // hosts were never mis-classified, so skip them.
-        let affected = config.instances.filter { inst in
-            inst.isEnabled
-            && (inst.providerType == .openAI || inst.providerType == .openAIResponses)
-            && Self.isThirdPartyOpenAICompat(inst)
-        }
-        guard !affected.isEmpty else {
-            logger.info("[VoiceMigrate] one-time refresh: no affected third-party OpenAI-compat instances")
-            return
-        }
-        logger.info("[VoiceMigrate] one-time refresh: FIRE for \(affected.count) instance(s): [\(affected.map { $0.label }.joined(separator: ","))]")
-        // Force the manual-refresh path (does NOT skip instances with custom
-        // models — the affected users often re-added custom text models). Each
-        // instance in its own Task so one failure never blocks the others.
-        for instance in affected {
-            Task { [weak self] in
-                await self?.refreshModels(for: instance)
-                logger.info("[VoiceMigrate] one-time refresh done: instance=\(instance.label) hasVoiceModels=\(self?.hasVoiceModels(for: instance.id) ?? false)")
-            }
-        }
-    }
-
     /// Refresh models for all enabled provider instances.
     /// Called on first daily launch to keep model lists up-to-date.
     /// Skips instances where the user has manually added custom models.

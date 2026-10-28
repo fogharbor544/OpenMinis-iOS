@@ -46,42 +46,6 @@ enum ForceSyncHelper {
         return 0
     }
 
-    /// Convenience for record types whose local rows live in a single
-    /// place we can enumerate from this file (singletons + memory dir).
-    /// Returns the number of rows newly marked.
-    @MainActor
-    @discardableResult
-    static func markMemoryDirty() async -> Int {
-        let fm = FileManager.default
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
-        var count = 0
-        // GLOBAL.md
-        let globalURL = memDir.appendingPathComponent("GLOBAL.md")
-        if fm.fileExists(atPath: globalURL.path) {
-            await ChatStore.shared.markDirty(recordType: "MemoryGlobalV2",
-                                             recordId: "memory-global")
-            count += 1
-        }
-        // Daily logs within the 30-day window (same rule as
-        // SyncDirtyScanner.scanMemoryFiles).
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
-        if let entries = try? fm.contentsOfDirectory(at: memDir,
-                                                     includingPropertiesForKeys: nil,
-                                                     options: [.skipsHiddenFiles]) {
-            for url in entries where url.pathExtension == "md"
-                && url.lastPathComponent != "GLOBAL.md" {
-                let stem = (url.lastPathComponent as NSString).deletingPathExtension
-                if let fileDate = fmt.date(from: stem), fileDate >= cutoff {
-                    await ChatStore.shared.markDirty(recordType: "MemoryDailyV2",
-                                                     recordId: stem)
-                    count += 1
-                }
-            }
-        }
-        return count
-    }
-
     /// Mark the ProviderConfig singleton dirty (covers both providers
     /// and model groups — they share the same record).
     @MainActor

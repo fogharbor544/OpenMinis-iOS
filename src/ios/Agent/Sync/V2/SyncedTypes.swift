@@ -814,60 +814,6 @@ struct SyncedSoul: Syncable {
     }()
 }
 
-// MARK: - SyncedMemoryGlobal (GLOBAL.md singleton)
-//
-// One singleton record per iCloud account holding the full GLOBAL.md text.
-// LWW by updatedAt (file mtime). Empty file is never pushed (builder returns nil).
-// Lives alongside SoulV2 in minis-shared zone.
-struct SyncedMemoryGlobal: Syncable {
-    var id: String = "memory-global"   // constant — one record per account
-    var contentMarkdown: String        // full GLOBAL.md text
-    var updatedAt: Date                // file mtime
-
-    static let syncMetadata: SyncTypeMetadata<SyncedMemoryGlobal> = {
-        typealias F = FieldDescriptor<SyncedMemoryGlobal>
-        return SyncTypeMetadata<SyncedMemoryGlobal>(
-            recordType: "MemoryGlobalV2",
-            idKeyPath: \SyncedMemoryGlobal.id,
-            scope: .global,
-            fields: [
-                F.string("contentMarkdown", \SyncedMemoryGlobal.contentMarkdown),
-                F.date("updatedAt",          \SyncedMemoryGlobal.updatedAt),
-            ],
-            conflictPolicy: .lastWriteWinsByField(\SyncedMemoryGlobal.updatedAt),
-            version: 1
-        )
-    }()
-}
-
-// MARK: - SyncedMemoryDaily (per-day daily log)
-//
-// One record per calendar day (id = "YYYY-MM-DD"). Payload is a JSON array
-// of MemoryEntry (timestamp + content). Merger does Set Union by timestamp key,
-// so entries from different devices accumulate rather than overwriting each other.
-// Only the most recent 30 days are pushed; older files are never enqueued.
-struct SyncedMemoryDaily: Syncable {
-    var id: String            // "YYYY-MM-DD" — also the CK recordName
-    var entriesJson: String   // JSON-encoded [MemoryEntry]
-    var updatedAt: Date       // last merge write time
-
-    static let syncMetadata: SyncTypeMetadata<SyncedMemoryDaily> = {
-        typealias F = FieldDescriptor<SyncedMemoryDaily>
-        return SyncTypeMetadata<SyncedMemoryDaily>(
-            recordType: "MemoryDailyV2",
-            idKeyPath: \SyncedMemoryDaily.id,
-            scope: .global,
-            fields: [
-                F.string("dateKey",     \SyncedMemoryDaily.id),
-                F.string("entriesJson", \SyncedMemoryDaily.entriesJson),
-                F.date("updatedAt",     \SyncedMemoryDaily.updatedAt),
-            ],
-            conflictPolicy: .lastWriteWinsByField(\SyncedMemoryDaily.updatedAt),
-            version: 1
-        )
-    }()
-}
-
 // MARK: - SyncedFolder
 
 /// Home-list session folder (FolderV2). Identity is the locally generated
@@ -950,7 +896,5 @@ enum SyncedTypesBootstrap {
         r.register(SyncedEnvVarState.self) // [T-envvar-disable] enabled state
         r.register(SyncedDevice.self)
         r.register(SyncedSoul.self)
-        r.register(SyncedMemoryGlobal.self)
-        r.register(SyncedMemoryDaily.self)
     }
 }

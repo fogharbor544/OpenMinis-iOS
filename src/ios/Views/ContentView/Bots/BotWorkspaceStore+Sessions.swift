@@ -15,8 +15,7 @@ extension BotWorkspaceStore {
         let session = await ChatStore.shared.createSession(modelId: entry.model.id, title: title, source: "bot")
         providers.setBinding(SessionModelBinding(sessionId: session.id, primarySource: .group(groupId: groupID, resolvedEntryId: entryID)), for: session.id)
         var next = data
-        if next.sessionOwners == nil { next.sessionOwners = [:] }
-        next.sessionOwners?[session.id] = BotSessionOwner(botId: botID, roomId: roomID)
+        next.sessionOwners[session.id] = BotSessionOwner(botId: botID, roomId: roomID)
         if let roomID, let index = next.rooms.firstIndex(where: { $0.id == roomID }) {
             next.rooms[index].sessions[botID] = session.id
             // Group sessions inherit this Bot's current skill and MCP choices, not its private messages.
@@ -31,7 +30,7 @@ extension BotWorkspaceStore {
                 }
             }
         } else if roomID == nil, let index = next.bots.firstIndex(where: { $0.id == botID }) {
-            var ids = next.bots[index].conversationIds ?? [profile.sessionId].compactMap { $0 }
+            var ids = next.bots[index].conversationIds
             if !ids.contains(session.id) { ids.append(session.id) }
             next.bots[index].conversationIds = ids
             next.bots[index].sessionId = session.id
@@ -53,7 +52,7 @@ extension BotWorkspaceStore {
     func applyModel(for profile: BotProfile) {
         guard let groupID = profile.modelGroupId ?? ProviderConfigStore.shared.defaultPrimaryGroupId,
               let group = ProviderConfigStore.shared.group(for: groupID) else { return }
-        let sessions = (profile.conversationIds ?? [profile.sessionId].compactMap { $0 }) + data.rooms.compactMap { $0.sessions[profile.id] }
+        let sessions = profile.conversationIds + data.rooms.compactMap { $0.sessions[profile.id] }
         for sessionID in sessions {
             if let entryID = ModelGroupRouter.resolve(group: group, sessionId: sessionID, store: .shared) {
                 ProviderConfigStore.shared.setBinding(SessionModelBinding(sessionId: sessionID,

@@ -245,53 +245,8 @@ extension ChatStore {
         } else {
             let errMsg = sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"
             logger.error("[ChatStore.loadMessages] sqlite3_prepare_v2 FAILED for session \(sessionId): \(errMsg) (code=\(prepareResult))")
-            // Fallback: try simpler query without newer migration columns
-            sqlite3_finalize(stmt)
-            stmt = nil
-            let fallbackSql = """
-                SELECT id, session_id, role, parts_json, created_at, token_usage
-                FROM messages WHERE session_id = ? ORDER BY sort_order ASC, created_at ASC, id ASC
-            """
-            if sqlite3_prepare_v2(db, fallbackSql, -1, &stmt, nil) == SQLITE_OK {
-                logger.info("[ChatStore.loadMessages] Fallback query succeeded for session \(sessionId)")
-                sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let id = String(cString: sqlite3_column_text(stmt, 0))
-                    let sessId = String(cString: sqlite3_column_text(stmt, 1))
-                    let roleStr = String(cString: sqlite3_column_text(stmt, 2))
-                    let partsStr = String(cString: sqlite3_column_text(stmt, 3))
-                    let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
-                    let usageStr = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-
-                    guard let role = MessageRole(rawValue: roleStr) else { continue }
-
-                    let decodeStart = CFAbsoluteTimeGetCurrent()
-                    let parts: [ContentPart]
-                    if let data = partsStr.data(using: .utf8) {
-                        parts = (try? JSONDecoder().decode([ContentPart].self, from: data)) ?? []
-                    } else {
-                        parts = []
-                    }
-                    let tokenUsage: StoredTokenUsage?
-                    if let usageData = usageStr?.data(using: .utf8) {
-                        tokenUsage = try? JSONDecoder().decode(StoredTokenUsage.self, from: usageData)
-                    } else {
-                        tokenUsage = nil
-                    }
-                    jsonDecodeTime += CFAbsoluteTimeGetCurrent() - decodeStart
-
-                    messages.append(RawMessage(
-                        id: id, sessionId: sessId, role: role, parts: parts,
-                        createdAt: createdAt, tokenUsage: tokenUsage,
-                        reasoningContent: nil,
-                        streamInterruptCount: 0
-                    ))
-                }
-            } else {
-                let fallbackErr = sqlite3_errmsg(db).map { String(cString: $0) } ?? "unknown"
-                logger.error("[ChatStore.loadMessages] Fallback query ALSO FAILED for session \(sessionId): \(fallbackErr)")
-            }
         }
+
         sqlite3_finalize(stmt)
 
         let totalElapsed = (CFAbsoluteTimeGetCurrent() - totalStart) * 1000

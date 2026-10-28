@@ -15,6 +15,10 @@ jobs:
     runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
+      - name: Fresh product initialization and Swift syntax
+        run: |
+          python3 src/ios/MinisTests/Standalone/check_fresh_install.py
+          python3 src/ios/MinisTests/Standalone/parse_ios_sources.py
       - name: Parse changed Swift sources
         shell: bash
         run: |

@@ -36,7 +36,7 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     case chats
     case sharedFiles = "shared_files"
     case skills
-    case memory
+    case soul
     case providers
     case mcpServers = "mcp_servers"
     case voiceCorrections = "voice_corrections"
@@ -71,7 +71,7 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     var carriesFileTree: Bool {
         switch self {
         case .chats, .sharedFiles, .skills: return true
-        case .memory, .providers, .mcpServers, .voiceCorrections,
+        case .soul, .providers, .mcpServers, .voiceCorrections,
              .environmentVariables: return false
         }
     }
@@ -86,7 +86,7 @@ extension BackupCategory {
         case .chats: return AppLocalized("Chats")
         case .sharedFiles: return AppLocalized("Shared Files")
         case .skills: return AppLocalized("Skills")
-        case .memory: return AppLocalized("Memory & Soul")
+        case .soul: return AppLocalized("Persona")
         case .providers: return AppLocalized("Providers")
         case .mcpServers: return AppLocalized("MCP Servers")
         case .voiceCorrections: return AppLocalized("Voice Corrections")

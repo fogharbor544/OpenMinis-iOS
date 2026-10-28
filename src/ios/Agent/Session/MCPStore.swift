@@ -93,7 +93,6 @@ final class MCPStore: ObservableObject {
     private static let SQLITE_TRANSIENT_DB = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private init() {
-        Self.migrateLegacyServersFile()
         openDatabase()
         createTables()
         load()
@@ -117,62 +116,6 @@ final class MCPStore: ObservableObject {
     /// (P4) which runs off the MainActor. Same file as `serversFileURL`.
     nonisolated static var syncFileURL: URL {
         AIChatViewModel.minisMcpServersPersistentDir.appendingPathComponent("servers.json")
-    }
-
-    /// Pre-mount-mechanism location: a real file inside the rootfs data tree
-    /// (invisible to the guest unless registered in fakefs meta.db — the bug
-    /// that motivated the move). Kept only for one-time migration.
-    nonisolated private static var legacyServersFileURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("alpine-rootfs/data/var/minis/mcp-servers", isDirectory: true)
-            .appendingPathComponent("servers.json")
-    }
-
-    /// One-time migration of servers.json from the rootfs data tree into the
-    /// MinisConfig persistent dir. Runs before load() on every launch; no-op
-    /// once migrated. Guards with lstat: after the mount layer has run, the
-    /// old parent is a symlink onto the NEW dir, and copying through it would
-    /// be self-copy. copyItem preserves the modification date, which is the
-    /// sync layer's LWW clock — a migrated file must not look like a fresh
-    /// local edit.
-    nonisolated private static func migrateLegacyServersFile() {
-        let logger = AppLogger(category: "MCPStore")
-        let fm = FileManager.default
-        let newURL = syncFileURL
-        guard !fm.fileExists(atPath: newURL.path) else {
-            logger.info("[Migrate] skip: servers.json already at \(newURL.path)")
-            return
-        }
-        let oldURL = legacyServersFileURL
-        let oldParent = oldURL.deletingLastPathComponent()
-        var st = stat()
-        guard lstat(oldParent.path, &st) == 0 else {
-            logger.info("[Migrate] skip: no legacy dir at \(oldParent.path) (fresh install)")
-            return
-        }
-        guard (st.st_mode & S_IFMT) == S_IFDIR else {
-            logger.info("[Migrate] skip: legacy dir is already a symlink (mode=0o\(String(st.st_mode & S_IFMT, radix: 8))) — mount layer converted it")
-            return
-        }
-        guard fm.fileExists(atPath: oldURL.path) else {
-            logger.info("[Migrate] skip: legacy dir exists but has no servers.json")
-            return
-        }
-        do {
-            try fm.createDirectory(at: newURL.deletingLastPathComponent(),
-                                   withIntermediateDirectories: true)
-            try fm.copyItem(at: oldURL, to: newURL)
-            // Remove the old file so the mount layer's real-dir migration
-            // doesn't find a stale duplicate; the dir itself is replaced with
-            // a symlink by ensureMinisSymlinks/performMount.
-            try? fm.removeItem(at: oldURL)
-            let attrs = (try? fm.attributesOfItem(atPath: newURL.path)) ?? [:]
-            let size = attrs[.size] as? Int ?? 0
-            let mtime = attrs[.modificationDate] as? Date
-            logger.info("[Migrate] OK: \(oldURL.path) -> \(newURL.path) (\(size) bytes, mtime=\(mtime?.description ?? "nil"))")
-        } catch {
-            logger.error("[Migrate] FAILED \(oldURL.path) -> \(newURL.path): \(error.localizedDescription)")
-        }
     }
 
     /// Local file mtime of servers.json (epoch), or nil if absent — fallback

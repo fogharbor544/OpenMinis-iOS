@@ -323,8 +323,8 @@ actor BackupExporter {
         try await run(.skills, AppLocalized("Exporting skills…")) {
             try await exportSkills(dataDir: dataDir, trees: trees)
         }
-        try await run(.memory, AppLocalized("Exporting memory…")) {
-            try exportMemory(dataDir: dataDir)
+        try await run(.soul, AppLocalized("Exporting persona…")) {
+            try exportSoul(dataDir: dataDir)
         }
         try await run(.providers, AppLocalized("Exporting providers…")) {
             try await exportProviders(dataDir: dataDir, staging: staging,
@@ -712,9 +712,9 @@ actor BackupExporter {
     /// Note this deliberately does NOT reuse the sync hydrator's daily-memory
     /// path: that one drops anything older than 30 days, which is correct for
     /// sync traffic and wrong for a full backup.
-    private func exportMemory(dataDir: URL) throws -> BackupManifest.CategoryStat {
+    private func exportSoul(dataDir: URL) throws -> BackupManifest.CategoryStat {
         let src = AIChatViewModel.minisMemoryPersistentDir
-        let dst = dataDir.appendingPathComponent("memory", isDirectory: true)
+        let dst = dataDir.appendingPathComponent("soul", isDirectory: true)
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
 
         var count = 0
@@ -726,7 +726,7 @@ actor BackupExporter {
         // The icon is the one non-Markdown file this directory holds; matching
         // it by name rather than widening to every extension keeps stray files
         // (editor swap files, .DS_Store) out of the package.
-        for name in names where name.hasSuffix(".md") || name == SoulIconImage.sidecarName {
+        for name in names where name == "SOUL.md" || name == SoulIconImage.sidecarName {
             let from = src.appendingPathComponent(name)
             guard (try? from.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
             else { continue }

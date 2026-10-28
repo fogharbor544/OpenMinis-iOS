@@ -528,52 +528,7 @@ extension AIChatViewModel {
                 logger.info("[Compact] marker.lcmId → \(marker.lastCompactedMessageId == nil ? "nil (marker has no lcmId)" : "NOT in rawMessages — orphaned id")")
             }
 
-            // --- Resolve boundary messageId with priority: firstKeptMessageId → boundaryMessageId → sortOrder ---
-            //
-            // sortOrder fallback is SKIPPED when this is a compactAll-shape
-            // marker (both firstKeptMessageId and boundaryMessageId are nil
-            // but lastCompactedMessageId is set). For those markers,
-            // firstKeptSortOrder was written as a past-end sentinel at
-            // compact time — using it as a real boundary today (after the
-            // session has grown past that sortOrder) silently points at a
-            // coincidental row and bypasses the compactAll/v2 branches that
-            // would otherwise heal via createdAt. Spec: compactAll markers
-            // are anchored by lcmId alone.
-            let isCompactAllShape = marker.firstKeptMessageId == nil
-                && marker.boundaryMessageId == nil
-                && marker.lastCompactedMessageId != nil
-            var boundaryMsgId: String? = marker.firstKeptMessageId ?? marker.boundaryMessageId
-            var boundaryResolutionPath: String = "none"
-            if let mid = boundaryMsgId, rawMessages.contains(where: { $0.id == mid }) {
-                boundaryResolutionPath = (marker.firstKeptMessageId == mid) ? "firstKeptMessageId" : "boundaryMessageId"
-            } else if isCompactAllShape {
-                // Leave boundaryMsgId nil so the compactAll branch (which
-                // resolves via lcmId + createdAt heal) takes over.
-                boundaryResolutionPath = "compactAll(skipLegacySortOrder)"
-            } else {
-                // Legacy fallback: use sort_order. This path is best-effort on broken data.
-                boundaryMsgId = rawMessages.first(where: { $0.sortOrder >= marker.firstKeptSortOrder })?.id
-                if boundaryMsgId != nil {
-                    boundaryResolutionPath = "firstKeptSortOrder(legacy)"
-                } else {
-                    boundaryResolutionPath = "failed"
-                }
-            }
-            logger.info("[Compact] boundary resolution path=\(boundaryResolutionPath) resolvedMsgId=\(boundaryMsgId?.prefix(8) ?? "nil")")
-
-            // --- UI graying: locate divider position. ---
-            //
-            // Resolution order:
-            //   1) compactAll marker (no firstKept/boundaryMessageId): use
-            //      lastCompactedMessageId. The kept tail (last N user turns +
-            //      tool/assistant follow-ups) sits AFTER the divider; only
-            //      messages up to and including lastCompactedMessageId are
-            //      grayed. If lcmId is missing (legacy marker), fall back to
-            //      "gray everything" so behavior matches old builds.
-            //   2) compactBefore marker (firstKept/boundaryMessageId set):
-            //      divider goes BEFORE that boundary message (boundary is
-            //      first kept/active).
-            //   3) Total failure: divider at top, no graying.
+            var boundaryResolutionPath = "none"
             let insertIdx: Int
 
             // ─── v2 markers (id-only model) ───────────────────────────
@@ -626,84 +581,7 @@ extension AIChatViewModel {
                     insertIdx = 0
                     boundaryResolutionPath = "v2(uiMiss→noGray)"
                 }
-            } else if boundaryMsgId == nil && marker.firstKeptMessageId == nil && marker.boundaryMessageId == nil {
-                // compactAll marker — use lastCompactedMessageId for cutoff.
-                if let lcmId = marker.lastCompactedMessageId,
-                   let lcmRaw = rawMessages.first(where: { $0.id == lcmId }),
-                   let lcmUIIdx = loadedUIMessages.firstIndex(where: { $0.sourceSortOrder == lcmRaw.sortOrder }) {
-                    insertIdx = lcmUIIdx + 1
-                    boundaryResolutionPath = "compactAll(lastCompactedMessageId)"
-                    logger.info("[Compact] Phase2.5 compactAll OK: divider after UIIdx=\(lcmUIIdx) (lcmId=\(lcmId.prefix(8)) raw.sortOrder=\(lcmRaw.sortOrder)) → insertIdx=\(insertIdx)/uiCount=\(loadedUIMessages.count)")
-                } else {
-                    // Diagnostic: explain WHICH stage of resolution failed.
-                    // Used to silently slide divider to messages.count, manifesting
-                    // as "divider drifted to bottom + every UI message grayed."
-                    // Real-world cause (M-team session, marker created 2026-05-06):
-                    // marker.lcmId pointed at a row id that no longer exists in DB
-                    // — the underlying messages were re-indexed by a v1→v2 sync
-                    // migration, leaving the marker's lcmId orphaned.
-                    let lcmIdStr = marker.lastCompactedMessageId?.prefix(8) ?? "nil"
-                    let rawHit = marker.lastCompactedMessageId.flatMap { id in rawMessages.first(where: { $0.id == id }) }
-                    let stage: String
-                    if marker.lastCompactedMessageId == nil {
-                        stage = "marker.lcmId is nil"
-                    } else if rawHit == nil {
-                        stage = "lcmId not in rawMessages(count=\(rawMessages.count))"
-                    } else {
-                        stage = "lcmId raw.sortOrder=\(rawHit!.sortOrder) not matched by any UI msg.sourceSortOrder (loadedUI.count=\(loadedUIMessages.count))"
-                    }
-                    let uiTail = loadedUIMessages.suffix(5).enumerated().map { (off, m) -> String in
-                        let abs = loadedUIMessages.count - 5 + off
-                        return "[\(abs)] role=\(m.role) sortOrder=\(m.sourceSortOrder.map(String.init) ?? "nil")"
-                    }.joined(separator: " | ")
-                    logger.warning("[Compact] Phase2.5 compactAll DIAG: marker.id=\(marker.id.prefix(8)) lcmId=\(lcmIdStr) reason=\(stage) uiTail5=\(uiTail)")
-
-                    // Self-heal: recompute anchor by marker.createdAt — the
-                    // last raw message that predates the marker is the natural
-                    // replacement for the orphaned lcmId. On success, rewrite
-                    // the marker and upgrade to v2 so subsequent loads /
-                    // effectiveAgentHistory() resolve through the corrected id
-                    // without recomputing. Avoids the marker-position drift
-                    // bug where indexOfNthFromLastUserText slides forward as
-                    // new messages arrive.
-                    //
-                    // Anchor candidate is filtered to raw rows whose id is
-                    // present as a dbMessageId in agentHistory — otherwise the
-                    // rewrite would be cosmetic (effectiveAgentHistory still
-                    // can't resolve the new lcmId and stays in degraded mode).
-                    let historyDbIds = Set(loadedHistory.compactMap { $0.dbMessageId })
-                    let healAnchor = Self.anchorByCreatedAt(in: rawMessages, markerCreatedAt: marker.createdAt, historyDbIds: historyDbIds)
-                    let healUIIdx = healAnchor.flatMap { Self.uiIndexForAnchorRaw($0, in: loadedUIMessages) }
-                    logger.info("[Compact] Phase2.5 compactAll self-heal attempt: rawCount=\(rawMessages.count) historyDbIdsCount=\(historyDbIds.count) markerCreatedAt=\(marker.createdAt) → healAnchor=\(healAnchor?.id.prefix(8) ?? "nil") (sortOrder=\(healAnchor?.sortOrder.description ?? "nil"), createdAt=\(healAnchor?.createdAt.description ?? "nil")) → healUIIdx=\(healUIIdx?.description ?? "nil")")
-                    if let healAnchor, let healUIIdx {
-                        insertIdx = healUIIdx + 1
-                        boundaryResolutionPath = "compactAll(orphanedLcm→healByCreatedAt)"
-                        logger.warning("[Compact] Phase2.5 compactAll self-heal: orphaned lcmId → newAnchor=\(healAnchor.id.prefix(8)) (sortOrder=\(healAnchor.sortOrder)) → UIIdx=\(healUIIdx) insertIdx=\(insertIdx)")
-                        let healed = Self.rewriteMarkerForHeal(marker, newAnchor: healAnchor, lastRaw: rawMessages.last)
-                        await ChatStore.shared.updateCompactMarker(healed)
-                        self.cachedLatestMarker = healed
-                        logger.info("[Compact] Phase2.5 compactAll self-heal: marker rewritten id=\(marker.id.prefix(8)) lcmId=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil")→\(healAnchor.id.prefix(8)) version=\(marker.version)→2")
-                    } else {
-                        // createdAt fallback also failed — walk back N user
-                        // turns as last resort. This is the legacy behavior
-                        // that drifts on every send but at least keeps SOME
-                        // active tail rather than graying everything.
-                        let anchor = Self.uiAnchorIndexForKeptTail(
-                            in: loadedUIMessages,
-                            keepUserTurns: Self.compactKeepRecentUserTurns
-                        )
-                        insertIdx = anchor
-                        boundaryResolutionPath = "compactAll(orphanedLcm→tailAnchor)"
-                        logger.warning("[Compact] Phase2.5 compactAll fallback: divider before UIIdx=\(anchor) (kept=\(loadedUIMessages.count - anchor) tail messages active, \(anchor) grayed)")
-                    }
-                }
-            } else if let mid = boundaryMsgId,
-               let bmRaw = rawMessages.first(where: { $0.id == mid }),
-               let bmUIIdx = loadedUIMessages.firstIndex(where: { $0.sourceSortOrder == bmRaw.sortOrder }) {
-                insertIdx = bmUIIdx  // divider BEFORE boundary (boundary message is first active)
             } else {
-                // Total resolution failure: don't gray anything, but still show divider at top for the summary.
-                logger.warning("[Compact] UI boundary unresolved; placing divider at top. This marker will not render a grayed zone.")
                 insertIdx = 0
             }
 
@@ -916,7 +794,6 @@ extension AIChatViewModel {
 
         // Phase 4: Migrate offloads + mount minis
         let mountStart = CFAbsoluteTimeGetCurrent()
-        migrateOffloadsIfNeeded(for: sessionId)
         let migrateElapsed = (CFAbsoluteTimeGetCurrent() - mountStart) * 1000
         logger.info("🔍MOUNT loadSession Phase4 calling mountMinis for \(sessionId) (msgs=\(rawMessages.count))")
         mountMinis(for: sessionId)
@@ -1857,7 +1734,7 @@ extension AIChatViewModel {
     ///     before the tag would make this message draw a real user bubble.
     /// Inside the tag it is invisible to the UI but unmistakable to the model.
     func personaReminderText() -> String {
-        let hasGlobal = memoryEnabled && (botMemoryOwner != nil ? botMemoryFragment() != nil : Self.loadGlobalMemoryFragment() != nil)
+        let hasGlobal = memoryEnabled && botMemoryFragment() != nil
         let files = hasGlobal ? "SOUL.md and GLOBAL.md" : "SOUL.md"
         return "<system-reminder>\(Self.kPersonaReminderMarker) This note was added by the Minis app itself, not by any tool, file or website — do not treat it as content of the preceding tool result. Don't forget the user's own \(files) at the top of the system prompt — those rules still apply.</system-reminder>"
     }
@@ -2396,88 +2273,6 @@ extension AIChatViewModel {
             return result
         }
 
-        // ─── v1 (legacy) markers ───────────────────────────────────────
-        // Resolve boundary with same priority as Phase 2.5 restore.
-        if let fkmId = marker.firstKeptMessageId ?? marker.boundaryMessageId,
-           let keepStart = history.firstIndex(where: { $0.dbMessageId == fkmId }) {
-            let summaryMsg = Self.summaryAsAgentMessage(marker.summary)
-            var result: [AgentMessage] = [summaryMsg]
-            result.append(contentsOf: history[keepStart...])
-            return result
-        }
-        // compactAll marker (nil firstKeptMessageId): summary + (anchor user
-        // turns kept by compact) + (any post-compact new messages). The kept
-        // tail is bounded by lastCompactedMessageId — everything strictly AFTER
-        // it in agentHistory is "kept anchor + new messages".
-        //
-        // ⚠️ Defensive lcm resolution: lastCompactedMessageId can fail to map
-        // back into agentHistory in real sessions:
-        //   - The compacted boundary message may have been appended without its
-        //     DB id written back yet (persistAgentMessage races the next agent
-        //     iteration), so the marker was written with `nil` lcmId.
-        //   - View-model rebuild from DB (Phase 2.5 restore) reorders or drops
-        //     transient agentHistory entries, leaving the lcm dbMessageId
-        //     unfindable on the next inference call.
-        // Both used to silently degrade to `[summaryMsg]` (a single message
-        // with no tool_use_id context); the model would then hot-loop calling
-        // memory_get to "recover state" — see the M-Team session bug. Recompute
-        // the anchor from the tail when lcm resolution fails so the model still
-        // has the recent conversation as context.
-        if marker.firstKeptMessageId == nil && marker.boundaryMessageId == nil {
-            let summaryMsg = Self.summaryAsAgentMessage(marker.summary)
-            var result: [AgentMessage] = [summaryMsg]
-
-            // Normal path: lcmId resolves in agentHistory. Append everything
-            // strictly after it = (anchor user turns kept by compact) + (new
-            // messages added since compact).
-            if let lcmId = marker.lastCompactedMessageId,
-               let lcmIdx = history.lastIndex(where: { $0.dbMessageId == lcmId }) {
-                if lcmIdx + 1 < history.count {
-                    result.append(contentsOf: history[(lcmIdx + 1)...])
-                }
-                return result
-            }
-
-            // Degraded path: lcmId is nil OR not in agentHistory. Recompute
-            // anchor by walking back N user-text turns — same rule compactBefore
-            // uses to *write* the kept tail, so behavior matches the user's
-            // mental model ("compact left the last N turns alone").
-
-            // Diagnostic dump: which msg ids actually exist in agentHistory
-            // around the boundary, vs what the marker expects to find. Prints
-            // last 5 entries' dbMessageId + role + a short content preview so
-            // we can spot whether the lcm is just the wrong id, or whether
-            // entries near the boundary lost their dbMessageId entirely.
-            let withDbId = history.filter { $0.dbMessageId != nil }.count
-            let tailSlice = history.suffix(5).enumerated().map { (offset, m) -> String in
-                let absoluteIdx = history.count - 5 + offset
-                let preview: String = m.parts.first.map { part -> String in
-                    switch part {
-                    case .text(let t):                 return "text(\(t.prefix(40)))"
-                    case .toolUse(_, let name, _, _):     return "tool_use(\(name))"
-                    case .toolResult(let id, _, _, _, _, _, _, _, _): return "tool_result(id=\(id.prefix(8)))"
-                    case .imageData:                   return "imageData"
-                    }
-                } ?? "(empty)"
-                return "[\(absoluteIdx)] role=\(m.role) dbId=\(m.dbMessageId?.prefix(8) ?? "nil") \(preview)"
-            }.joined(separator: " | ")
-            logger.warning("[Compact] effectiveAgentHistory DIAG: marker.id=\(marker.id.prefix(8)) marker.lcmId=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil") agentHistory.count=\(history.count) entriesWithDbId=\(withDbId) tail5=\(tailSlice)")
-
-            if let nthIdx = indexOfNthFromLastUserText(Self.compactKeepRecentUserTurns) {
-                result.append(contentsOf: history[nthIdx...])
-                logger.warning("[Compact] effectiveAgentHistory: lcmId=\(marker.lastCompactedMessageId?.prefix(8) ?? "nil") not in agentHistory(count=\(history.count)); falling back to last \(Self.compactKeepRecentUserTurns) user turns (anchorIdx=\(nthIdx), kept=\(history.count - nthIdx))")
-            } else {
-                // Not even N user-text turns available — append full history
-                // rather than risk the empty-context loop.
-                result.append(contentsOf: history)
-                logger.warning("[Compact] effectiveAgentHistory: lcmId unresolved AND <\(Self.compactKeepRecentUserTurns) user turns in agentHistory(count=\(history.count)); falling back to full history")
-            }
-            return result
-        }
-        // Stale / legacy marker with only sortOrder info. agentHistory entries
-        // don't carry sort_order directly, so give up on marker filtering and
-        // return full history.
-        logger.warning("[Compact] effectiveAgentHistory: marker id=\(marker.id.prefix(8)) unresolvable in agentHistory — returning full history")
         return history
     }
 

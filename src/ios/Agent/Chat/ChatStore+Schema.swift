@@ -38,7 +38,20 @@ extension ChatStore {
                 title       TEXT,
                 model_id    TEXT NOT NULL,
                 created_at  REAL NOT NULL,
-                updated_at  REAL NOT NULL
+                updated_at  REAL NOT NULL,
+                category TEXT,
+                model_binding TEXT,
+                source TEXT,
+                memory_enabled INTEGER NOT NULL DEFAULT 1,
+                last_synced_at REAL,
+                remote_origin_device_id TEXT,
+                pinned_at REAL,
+                folder_id TEXT,
+                parent_session_id TEXT,
+                parent_tool_use_id TEXT,
+                preview_text TEXT,
+                preview_sort_order INTEGER,
+                remote_tombstoned_at REAL
             )
         """)
 
@@ -50,7 +63,17 @@ extension ChatStore {
                 parts_json  TEXT NOT NULL,
                 created_at  REAL NOT NULL,
                 token_usage TEXT,
-                sort_order  INTEGER NOT NULL
+                sort_order  INTEGER NOT NULL,
+                reasoning_content TEXT,
+                reasoning_echo TEXT,
+                stream_interrupt_count INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL,
+                error_info TEXT,
+                part_flags INTEGER NOT NULL DEFAULT 0,
+                model_id TEXT,
+                model_display_name TEXT,
+                provider_type TEXT,
+                provider_instance_id TEXT
             )
         """)
 
@@ -75,32 +98,18 @@ extension ChatStore {
 
         // Idempotent column migrations — guarded via PRAGMA table_info so
         // re-runs on already-migrated DBs don't emit duplicate-column errors.
-        addColumnIfMissing(table: "sessions", column: "category", definition: "TEXT")
-        addColumnIfMissing(table: "sessions", column: "model_binding", definition: "TEXT")
-        addColumnIfMissing(table: "sessions", column: "source", definition: "TEXT")
-        addColumnIfMissing(table: "messages", column: "reasoning_content", definition: "TEXT")
         // [T-responses-echo-persist] Native reasoning items (OpenAI Responses
         // `reasoning` heads: id + summary + the upstream that minted them),
         // JSON. Nullable with no DEFAULT so a row written before this column
         // existed stays distinguishable from one that genuinely has no echo.
-        addColumnIfMissing(table: "messages", column: "reasoning_echo", definition: "TEXT")
-        addColumnIfMissing(table: "messages", column: "stream_interrupt_count", definition: "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfMissing(table: "sessions", column: "memory_enabled", definition: "INTEGER NOT NULL DEFAULT 1")
-        addColumnIfMissing(table: "sessions", column: "last_synced_at", definition: "REAL")
-        addColumnIfMissing(table: "sessions", column: "remote_origin_device_id", definition: "TEXT")
-        addColumnIfMissing(table: "sync_devices", column: "upload_types", definition: "TEXT NOT NULL DEFAULT ''")
-        addColumnIfMissing(table: "sessions", column: "pinned_at", definition: "REAL")
         // Folder membership. NULL = ungrouped. Intentionally NOT a declared FK:
         // a folder_id pointing at a folder that does not exist locally is a
         // legitimate transient state (the session's SessionV2 record can arrive
         // before its FolderV2 record, and a folder deleted on another device
         // leaves references behind). Such orphans render as ungrouped rather
         // than failing a constraint — see foldersById callers in ContentView.
-        addColumnIfMissing(table: "sessions", column: "folder_id", definition: "TEXT")
         // [T-p1-delegate-task] Child-session linkage. Nullable, no DEFAULT,
         // no FK (orphan-tolerant like folder_id).
-        addColumnIfMissing(table: "sessions", column: "parent_session_id", definition: "TEXT")
-        addColumnIfMissing(table: "sessions", column: "parent_tool_use_id", definition: "TEXT")
         // [T-ios-listsessions-perf] Denormalised sidebar preview, computed when
         // a message lands rather than re-derived for every session on every
         // refresh. `preview_sort_order` is the sort_order of the message the
@@ -122,22 +131,16 @@ extension ChatStore {
         // the backup export. Each device computes its own, so an older peer
         // that knows nothing about these columns is unaffected, and a downgrade
         // simply ignores them.
-        addColumnIfMissing(table: "sessions", column: "preview_text", definition: "TEXT")
-        addColumnIfMissing(table: "sessions", column: "preview_sort_order", definition: "INTEGER")
         // Folder pinning (mirrors sessions.pinned_at). Also present in the
         // CREATE TABLE DDL above — per the add-column wipe trap, a new column
         // must exist in BOTH the initial DDL and the idempotent migration.
-        addColumnIfMissing(table: "folders", column: "pinned_at", definition: "REAL")
         // One-sentence group description (≤100 chars): written at creation
         // (typed or AI-suggested), edited in the rename dialog, and fed to
         // the auto-grouping prompt as context. Not rendered in the list.
-        addColumnIfMissing(table: "folders", column: "description", definition: "TEXT")
-        addColumnIfMissing(table: "messages", column: "updated_at", definition: "REAL")
         // [T-error-persist-ios] Device-local error string shown on a failed
         // assistant turn (provider/network/empty-response/context-full/…). Persisted
         // so the indicator survives session reload / app restart. NULL = no error.
         // Not synced via iCloud (errors are device-local; absent from the CKRecord).
-        addColumnIfMissing(table: "messages", column: "error_info", definition: "TEXT")
         // [T-ios-listsessions-part-flags] Device-local bitmask of which
         // ContentPart types a row's parts_json contains — bit0=hasText,
         // bit1=hasToolUse. Lets listSessions() replace 4 un-indexable
@@ -146,17 +149,13 @@ extension ChatStore {
         // purely from parts_json, so it is NOT synced via iCloud (like
         // error_info): inbound merge / backfill recompute it locally on write.
         // Backfilled once for pre-existing rows below.
-        addColumnIfMissing(table: "messages", column: "part_flags", definition: "INTEGER NOT NULL DEFAULT 0")
         // v2 sync: soft-delete tombstone for sessions deleted on a peer
         // device but kept locally. Non-nil = tombstoned at that timestamp.
         // See SyncV2 §3.3.
-        addColumnIfMissing(table: "sessions", column: "remote_tombstoned_at", definition: "REAL")
         // v2 sync: priority + creation order on dirty rows so migration's
         // 28k+ row backlog never starves freshly-typed user messages.
         // priority: 0 = user-driven (default), 1 = migration backlog
         // (push only after priority=0 drains in each batch).
-        addColumnIfMissing(table: "sync_dirty_records", column: "priority", definition: "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfMissing(table: "sync_dirty_records", column: "created_at", definition: "REAL NOT NULL DEFAULT 0")
 
         // [T-token-attribution-snapshot] Which model actually produced each
         // message, captured at write time.
@@ -177,24 +176,6 @@ extension ChatStore {
         // All four are nullable BY DESIGN: rows written before this point read
         // NULL, which is precisely how the UI separates "measured" from
         // "estimated from the session". A NOT NULL DEFAULT would erase that.
-        addColumnIfMissing(table: "messages", column: "model_id", definition: "TEXT")
-        addColumnIfMissing(table: "messages", column: "model_display_name", definition: "TEXT")
-        addColumnIfMissing(table: "messages", column: "provider_type", definition: "TEXT")
-        addColumnIfMissing(table: "messages", column: "provider_instance_id", definition: "TEXT")
-
-        // One-shot cleanup: drop legacy v1 dirty rows that have a v2
-        // counterpart. Under the V2 engine these have no consumer (the
-        // v1 engine is paused, SyncCore filters via v2Only:true) so they
-        // accumulate forever. The longer-term fix is the markDirty
-        // guard above that no longer writes them in V2 mode, but
-        // existing installs still carry the rows from before that fix
-        // and from any V2 build that wrote them as dual-write — so
-        // sweep them once on first launch of this build.
-        // [T-ios27-scene-create-watchdog] Moved out of the dispatch_once for
-        // the same reason as the part_flags backfill — a bulk DELETE over
-        // sync_dirty_records (a 28k+ row backlog on migrated installs) is not
-        // something the main thread should be able to wait behind. See
-        // runDeferredMigrations().
 
         // Compact markers table — tracks context compaction boundaries per session
         exec("""
@@ -205,21 +186,20 @@ extension ChatStore {
                 first_kept_sort_order   INTEGER NOT NULL,
                 compacted_count         INTEGER NOT NULL,
                 created_at              REAL NOT NULL,
-                ui_boundary_sort_order  INTEGER
+                ui_boundary_sort_order  INTEGER,
+                boundary_message_id TEXT,
+                first_kept_message_id TEXT,
+                last_compacted_message_id TEXT,
+                version INTEGER NOT NULL DEFAULT 2
             )
         """)
         exec("CREATE INDEX IF NOT EXISTS idx_compact_markers_session ON compact_markers(session_id, created_at)")
         // Idempotent column migrations for compact_markers.
-        addColumnIfMissing(table: "compact_markers", column: "ui_boundary_sort_order", definition: "INTEGER")
-        addColumnIfMissing(table: "compact_markers", column: "boundary_message_id", definition: "TEXT")
         // Phase A: id-first boundary model. New markers MUST fill these columns.
-        addColumnIfMissing(table: "compact_markers", column: "first_kept_message_id", definition: "TEXT")
-        addColumnIfMissing(table: "compact_markers", column: "last_compacted_message_id", definition: "TEXT")
         // Phase v2: simplified marker model. version=2 markers anchor on
         // last_compacted_message_id ONLY (a real, persisted, UI-visible message
         // id). All other id/sortOrder fields are unused for v2 markers. Older
         // markers default to version=1 so legacy resolution code keeps running.
-        addColumnIfMissing(table: "compact_markers", column: "version", definition: "INTEGER NOT NULL DEFAULT 1")
         exec("CREATE INDEX IF NOT EXISTS idx_compact_markers_first_kept ON compact_markers(session_id, first_kept_message_id)")
 
         // [T-ios-listsessions-part-flags] One-shot backfill of part_flags for
@@ -246,6 +226,8 @@ extension ChatStore {
                 record_id   TEXT NOT NULL,
                 zone_name   TEXT NOT NULL,
                 operation   TEXT NOT NULL DEFAULT 'upsert',
+                priority INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL DEFAULT 0,
                 PRIMARY KEY (record_type, record_id)
             )
         """)
@@ -327,7 +309,8 @@ extension ChatStore {
                 device_name TEXT NOT NULL,
                 zone_name   TEXT NOT NULL,
                 last_seen   REAL NOT NULL,
-                os_version  TEXT NOT NULL DEFAULT ''
+                os_version  TEXT NOT NULL DEFAULT '',
+                upload_types TEXT NOT NULL DEFAULT ''
             )
         """)
         exec("""
@@ -448,75 +431,6 @@ extension ChatStore {
     /// `sessions(id)` and `PRAGMA foreign_keys=ON` is set, so deleting the
     /// parent alone would fail. Orphaned children (session_id NULL / pointing at
     /// a NULL-id parent) can't be reattached to anything, so they go too.
-    /// [T-ios27-scene-create-watchdog] One-shot data migrations that used to
-    /// run inside `createTables()` — i.e. inside the `ChatStore.shared`
-    /// dispatch_once, where every second spent is a second the main thread can
-    /// be blocked for during scene creation.
-    ///
-    /// Call this from the launch path, never from `init`. It is idempotent and
-    /// guarded by UserDefaults flags, so a call that races another is harmless
-    /// and a call after the work is done is a no-op. Being an actor method, it
-    /// serialises against every other ChatStore operation for free.
-    func runDeferredMigrations() {
-        backfillPartFlagsIfNeeded()
-        cleanupV1ZombieDirtyRowsIfNeeded()
-    }
-
-    /// One-shot cleanup: drop legacy v1 dirty rows that have a v2 counterpart.
-    /// Under the V2 engine these have no consumer (the v1 engine is paused,
-    /// SyncCore filters via v2Only:true) so they accumulate forever. The
-    /// longer-term fix is the markDirty guard that no longer writes them in V2
-    /// mode, but existing installs still carry rows from before that fix and
-    /// from any V2 build that wrote them as dual-write — so sweep them once.
-    private func cleanupV1ZombieDirtyRowsIfNeeded() {
-        let zombieCleanupKey = "cloudSync.v2.zombieDirtyCleanupV1Done"
-        guard !UserDefaults.standard.bool(forKey: zombieCleanupKey) else { return }
-        let v1Types = ["Session", "Message", "CompactMarker", "SessionFile",
-                       "Skill", "ProviderConfig", "EnvVar", "SyncDevice", "Soul"]
-        let inList = v1Types.map { "'\($0)'" }.joined(separator: ",")
-        var deletedCount: Int32 = 0
-        let delSQL = "DELETE FROM sync_dirty_records WHERE record_type IN (\(inList))"
-        if sqlite3_exec(db, delSQL, nil, nil, nil) == SQLITE_OK {
-            deletedCount = Int32(sqlite3_changes(db))
-        }
-        UserDefaults.standard.set(true, forKey: zombieCleanupKey)
-        iCloudLogger.info("[iCloudTrace] v1 dirty-row zombie cleanup: deleted=\(deletedCount) types=\(v1Types.joined(separator: ","))")
-    }
-
-    /// [T-ios-listsessions-part-flags] One-shot backfill of part_flags for
-    /// rows written before the column existed (all default to 0). Computed in
-    /// pure SQL with the SAME LIKE patterns the old listSessions used, so
-    /// backfilled flags reproduce the previous preview selection exactly.
-    /// Guarded by a UserDefaults flag so it runs once. Scoped to rows still at
-    /// the default (part_flags = 0 AND the JSON actually contains a
-    /// text/toolUse part) so re-runs after a partial failure stay cheap and
-    /// correct.
-    ///
-    /// Until this has run, rows keep part_flags = 0 and listSessions' masked
-    /// subqueries skip them — such a session shows its stored preview or, on a
-    /// first launch after upgrade, falls back to the slower extraction. That is
-    /// a brief cosmetic delay on one launch, which is a far better trade than
-    /// blocking scene creation.
-    private func backfillPartFlagsIfNeeded() {
-        let partFlagsBackfillKey = "chatStore.partFlagsBackfillV1Done"
-        guard !UserDefaults.standard.bool(forKey: partFlagsBackfillKey) else { return }
-        let expr = Self.partFlagsSQLExpr("parts_json")
-        let backfillSQL = """
-            UPDATE messages SET part_flags = \(expr)
-            WHERE part_flags = 0
-              AND (parts_json LIKE '%"type":"text"%' OR parts_json LIKE '%"type":"toolUse"%')
-        """
-        if sqlite3_exec(db, backfillSQL, nil, nil, nil) == SQLITE_OK {
-            let changed = Int(sqlite3_changes(db))
-            UserDefaults.standard.set(true, forKey: partFlagsBackfillKey)
-            iCloudLogger.info("[part_flags] backfill done: updated \(changed) row(s)")
-        } else {
-            let err = String(cString: sqlite3_errmsg(db))
-            // Leave the flag unset so it retries next launch.
-            iCloudLogger.error("[part_flags] backfill FAILED (will retry next launch): \(err)")
-        }
-    }
-
     private func purgeUnusableSessionRows() {
         var stmt: OpaquePointer?
         var count = 0
@@ -542,25 +456,5 @@ extension ChatStore {
         }
     }
 
-    /// Returns true if `column` exists on `table`. Uses `PRAGMA table_info`.
-    private func columnExists(table: String, column: String) -> Bool {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "PRAGMA table_info(\(table))"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            // table_info columns: cid(0), name(1), type(2), notnull(3), dflt_value(4), pk(5)
-            if let cName = sqlite3_column_text(stmt, 1) {
-                if String(cString: cName) == column { return true }
-            }
-        }
-        return false
-    }
 
-    /// Idempotent `ALTER TABLE ADD COLUMN` — checks `PRAGMA table_info` first
-    /// so re-runs don't emit `duplicate column name` SQL errors into the log.
-    private func addColumnIfMissing(table: String, column: String, definition: String) {
-        if columnExists(table: table, column: column) { return }
-        exec("ALTER TABLE \(table) ADD COLUMN \(column) \(definition)")
-    }
 }

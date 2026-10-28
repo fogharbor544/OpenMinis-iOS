@@ -42,7 +42,7 @@ struct CloudSyncSettingsV2View: View {
                 }
                 if !statusText.isEmpty {
                     NavigationLink {
-                        SyncMigrationDetailView()
+                        SyncStatusView()
                     } label: {
                         LabeledContent("Status") {
                             Text(statusText).foregroundStyle(.secondary)

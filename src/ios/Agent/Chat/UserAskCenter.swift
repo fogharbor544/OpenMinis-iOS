@@ -35,10 +35,6 @@ final class UserAskCenter: ObservableObject {
     private var observers: [NSObjectProtocol] = []
 
     private init() {
-        // [T-user-ask-no-policy] Drop the stored "Always allow" rules and the
-        // removed auto-default mode once, so neither can take effect again.
-        let purged = UserAskSettings.purgeLegacyKeys()
-        if !purged.isEmpty { logger.info("[UserAsk] removed legacy settings \(purged)") }
         registerStaticCategories()
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in

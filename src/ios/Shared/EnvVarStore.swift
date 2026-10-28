@@ -156,48 +156,6 @@ final class EnvVarStore: ObservableObject {
         self.fileURL = baseURL.appendingPathComponent("env-vars.json")
         self.entries = Self.loadEntries(from: fileURL)
         self.stateBook = Self.loadStateBook()
-        scheduleLegacyRecordCleanupIfNeeded()
-    }
-
-    // MARK: - Legacy whole-file record cleanup
-
-    private static let legacyCleanupKey = "cloudSync.envVar.legacyV2RecordDeleted"
-
-    /// One-time job that removes the old EnvVarV2 whole-file record
-    /// from this device's cloud zone after the first per-variable
-    /// EnvVarItem push round. Without this, the legacy record stays
-    /// on iCloud forever, taking storage and confusing other devices'
-    /// inbound merger.
-    ///
-    /// Sequencing:
-    ///   1. Re-mark every local entry dirty as EnvVarItem (idempotent —
-    ///      no-op if cloud already has them).
-    ///   2. Queue an op=delete dirty row for EnvVarV2 (recordId
-    ///      "env-vars"). SyncCore.sendNow drains the EnvVarItem
-    ///      upserts in the same batch as the EnvVarV2 delete; CloudKit
-    ///      orders the upserts before the delete by record id, so the
-    ///      new schema is in cloud before the old record disappears.
-    ///   3. Persist `legacyCleanupKey = true` so subsequent launches
-    ///      skip this work.
-    private func scheduleLegacyRecordCleanupIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.legacyCleanupKey) else { return }
-        // Defer past actor init to avoid touching ChatStore before its
-        // SyncCore wiring has completed (ChatStore actor is also being
-        // brought up around the same time on app launch).
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
-            guard let self else { return }
-            await MainActor.run {
-                self.markAllEntriesDirty()
-                Task { await ChatStore.shared.markDirty(
-                    recordType: "EnvVar",
-                    recordId: "env-vars",
-                    operation: "delete"
-                ) }
-                UserDefaults.standard.set(true, forKey: Self.legacyCleanupKey)
-                logger.info("[EnvVarStore] legacy EnvVarV2 cleanup scheduled (\(self.entries.count) entries re-emitted as EnvVarItem)")
-            }
-        }
     }
 
     // MARK: - Persistence (key list)
@@ -308,16 +266,6 @@ final class EnvVarStore: ObservableObject {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
 
-        // Remove any legacy NON-synchronizable item for this key so reads
-        // (which prefer the sync item) don't shadow it — but do this only
-        // after we know the sync write will be attempted, and never let its
-        // result blank the value.
-        func dropLegacyNonSyncItem() {
-            var legacy = syncMatch
-            legacy[kSecAttrSynchronizable as String] = false
-            SecItemDelete(legacy as CFDictionary)
-        }
-
         var status = SecItemUpdate(syncMatch as CFDictionary, attrs as CFDictionary)
         if status == errSecItemNotFound {
             var addQuery = syncMatch
@@ -332,7 +280,6 @@ final class EnvVarStore: ObservableObject {
         }
 
         if status == errSecSuccess {
-            dropLegacyNonSyncItem()
             // [T-envvar-redactor-main-thread-keychain] A VALUE can change
             // without `saveEntries()` running (the sync path writes values
             // directly), so the redactor's cache has to be dropped here too or
@@ -376,16 +323,7 @@ final class EnvVarStore: ObservableObject {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         if let data = copyData(syncQuery) { return String(data: data, encoding: .utf8) }
-        // Fallback to legacy non-sync
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        guard let data = copyData(query) else { return nil }
-        return String(data: data, encoding: .utf8)
+        return nil
     }
 
     nonisolated private static func deleteValue(forKey key: String) {

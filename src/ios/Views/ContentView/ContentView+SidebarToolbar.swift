@@ -74,14 +74,6 @@ extension ContentView {
                 if migrationSubtitle != .waiting { migrationSubtitle = .waiting }
                 return
             }
-            if let summary = await MigrationEngine.shared.progressSummary() {
-                let pct = summary.pushTotal > 0 ? Int(Double(summary.pushDone) * 100.0 / Double(summary.pushTotal)) : 0
-                let next: SyncSubtitleState = engineUp
-                    ? .migrating(percent: pct, byType: byType)
-                    : .waiting
-                if migrationSubtitle != next { migrationSubtitle = next }
-                return
-            }
             if !byType.isEmpty {
                 let next: SyncSubtitleState = engineUp ? .syncing(byType: byType) : .waiting
                 if migrationSubtitle != next { migrationSubtitle = next }

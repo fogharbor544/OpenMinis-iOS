@@ -976,20 +976,6 @@ actor ProviderConfigDB {
         )
     }
 
-    /// One-shot migration from `provider-config.json` into DB. Idempotent
-    /// (gated by a UserDefaults flag — caller checks it before invoking).
-    /// Called by `ProviderConfigStore` in S3 on first launch of a v3 build.
-    func migrateFromLegacyJSON(at jsonURL: URL) -> Bool {
-        guard let data = try? Data(contentsOf: jsonURL),
-              let config = try? JSONDecoder().decode(ProviderConfig.self, from: data) else {
-            logger.warning("[v3] migrateFromLegacyJSON: failed to read/decode \(jsonURL.path)")
-            return false
-        }
-        logger.info("[v3] migrateFromLegacyJSON: ingesting \(config.instances.count) instances / \(config.modelEntries.count) entries / \(config.modelGroups.count) groups")
-        bulkReplace(from: config)
-        return true
-    }
-
     // MARK: - Per-record API (used by V3 hydrator inbound merges in S5)
 
     /// Fetch a single instance row. Returns nil if id not present. Used by

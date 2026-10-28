@@ -4,12 +4,17 @@ struct BotMemoryView: View {
     let owner: String
     var title = String(localized: "Memory")
     @ObservedObject private var store = BotMemoryStore.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
     @State private var entries: [BotMemoryEntry] = []
     @State private var editing: BotMemoryEntry?
     @State private var deleting: BotMemoryEntry?
     @State private var sharing: BotMemoryEntry?
     @State private var query = ""
     @State private var error: String?
+    private var ownerAvailable: Bool {
+        owner == "shared" || workspace.data.bots.contains { "bot:\($0.id)" == owner } ||
+        workspace.data.rooms.contains { "room:\($0.id)" == owner }
+    }
 
     var body: some View {
         List {
@@ -18,6 +23,7 @@ struct BotMemoryView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if let error { Text(error).foregroundStyle(.red) }
+            if !ownerAvailable { Text("This Bot or group no longer exists.").foregroundStyle(.secondary) }
             if entries.isEmpty { Label("No Memories", systemImage: "brain").foregroundStyle(.secondary) }
             ForEach(entries.filter { query.isEmpty || $0.content.localizedCaseInsensitiveContains(query) || $0.scope.localizedCaseInsensitiveContains(query) }) { entry in
                 Section {
@@ -49,6 +55,7 @@ struct BotMemoryView: View {
         .toolbar {
             Button { editing = BotMemoryEntry(owner: owner, content: "", category: "fact", scope: "general", evidence: "") }
             label: { Label("Add Memory", systemImage: "plus") }
+                .disabled(!ownerAvailable)
         }
         .onAppear { reload() }
         .onChange(of: store.revision) { _ in reload() }

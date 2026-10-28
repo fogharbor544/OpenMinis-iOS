@@ -62,6 +62,8 @@ jobs:
           "$RUNNER_TEMP/bot-memory-tests"
       - name: Bot memory runtime boundaries
         run: python3 src/ios/MinisTests/Standalone/run_bot_memory_runtime_tests.py
+      - name: Bot memory iOS UI type checking
+        run: python3 src/ios/MinisTests/Standalone/check_bot_memory_ui.py
       - name: Browser storage behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
       - name: Schedule editing behavior tests

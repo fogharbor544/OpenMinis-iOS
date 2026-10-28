@@ -168,6 +168,7 @@ final class OffloadPermissionManager: ObservableObject {
     }
 
     func setPermissionLevel(_ level: OffloadPermissionLevel, for command: String) {
+        objectWillChange.send()
         defaults.set(level.rawValue, forKey: defaultsKey(for: command))
     }
 

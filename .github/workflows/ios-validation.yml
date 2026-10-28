@@ -26,6 +26,9 @@ jobs:
             src/ios/Agent/Jobs/AgentJobRegistry.swift \
             src/ios/Views/Chat/ScheduledTaskDetailView.swift \
             src/ios/Views/Settings/SettingsSheet.swift \
+            src/ios/Views/MCP/MCPIntegrationsView.swift \
+            src/ios/Views/Settings/OffloadPermissionSettingsView.swift \
+            src/ios/Agent/Offload/OffloadPermissionManager.swift \
             src/ios/MinisTests/BrowserBookmarkStoreTests.swift \
             src/ios/MinisTests/BrowserCredentialOriginTests.swift; do
             xcrun swiftc -frontend -parse "$file"

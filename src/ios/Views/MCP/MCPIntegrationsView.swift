@@ -27,6 +27,16 @@ struct MCPIntegrationsView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink {
+                    BuiltinCapabilitiesView()
+                } label: {
+                    Label("Built-in Capabilities", systemImage: "square.grid.2x2")
+                }
+            } footer: {
+                Text("Manage OpenMinis tools, permissions, skills and scheduled tasks. Built-in capabilities are not external MCP servers.")
+            }
+            Section("External MCP Servers") {
             if store.servers.isEmpty {
                 emptyState
             } else {
@@ -59,6 +69,7 @@ struct MCPIntegrationsView: View {
                     let ids = offsets.map { store.servers[$0].id }
                     for id in ids { store.delete(id: id) }
                 }
+            }
             }
         }
         .navigationTitle(Text("MCP Integrations"))
@@ -241,5 +252,76 @@ struct MCPToolsSheet: View {
             errorText = error.localizedDescription
         }
         isLoading = false
+    }
+}
+
+/// A catalog of existing controls, backed by the same stores used during execution.
+private struct BuiltinCapabilitiesView: View {
+    @AppStorage(AgentToolSwitch.browser.key) private var browser = AgentToolSwitch.browser.defaultValue
+    @AppStorage(AgentToolSwitch.agents.key) private var agents = AgentToolSwitch.agents.defaultValue
+    @AppStorage(AgentToolSwitch.userAsk.key) private var userAsk = AgentToolSwitch.userAsk.defaultValue
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Browser Use", isOn: $browser)
+                Toggle("Sub Agents", isOn: $agents)
+                Toggle("Ask the User", isOn: $userAsk)
+            } header: { Text("Agent Tools") } footer: {
+                Text("These are the existing global tool switches. Conversations and delegated agents use the same controls; asking the user is available only in interactive runs.")
+            }
+            Section("Configuration") {
+                NavigationLink("Models") { ProviderInstancesView() }
+                NavigationLink("Model Groups") { ModelGroupsView() }
+                NavigationLink("Sub Agents") { HelperSettingsView() }
+                NavigationLink("Skills") { SkillsManagementView() }
+                NavigationLink("Soul") { SoulSettingsView() }
+                NavigationLink("Memory") { MemoryManagementView() }
+                NavigationLink("Scheduled Tasks") { ScheduledTasksManagementView() }
+                NavigationLink("Permissions") { OffloadPermissionSettingsView() }
+                NavigationLink("Environment Variables") { EnvironmentVariablesView() }
+                NavigationLink("Shared Folders") { SharedFoldersSettingsView() }
+                NavigationLink("Mounted Folders") { MountedFoldersSettingsView() }
+            }
+            Section {
+                Label("Shell and Files", systemImage: "terminal")
+                Text("Shell execution, file reading, writing, editing and image reading are core tools. They have no separate global disable switch.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } header: { Text("Core Tools") }
+            Section {
+                ForEach(OffloadPermissionManager.allCommands, id: \.name) { command in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(command.displayLabel)
+                        Text(command.description.isEmpty ? command.name : command.description)
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("Built-in · \(command.name)").font(.caption2).foregroundStyle(.secondary)
+                        if command.showInSettings {
+                            CapabilityPermissionPicker(command: command)
+                        } else {
+                            Text("No additional OpenMinis permission gate")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: { Text("Device Capabilities") } footer: {
+                Text("These native commands are invoked through the existing shell/offload path. iOS authorization, device support and foreground requirements still apply. Permission policy does not guarantee system access.")
+            }
+        }
+        .navigationTitle("Built-in Capabilities")
+    }
+}
+
+private struct CapabilityPermissionPicker: View {
+    let command: OffloadCommandInfo
+    @ObservedObject private var manager = OffloadPermissionManager.shared
+    var body: some View {
+        Picker("Permission", selection: Binding(
+            get: { manager.permissionLevel(for: command.name) },
+            set: { manager.setPermissionLevel($0, for: command.name) }
+        )) {
+            ForEach(OffloadPermissionLevel.allCases, id: \.self) { level in
+                Text(level.displayName).tag(level)
+            }
+        }
     }
 }

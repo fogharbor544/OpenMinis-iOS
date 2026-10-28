@@ -257,6 +257,7 @@ struct MCPToolsSheet: View {
 
 /// A catalog of existing controls, backed by the same stores used during execution.
 private struct BuiltinCapabilitiesView: View {
+    @ObservedObject private var configGate = MinisConfigPermissionStore.shared
     @AppStorage(AgentToolSwitch.browser.key) private var browser = AgentToolSwitch.browser.defaultValue
     @AppStorage(AgentToolSwitch.agents.key) private var agents = AgentToolSwitch.agents.defaultValue
     @AppStorage(AgentToolSwitch.userAsk.key) private var userAsk = AgentToolSwitch.userAsk.defaultValue
@@ -267,6 +268,7 @@ private struct BuiltinCapabilitiesView: View {
                 Toggle("Browser Use", isOn: $browser)
                 Toggle("Sub Agents", isOn: $agents)
                 Toggle("Ask the User", isOn: $userAsk)
+                Toggle("Allow minis-config", isOn: $configGate.enabled)
             } header: { Text("Agent Tools") } footer: {
                 Text("These are the existing global tool switches. Conversations and delegated agents use the same controls; asking the user is available only in interactive runs.")
             }
@@ -289,14 +291,18 @@ private struct BuiltinCapabilitiesView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             } header: { Text("Core Tools") }
             Section {
-                ForEach(OffloadPermissionManager.allCommands, id: \.name) { command in
+                ForEach(Self.nativeCommands, id: \.name) { command in
                     VStack(alignment: .leading, spacing: 5) {
                         Text(command.displayLabel)
-                        Text(command.description.isEmpty ? command.name : command.description)
+                        Text(command.description.isEmpty ? (Self.purposes[command.name] ?? command.name) : command.description)
                             .font(.caption).foregroundStyle(.secondary)
                         Text("Built-in · \(command.name)").font(.caption2).foregroundStyle(.secondary)
                         if command.showInSettings {
                             CapabilityPermissionPicker(command: command)
+                        } else if command.name == "minis-browser-use" {
+                            Text(browser ? "Enabled" : "Disabled").font(.caption)
+                        } else if command.name == "minis-config" {
+                            Text(configGate.enabled ? "Enabled" : "Disabled").font(.caption)
                         } else {
                             Text("No additional OpenMinis permission gate")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -309,6 +315,30 @@ private struct BuiltinCapabilitiesView: View {
         }
         .navigationTitle("Built-in Capabilities")
     }
+
+    // Public native handlers registered by ISHKernel; permission ownership stays with the existing stores.
+    private static var nativeCommands: [OffloadCommandInfo] {
+        OffloadPermissionManager.allCommands + [
+            .init(name: "apple-bluetooth", displayLabel: "Bluetooth", description: "Discover devices and read or write Bluetooth characteristics", category: .system, showInSettings: false),
+            .init(name: "apple-nfc", displayLabel: "NFC", description: "Scan, read and write NFC tags on supported devices", category: .system, showInSettings: false),
+            .init(name: "ffmpeg", displayLabel: "FFmpeg", description: "Native audio and video processing", category: .media, showInSettings: false),
+            .init(name: "minis-model-use", displayLabel: "Model Calls", description: "List, search and invoke configured models", category: .system, showInSettings: false),
+            .init(name: "minis-sessions-cli", displayLabel: "Sessions", description: "Read conversations and send prompts through the existing chat runtime", category: .system, showInSettings: false),
+            .init(name: "minis-scheduled", displayLabel: "Scheduled Tasks", description: "Create and manage in-process scheduled prompts", category: .system, showInSettings: false),
+            .init(name: "minis-browser-use", displayLabel: "Browser Commands", description: "Navigate and interact with the built-in browser", category: .system, showInSettings: false),
+            .init(name: "minis-config", displayLabel: "Configuration Tool", description: "Read or change supported settings through the configuration permission gate", category: .system, showInSettings: false),
+            .init(name: "minis-debug", displayLabel: "Diagnostics", description: "Read logs; developer RPC commands are available only in debug builds", category: .system, showInSettings: false)
+        ]
+    }
+
+    private static let purposes: [String: String] = [
+        "apple-speak": "Synthesize speech", "apple-speech": "Transcribe speech",
+        "apple-player": "Play audio and video", "apple-media": "Inspect and transform media",
+        "apple-device": "Read device information", "apple-notification": "Manage local notifications",
+        "apple-alarm": "Manage alarms", "apple-open": "Open URLs in system apps",
+        "apple-maps": "Search places and routes", "apple-weather": "Read weather information",
+        "apple-nlp": "Analyze text", "apple-vision": "Recognize text and analyze images"
+    ]
 }
 
 private struct CapabilityPermissionPicker: View {

@@ -1488,7 +1488,8 @@ struct ScheduledTasksManagementView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if schedules.isEmpty {
-                ContentUnavailableView("No Scheduled Tasks", systemImage: "calendar.badge.clock")
+                Label("No Scheduled Tasks", systemImage: "calendar.badge.clock")
+                    .foregroundStyle(.secondary)
             }
             ForEach(schedules) { job in
                 Section {

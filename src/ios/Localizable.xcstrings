@@ -1,6 +1,414 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Bookmarks could not be loaded. The original file has been preserved.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bookmarks could not be loaded. The original file has been preserved."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法加载书签，原始文件已保留。"
+        }
+      }
+    }
+  },
+  "This website and username already have a saved password. Edit that entry instead.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This website and username already have a saved password. Edit that entry instead."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此网站和用户名已有密码，请编辑已有条目。"
+        }
+      }
+    }
+  },
+  "Discover devices and read or write Bluetooth characteristics": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Discover devices and read or write Bluetooth characteristics"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "发现设备并读写蓝牙特征"
+        }
+      }
+    }
+  },
+  "Scan, read and write NFC tags on supported devices": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Scan, read and write NFC tags on supported devices"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在支持的设备上扫描、读写 NFC 标签"
+        }
+      }
+    }
+  },
+  "Native audio and video processing": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Native audio and video processing"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "原生音视频处理"
+        }
+      }
+    }
+  },
+  "List, search and invoke configured models": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "List, search and invoke configured models"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "列出、搜索和调用已配置的模型"
+        }
+      }
+    }
+  },
+  "Read conversations and send prompts through the existing chat runtime": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Read conversations and send prompts through the existing chat runtime"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "读取会话并通过现有聊天引擎发送提示词"
+        }
+      }
+    }
+  },
+  "Create and manage in-process scheduled prompts": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Create and manage in-process scheduled prompts"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "创建和管理应用运行期间的定时提示词"
+        }
+      }
+    }
+  },
+  "Navigate and interact with the built-in browser": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Navigate and interact with the built-in browser"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "导航并操作内置浏览器"
+        }
+      }
+    }
+  },
+  "Read or change supported settings through the configuration permission gate": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Read or change supported settings through the configuration permission gate"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "通过配置权限开关读取或修改支持的设置"
+        }
+      }
+    }
+  },
+  "Read logs; developer RPC commands are available only in debug builds": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Read logs; developer RPC commands are available only in debug builds"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "读取日志；开发者 RPC 命令仅在调试版本中可用"
+        }
+      }
+    }
+  },
+  "Synthesize speech": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Synthesize speech"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "合成语音"
+        }
+      }
+    }
+  },
+  "Transcribe speech": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Transcribe speech"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "转写语音"
+        }
+      }
+    }
+  },
+  "Play audio and video": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Play audio and video"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "播放音视频"
+        }
+      }
+    }
+  },
+  "Inspect and transform media": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inspect and transform media"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "检查和转换媒体"
+        }
+      }
+    }
+  },
+  "Read device information": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Read device information"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "读取设备信息"
+        }
+      }
+    }
+  },
+  "Manage local notifications": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Manage local notifications"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "管理本地通知"
+        }
+      }
+    }
+  },
+  "Manage alarms": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Manage alarms"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "管理闹钟"
+        }
+      }
+    }
+  },
+  "Open URLs in system apps": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Open URLs in system apps"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在系统应用中打开链接"
+        }
+      }
+    }
+  },
+  "Search places and routes": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Search places and routes"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "搜索地点和路线"
+        }
+      }
+    }
+  },
+  "Read weather information": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Read weather information"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "读取天气信息"
+        }
+      }
+    }
+  },
+  "Analyze text": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Analyze text"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "分析文本"
+        }
+      }
+    }
+  },
+  "Recognize text and analyze images": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Recognize text and analyze images"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "识别文字并分析图像"
+        }
+      }
+    }
+  },
+  "These native commands are invoked through the existing shell/offload path. iOS authorization, device support and foreground requirements still apply. Permission policy does not guarantee system access.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "These native commands are invoked through the existing shell/offload path. iOS authorization, device support and foreground requirements still apply. Permission policy does not guarantee system access."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "这些原生命令通过现有 Shell 通道调用，仍受 iOS 授权、设备支持和前台运行要求限制；权限策略不等于系统授权。"
+        }
+      }
+    }
+  },
     "Bots & Groups" : {
       "extractionState": "manual",
       "localizations": {

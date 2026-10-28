@@ -54,6 +54,8 @@ jobs:
         run: python3 src/ios/MinisTests/Standalone/run_schedule_edit_tests.py
       - name: Bot room orchestration behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_bot_room_tests.py
+      - name: Browser form WebKit tests
+        run: python3 src/ios/MinisTests/Standalone/run_browser_form_tests.py
   device-build:
     if: github.event_name == 'workflow_dispatch' && inputs.full_build
     runs-on: macos-26

@@ -121,8 +121,12 @@ enum BotMemoryError: LocalizedError {
     func save(_ draft: BotMemoryEntry, replacing id: String? = nil, userInitiated: Bool = false) throws -> BotMemoryEntry {
         var entry = draft
         entry.content = entry.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        entry.scope = entry.scope.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !entry.owner.isEmpty, !entry.content.isEmpty, entry.content.count <= 2000,
-              !Self.containsSecret(entry.content) else { throw BotMemoryError.invalid("Use one concise memory without passwords, codes or secrets (up to 2000 characters).") }
+              !entry.scope.isEmpty, entry.scope.count <= 160, entry.evidence.count <= 2000,
+              ["preference", "fact", "convention", "experience"].contains(entry.category),
+              !Self.containsSecret(entry.content), !Self.containsSecret(entry.scope), !Self.containsSecret(entry.evidence)
+        else { throw BotMemoryError.invalid("Use one concise memory without passwords, codes or secrets (up to 2000 characters; scope up to 160).") }
         entry.fingerprint = Self.fingerprint(entry.content)
         let all = try entries().filter { $0.owner == entry.owner }
         if let duplicate = all.first(where: { $0.id != id && $0.status == "active" && $0.fingerprint == entry.fingerprint && $0.scope == entry.scope }) { return duplicate }
@@ -209,11 +213,17 @@ enum BotMemoryError: LocalizedError {
         let cjk = Array(query.unicodeScalars.filter { (0x3400...0x9fff).contains(Int($0.value)) }.map(String.init))
         let shingles = cjk.count > 1 ? (0..<(cjk.count - 1)).map { cjk[$0] + cjk[$0 + 1] } : []
         let keywords = Array(Set(terms + shingles))
-        let ranked = try visible(to: owner).map { entry -> (BotMemoryEntry, Int) in
+        var ranked: [(entry: BotMemoryEntry, score: Int)] = []
+        for entry in try visible(to: owner) {
             let haystack = (entry.content + " " + entry.scope).lowercased()
-            let score = keywords.filter { haystack.contains($0) }.count + (entry.pinned ? 100 : 0)
-            return (entry, score)
-        }.filter { query.isEmpty || $0.1 > 0 }.sorted { $0.1 == $1.1 ? $0.0.updatedAt > $1.0.updatedAt : $0.1 > $1.1 }
+            var score = entry.pinned ? 100 : 0
+            for keyword in keywords where haystack.contains(keyword) { score += 1 }
+            if query.isEmpty || score > 0 { ranked.append((entry: entry, score: score)) }
+        }
+        ranked.sort { left, right in
+            if left.score != right.score { return left.score > right.score }
+            return left.entry.updatedAt > right.entry.updatedAt
+        }
         var output = ""
         for (entry, _) in ranked.prefix(limit) {
             let line = "[\(entry.id)] [\(entry.category); \(entry.scope)] \(entry.content)\n"

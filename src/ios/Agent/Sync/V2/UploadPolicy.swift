@@ -44,7 +44,7 @@ enum UploadPolicy {
                 // in `allowsRecordType`, that meant turning `sync.providers` OFF
                 // still uploaded every provider record: the user's switch did
                 // nothing. (OpenMinis#98, found while investigating that issue.)
-                return ["ProviderConfig", "ProviderConfigV2",
+                return [
                         "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3",
                         "ProviderThinkingRuleV3",
                         // [T-subagent-own-store] Sub agent definitions no longer
@@ -64,7 +64,7 @@ enum UploadPolicy {
                 // belong to the same switch. EnvVarItem was missing, so
                 // turning environments sync off still uploaded every
                 // variable (same gap as [T-icloud-uploadpolicy-v3-gap]).
-                return ["EnvVar", "EnvVarV2", "EnvVarItem", "EnvVarStateItem"]
+                return ["EnvVarItem", "EnvVarStateItem"]
             }
         }
 

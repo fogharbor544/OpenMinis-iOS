@@ -44,8 +44,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         "FolderV2":           sharedZoneName,
         "SkillV2":            sharedZoneName,
         "SyncDeviceV2":       devicesZoneName,
-        "ProviderConfigV2":   secretsZoneName,
-        "EnvVarV2":           secretsZoneName,
         "EnvVarItem":         secretsZoneName,
         "EnvVarStateItem":    secretsZoneName,  // [T-envvar-disable] beside its variable
         "SoulV2":             sharedZoneName,
@@ -67,20 +65,9 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         // pasted, so co-locate with the other config records rather than
         // splitting the roster into a different zone.
         "SubAgentV3":           secretsZoneName,
-        // [T-mcp-sync-zone-mapping] servers.json whole-file record. Was missing
-        // from this map, so every MCPServersV2 portable was silently dropped at
-        // the push loop's zone guard — MCP servers never reached CloudKit at
-        // all. Headers/env values can hold literal tokens, so co-locate with
-        // ProviderConfigV2 in the secrets zone.
-        // [T-mcp-per-server-sync] Per-server MCP records (recordName =
-        // server name). Same secrets-zone placement as the legacy
-        // whole-file record: headers/env can hold literal tokens.
         "MCPServerItem":        secretsZoneName,
     ]
 
-    /// Asset threshold — payloads larger than this are written as a
-    /// CKAsset; smaller ones as inline CKRecordValue strings. Mirrors v1
-    /// (matches the partsAsset / configAsset logic at 750KB).
     private static let assetInlineThreshold = 750_000
 
     // MARK: - State
@@ -90,22 +77,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
     private var stateSerialization: CKSyncEngine.State.Serialization?
     private let stateURL: URL
 
-    /// In-memory etag cache. Records survived a save/fetch cycle so we
-    /// reuse their CKRecord system fields on the next write — preserving
-    /// any unknown fields that newer clients may have populated (per
-    /// §3.6.4 of the design). Persisted to disk so a fresh launch
-    /// already knows which records exist on cloud → second push attempt
-    /// can use the right etag instead of round-tripping
-    /// "record already exists" via the conflict path.
-    /// Bounded record cache. Keeps the most recent server-issued
-    /// CKRecords so we can reuse their systemFields/etag on next push
-    /// (avoids one round-trip's "record already exists" conflict). Hard
-    /// cap enforced because an unbounded dictionary holding 120k+
-    /// CKRecord (each ~3-5KB of NSData systemFields) was responsible
-    /// for ~1.5GB resident on a heavily-migrated device.
-    /// On miss we just construct a fresh CKRecord — the next save will
-    /// hit a serverRecordChanged conflict that the existing path
-    /// recovers from cleanly.
     private static let serverRecordCacheCap = 5000
     private var serverRecordCache: [CKRecord.ID: CKRecord] = [:] {
         didSet {
@@ -156,24 +127,10 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
     private var pollTailEngineFetchInFlight = false
     private var fetchCompletion: CheckedContinuation<SyncInboundBatch, Error>?
 
-    /// V1 record IDs corresponding to V2 records that have been confirmed
-    /// saved on the server. Drained in batches of `v1DeleteBatchSize` so
-    /// space is reclaimed throughout migration instead of all-at-once at
-    /// phaseV1ZoneDelete (which would temporarily double iCloud usage).
     private var pendingV1Deletions: [CKRecord.ID] = []
     private static let v1DeleteBatchSize = 100
-    /// Hard cap on the resident v1-deletion queue. Each entry is a CKRecord.ID
-    /// (plus its CKRecordZone.ID) and there is one per migrated v1 record —
-    /// dominated by Message → so on a large history this array grew to tens of
-    /// thousands of IDs (32k seen in a memgraph), a major resident-memory
-    /// contributor toward jetsam. Overflow past the cap is dropped, not
-    /// retained: the v1 zone is deleted wholesale at end-of-migration
-    /// (`deleteOwnZone`), so any un-reclaimed v1 record is cleaned up there —
-    /// incremental per-record deletion is only a quota optimization during the
-    /// migration window, never correctness-critical. [T-ios-v1delete-queue-cap]
     private static let pendingV1DeletionsCap = 500
     private var v1DeletionsDroppedOverCap = 0
-    /// Counters mirrored to UserDefaults for the migration progress UI.
     private static let v1DeletedKey = "cloudSync.v2.v1RecordsDeleted"
 
     /// Runtime-only dedup set for the diagnostic "firstSeen vs repeats"
@@ -196,15 +153,8 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
     private static let v1DeletePendingKey = "cloudSync.v2.v1RecordsDeletePending"
     /// In-flight guard so concurrent saves don't fire overlapping delete ops.
     private var v1DeleteInFlight: Bool = false
-    /// Consecutive failures in the v1-delete pipeline; pauses retries when
-    /// it hits the cap so a chronic failure doesn't spam the log forever.
     private var v1DeleteConsecutiveFailures: Int = 0
     private static let v1DeleteFailureCap: Int = 5
-    /// Recent-window fast-path fetch (CKQueryOperation) — runs in
-    /// parallel with CKSyncEngine's token-driven fetch so newly-typed
-    /// peer messages don't have to wait their turn behind a multi-day
-    /// migration backlog. Last successful execution time, persisted so
-    /// we don't re-query the same window after a quick relaunch.
     private static let recentFetchLastKey = "cloudSync.v2.recentFetchLastAt"
     /// In-flight guard.
     private var recentFetchInFlight: Bool = false
@@ -239,7 +189,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
     private static let fullHistoryConfigTypes: Set<String> = [
         "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3",
         "ProviderThinkingRuleV3", "SubAgentV3",
-        "ProviderConfigV2", "MCPServerItem", "EnvVarItem", "EnvVarStateItem",
         // Folders are low-volume config-like records: a fresh device must
         // pull the full set (a folder created months ago would never fall
         // inside the 24h window), and sessions arriving before their folder
@@ -565,10 +514,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
             logger.warning("[SyncTransport] start STEP=initialSendChanges error code=\(nse.code) desc=\(error.localizedDescription)")
         }
         logger.info("[SyncTransport] start STEP=exit")
-        // Kick the recent-window fast-path immediately, then schedule
-        // a periodic re-run. Independent of CKSyncEngine's token-driven
-        // fetch so newly-typed peer messages don't have to wait behind
-        // a multi-day migration backlog.
         scheduleRecentFetchTimer()
         Task { await fetchRecentV2() }
     }
@@ -672,27 +617,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
             }
             return defaultCutoff
         }
-        // (recordType, fieldName) — use createdAt where present, else
-        // updatedAt for records that have no createdAt.
-        //
-        // Any record type added here MUST have the chosen sort key
-        // (createdAt or updatedAt) marked queryable + sortable in the
-        // CloudKit Dashboard schema, otherwise the CKQuery for that
-        // type fails with "field not queryable" and is logged below.
-        // EnvVarV2 (legacy whole-file) is deliberately excluded —
-        // builder no longer emits it and migration cleans it up.
-        // SyncDeviceV2 is excluded — device records have their own
-        // bootstrap path; polling them every 30s would be wasteful.
-        //
-        // [T-icloud-fetchrecent-secrets-zone] Each type is queried against
-        // ITS OWN zone via zoneByRecordType, not a single hardcoded shared
-        // zone. Secrets-zone types (ProviderConfigV2, EnvVarItem, the three
-        // Provider*V3 records, MCPServersV2) live in minis-secrets; the old
-        // code hardcoded minis-shared for every query, so those types always
-        // came back count=0 inbound — provider/model-entry/MCP changes from a
-        // peer device never arrived (the CKSyncEngine token path did not cover
-        // them either). ProviderModelEntryV3 / ProviderModelGroupV3 carry only
-        // updatedAt (no createdAt), so sort all V3 types by updatedAt.
         let typesAndKeys: [(String, String)] = [
             // [T-icloud-session-poll-by-updatedat] SessionV2 is polled by
             // updatedAt, not createdAt. A session row changes every time a
@@ -715,7 +639,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
             ("SessionFileV2", "updatedAt"),
             ("FolderV2", "updatedAt"),
             ("SkillV2", "updatedAt"),
-            ("ProviderConfigV2", "updatedAt"),
             ("ProviderInstanceV3", "updatedAt"),
             ("ProviderModelEntryV3", "updatedAt"),
             ("ProviderModelGroupV3", "updatedAt"),
@@ -1137,10 +1060,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
 
     func send(_ batch: SyncOutboundBatch, trigger: SyncSendTrigger) async throws -> [SyncOutcome] {
         guard let engine = syncEngine else { throw SyncTransportError.notStarted }
-        // H2 fix: refuse overlapping sends rather than clobbering the
-        // pending continuation (the first awaiter would hang forever).
-        // SyncCore's isSending guard makes this rare, but migration +
-        // observe-driven schedule can interleave under suspension points.
         if sendCompletion != nil {
             throw SyncTransportError.sendInFlight
         }
@@ -1181,16 +1100,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
                 logger.warning("[SyncTransport] skipping invalid recordName for save: \(Self.escapeForLog(recordName)) type=\(portable.id.type)")
                 continue
             }
-            // [T-ckrecordname-defense-in-depth] Belt AND braces, matching the
-            // CloudSyncEngine sites. The guard above is the primary defence and
-            // must stay primary: this enclosing `send` is `async`, and an
-            // NSException that crosses an `await` boundary escapes the ObjC
-            // @try frame entirely (see SyncV2Bootstrap's notes), so a try/catch
-            // can never be the thing we rely on here. It is safe and useful at
-            // THIS call site only because the wrapped work is purely
-            // synchronous — no `await` occurs between @try and @catch — so the
-            // frame is intact and it catches whatever the validator failed to
-            // anticipate about CloudKit's rules.
             var recordIDOpt: CKRecord.ID?
             let recordIDOk = noff_try_objc {
                 recordIDOpt = CKRecord.ID(recordName: recordName, zoneID: zoneID)
@@ -1274,15 +1183,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
                     } else {
                         logger.error("[SyncTransport] no CKPartialErrorsByItemID; userInfo keys=\(Array(nse.userInfo.keys))")
                     }
-                    // On hard server-side throttle (requestRateLimited /
-                    // serviceUnavailable / batchRequestFailed), drop the
-                    // unsent record intents from engine.state so the next
-                    // sendChanges does NOT retry the same stale batch.
-                    // SyncCore will requery dirty rows next round and
-                    // pick whatever's currently highest-priority — newly
-                    // typed messages then jump ahead of the migration
-                    // backlog instead of being stuck behind a permanently-
-                    // throttled SessionV2=200 batch.
                     if let ckCode = ck?.code,
                        ckCode == .requestRateLimited
                         || ckCode == .serviceUnavailable
@@ -1575,34 +1475,6 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
             let recs = self.pendingRecords; self.pendingRecords.removeAll()
             let dels = self.pendingDeletes; self.pendingDeletes.removeAll()
             guard !recs.isEmpty || !dels.isEmpty else { return nil }
-            // [T-icloud-batch-byte-budget] Bound the batch by BYTES, not by
-            // record count.
-            //
-            // History: this was 400, dropped to a flat 20 after resident memory
-            // spiked past 2 GB on a large backlog. That fixed the spike but
-            // mispriced the cost — peak memory here tracks payload size (each
-            // batch materializes PortableRecord payloads and reads asset files),
-            // not how many records are in it. A flat 20 therefore throttles the
-            // common case, which is thousands of small text records, to 1/20th
-            // of its former rate: OpenMinis#141's backlog became ~190 CKSyncEngine
-            // round trips at ~94 records/hour, every one of them able to draw a
-            // fresh retryAfter penalty and make the throttling worse.
-            //
-            // Budgeting by bytes keeps the 2 GB fix intact — a batch of large
-            // assets still cuts off early — while letting a batch of ordinary
-            // messages carry a useful number of records again. The record count
-            // remains capped as a backstop for pathological cases (very many
-            // near-empty records) and to keep the migration progress UI moving
-            // in visible steps.
-            // [T-icloud-sync-tier2-bytes-first] Two facts from the field
-            // logs drove this: a batch is bounded by BYTES long before the
-            // record cap (8.6 MB at 32 records), and what fills the bytes is
-            // SessionFileV2 assets (~270 KB each) while a message is 5–10 KB.
-            // A finished turn's three records were routinely queued behind
-            // megabytes of files. So: records WITHOUT assets go first, in
-            // their own batch capped at Apple's 250 and 1 MB; asset-bearing
-            // records only start once no small record is waiting, under the
-            // larger byte budget. Deletes ride with whichever batch is built.
             let maxBatchRecords = 250
             let smallBatchBytes = 1 * 1024 * 1024
             let assetBatchBytes = 8 * 1024 * 1024
@@ -1704,7 +1576,7 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
         }
         var records: [PortableRecord] = []
         var deletes: [SyncRecordID] = []
-        var skippedV1 = 0
+        var skippedUnknownZone = 0
         var skippedOwnEcho = 0
         // Filter + parse inside an autoreleasepool so the temporary
         // CKRecord/CKAsset objects from a 600-record fetch are released
@@ -1714,10 +1586,8 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
         autoreleasepool {
             for modification in zoneChanges.modifications {
                 let rec = modification.record
-                // Skip v1 device-* zones — CKSyncEngine fetches across the
-                // entire private database; minis-* zones belong to v2 only.
                 guard v2Zones.contains(rec.recordID.zoneID.zoneName) else {
-                    skippedV1 += 1
+                    skippedUnknownZone += 1
                     continue
                 }
                 // [OwnEchoSkip transport-level] If we just saved this record
@@ -1740,8 +1610,8 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
                 }
             }
         }
-        if skippedV1 > 0 {
-            logger.info("[iCloudTrace] skipped \(skippedV1) v1-zone records (handled by legacy CloudSyncEngine)")
+        if skippedUnknownZone > 0 {
+            logger.info("[iCloudTrace] skipped \(skippedUnknownZone) records outside the current sync zones")
         }
         if skippedOwnEcho > 0 {
             logger.info("[iCloudTrace] skipped \(skippedOwnEcho) own-echo records (re-delivery of our recent saves within \(Int(recentlyPushedTTL))s)")
@@ -1803,15 +1673,6 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
     @MainActor
     private func handleSentRecordZoneChanges(_ sent: CKSyncEngine.Event.SentRecordZoneChanges) {
         if !sent.savedRecords.isEmpty {
-            // Diagnostic split: how many of this batch's recordIDs we've
-            // never seen saved before (this process lifetime) vs how
-            // many are repeats of records we already pushed at least
-            // once. Repeats are 100% expected — every CKSyncEngine batch
-            // includes records the engine retried, plus everything we
-            // re-marked dirty after relaunch. They should NOT inflate
-            // the migration UI %; that's why pushedCumulative is now
-            // backed by SQLite `sync_pushed_records` (set semantics)
-            // rather than the old UserDefaults event counter.
             var firstSeen = 0
             var repeats = 0
             for r in sent.savedRecords {
@@ -1856,15 +1717,7 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
             // record via fetchChanges can race us, so stamping at the exact
             // moment CK acknowledges the save plugs the window.
             recentlyPushedRecordNames[saved.recordID.recordName] = _nowStamp
-            // Schedule the corresponding v1 record for deletion. Reclaiming
-            // v1 space incrementally (every v1DeleteBatchSize saves) avoids
-            // the user's iCloud quota holding both v1 + v2 copies for the
-            // entire migration window.
             if let v1id = Self.v1RecordID(forV2Saved: saved.recordID) {
-                // Bound the resident queue. Once it's already backed up to the
-                // cap (delete pipeline throttled, failing, or migration
-                // out-running deletes), stop accumulating IDs — the leftover v1
-                // records are reclaimed wholesale by deleteOwnZone later.
                 if pendingV1Deletions.count < Self.pendingV1DeletionsCap {
                     pendingV1Deletions.append(v1id)
                 } else {
@@ -1993,11 +1846,7 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
         }
     }
 
-    // MARK: - Incremental v1 deletion
 
-    /// Map a freshly-saved V2 CKRecord.ID to the corresponding V1 record
-    /// in this device's v1 zone. Returns nil for record types that have
-    /// no v1 counterpart (e.g. SyncDeviceV2 — v1 had no devices table).
     private static func v1RecordID(forV2Saved v2: CKRecord.ID) -> CKRecord.ID? {
         // recordName format is "TypeV2:id"; strip the V2 suffix.
         let parts = v2.recordName.split(separator: ":", maxSplits: 1)
@@ -2005,7 +1854,6 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
         let v2Type = String(parts[0])
         guard v2Type.hasSuffix("V2") else { return nil }
         let v1Type = String(v2Type.dropLast(2))
-        // Type-name allowlist — only types that actually existed in v1.
         let v1Types: Set<String> = ["Session", "Message", "CompactMarker", "SessionFile", "ProviderConfig", "EnvVar"]
         guard v1Types.contains(v1Type) else { return nil }
         let v1Name = "\(v1Type):\(parts[1])"
@@ -2112,10 +1960,6 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
                         Self.republishV1DeletePending(self.pendingV1Deletions.count)
                     }
                     if self.v1DeleteConsecutiveFailures >= Self.v1DeleteFailureCap {
-                        // The pipeline is halted until next launch. Don't retain
-                        // the (potentially huge) queue across the whole session
-                        // for nothing — free it. The un-deleted v1 records are
-                        // still reclaimed by deleteOwnZone at end-of-migration.
                         let dropped = self.pendingV1Deletions.count
                         self.pendingV1Deletions.removeAll()
                         Self.republishV1DeletePending(0)
@@ -2135,8 +1979,6 @@ extension ICloudSharedZoneTransport: CKSyncEngineDelegate {
         db.add(op)
     }
 
-    /// Publish pending count to UserDefaults so the migration progress UI
-    /// can read it without a callback channel.
     private static func republishV1DeletePending(_ count: Int) {
         UserDefaults.standard.set(count, forKey: v1DeletePendingKey)
     }

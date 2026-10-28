@@ -490,11 +490,6 @@ final class MCPStore: ObservableObject {
         )
     }
 
-    /// Read a STDIO startup timeout from imported JSON, honouring the same
-    /// primary-field-then-alias priority as the in-guest CLI so a config
-    /// migrated from another MCP client keeps its value. Enforcement/validation
-    /// is the daemon's job; here we only preserve an integer if one is present.
-    /// [T-mcp-startup-timeout]
     private static let startupTimeoutKeys = [
         "startupTimeoutSeconds", "startup_timeout_sec", "startupTimeout",
         "handshakeTimeout", "initializeTimeout",

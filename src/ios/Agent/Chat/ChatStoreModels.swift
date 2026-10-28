@@ -129,29 +129,6 @@ struct ChatSession: Identifiable, Codable, Hashable {
     }
 }
 
-/// A user-created folder that groups sessions on the home list.
-///
-/// Named "Folder" rather than "Group" on purpose: the codebase already has
-/// three other "group"s — `ModelGroup` (the LLM provider fallback group behind
-/// the home FAB's "New Chat with Group"), the `__grp__` draft-session id
-/// encoding (which embeds a ModelGroup id), and SwiftUI's `Group {}`.
-///
-/// Identity is a locally generated UUID, and `name` deliberately carries no
-/// uniqueness constraint:
-///
-/// - **Why not key on the name.** Renaming would stop being a single-field
-///   edit and become an identity change (delete old key, create new key,
-///   migrate every member). That multi-row operation tears across devices: if
-///   device A renames while device B files sessions under the old name, B's
-///   sessions end up referencing a key that no longer exists and silently fall
-///   back to ungrouped. With a UUID, a rename is one LWW field on `FolderV2`
-///   and members are untouched.
-/// - **Why duplicate names are allowed.** Two devices each creating "Work"
-///   offline produce two distinct UUIDs, and both are kept. Auto-merging is
-///   irreversible and two same-named folders are not necessarily the same
-///   thing; the user can always move sessions across and dissolve the leftover.
-///   Consequence: any *name-based* lookup must tolerate multiple matches (see
-///   `findFolderByName`).
 struct ChatFolder: Identifiable, Codable, Hashable {
     let id: String
     var name: String
@@ -325,15 +302,6 @@ enum ContentPart: Codable, Hashable {
     }
 }
 
-/// A compact boundary marker in a session's message history.
-/// Represents the point where older messages were summarized to save context.
-///
-/// Identity model (post Phase A):
-///   - `firstKeptMessageId` is the authoritative active-region start.
-///   - `lastCompactedMessageId` is the last message in the compacted range.
-///   - Sort-order fields (`firstKeptSortOrder`, `uiBoundarySortOrder`) and
-///     `boundaryMessageId` are retained for legacy markers and cross-device
-///     sync compatibility with older builds, used only as fallbacks.
 struct CompactMarker: Identifiable, Codable {
     let id: String
     let sessionId: String
@@ -345,26 +313,12 @@ struct CompactMarker: Identifiable, Codable {
     /// Number of raw messages that were compacted. UI display only.
     let compactedCount: Int
     let createdAt: Date
-    /// LEGACY: sort_order of the UI boundary message.
-    /// Only used as fallback for divider positioning on legacy markers.
     let uiBoundarySortOrder: Int?
     /// LEGACY: DB message ID of the boundary message (pre-Phase A name for firstKeptMessageId).
     /// Kept for cross-device sync compatibility with older builds.
     let boundaryMessageId: String?
-    /// PRIMARY: DB message ID of the first kept (active-region) message.
-    /// All restore / compact logic resolves boundaries through this id.
-    /// Optional only for legacy markers written before Phase A.
     let firstKeptMessageId: String?
-    /// PRIMARY: DB message ID of the last compacted message (right edge of the
-    /// compacted range). Used by prune protection to avoid deleting marker anchors.
-    /// Optional only for legacy markers written before Phase A.
     let lastCompactedMessageId: String?
-    /// Marker schema version. 1 = legacy multi-field model (firstKept/boundary/
-    /// sortOrder fallback chain). 2 = simplified id-only model: only
-    /// `lastCompactedMessageId` is authoritative; everything before it (incl.)
-    /// is the compacted range, everything after it is "live anchor + new msgs".
-    /// `compactedCount` and `summary` are still meaningful for UI; all other
-    /// columns are ignored for v2 markers.
     var version: Int = 2
 }
 

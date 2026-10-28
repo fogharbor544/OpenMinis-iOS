@@ -3,41 +3,6 @@ import WebKit
 
 private let logger = AppLogger(category: "CookieBackup")
 
-/// Lossless cookie backup + re-inject for the browser's shared cookie store.
-///
-/// WebKit ITP classifies high-traffic domains (x.com, google.com, …) as
-/// prevalent and wipes ALL their site data — including HttpOnly login
-/// cookies — after 30 days without a real user gesture. Agent-driven
-/// (headless) browsing never counts as a gesture, so login cookies the user
-/// established in the takeover sheet kept vanishing (observations.db showed
-/// 5 wipes for x.com on the reporting device).
-///
-/// Mitigation: before every browser_use / minis-browser-use action (throttled
-/// to once per 60s) we
-///   1. snapshot every cookie in `WKWebsiteDataStore.default()` with its FULL
-///      metadata (domain / path / expires / secure / HttpOnly), rendered as a
-///      per-domain Netscape cookies.txt file (`<registrable-domain>.txt`), and
-///   2. re-inject any backed-up cookie that is no longer present in the live
-///      store (the ITP-wipe recovery path). Live cookies always win over the
-///      backup; expired entries are pruned.
-///
-/// Storage is a **local file per domain**, deliberately not the Keychain: this
-/// is a purely local anti-ITP cache, and we do NOT want the login state synced
-/// across devices or uploaded to iCloud. Files live under Application Support
-/// (unreachable from the guest rootfs so shell code can't read raw auth
-/// cookies), get `completeUntilFirstUserAuthentication` file protection (system
-/// at-rest encryption, unreadable before first unlock), and are marked
-/// excluded-from-backup so they never migrate off this device. The Netscape
-/// text is the file's content so the format stays the line-based industry
-/// standard our own `set_cookies` already parses.
-///
-/// Bounded growth: a per-domain `lastVisit` map (a sibling file) is refreshed
-/// on every navigate via `noteVisit`. A domain not visited for
-/// `domainRetention` (30 days) has its backup dropped and stops being
-/// restored — so the backup set tracks "domains actually used recently"
-/// instead of growing without bound. Visits (real navigations), not the
-/// re-injected cookies themselves, drive aging, so recovery can't keep a dead
-/// domain alive forever.
 @MainActor
 final class CookieBackupStore {
     static let shared = CookieBackupStore()

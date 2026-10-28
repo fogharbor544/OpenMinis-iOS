@@ -408,11 +408,6 @@ extension ChatStore {
         // PER-SESSION: empties one session's messages, changing its preview.
         // The session row itself stays in the list.
         invalidateSessionListCache(sessionId: sessionId)
-        // [T-ios-listsessions-perf] Every message is going, so the stored
-        // preview must go with it — otherwise the sidebar keeps showing the
-        // text of a message that no longer exists. Empty string, not NULL:
-        // NULL means "never computed" and would send this row back through
-        // the slow backfill path on the next refresh (see listSessions).
         defer { storePreview(sessionId: sessionId, text: "", sortOrder: nil) }
         // Mark every message dirty for cloud deletion BEFORE the DELETE so other
         // devices remove them on next sync. Without this, Clear Chat wipes

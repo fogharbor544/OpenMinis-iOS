@@ -36,21 +36,6 @@ extension AIChatViewModel {
     /// thing for other subsystems to emit — see the persona reminder).
     nonisolated static let offloadedStubEnvelope = "<system-reminder>"
 
-    /// True when `value` is an offload placeholder in EITHER format.
-    ///
-    /// Both are recognised on purpose and neither branch may be dropped:
-    ///   • the `<system-reminder>` + `[Minis System Notice]` form is what the
-    ///     offloader writes now;
-    ///   • the bare `[CONTEXT OFFLOADED]` form is still present in every
-    ///     session persisted before this change, and in iCloud-synced history
-    ///     from a peer on an older build. Those stubs keep arriving for as long
-    ///     as such histories exist, so the legacy test is not transitional.
-    ///
-    /// Leading whitespace is trimmed first: a provider may prefix a newline.
-    /// The test is anchored at the start, not `contains`, so prose that merely
-    /// discusses the marker is still written normally.
-    ///
-    /// Mirrors Android `ContextOffload.isOffloadPlaceholder`.
     nonisolated static func isOffloadedStub(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix(offloadedStubPrefix) { return true }
@@ -623,10 +608,6 @@ extension AIChatViewModel {
                         cache.store(key, fingerprint: fp, verdict: .readback)
                         continue
                     }
-                    // Skip already-offloaded parts. Routed through the shared
-                    // predicate so the new <system-reminder> stub is recognised
-                    // too — a bare hasPrefix check on the legacy marker silently
-                    // stopped matching when the format changed.
                     if Self.isOffloadedStub(content) {
                         skippedAlreadyOffloaded += 1
                         cache.store(key, fingerprint: fp, verdict: .alreadyOffloaded)
@@ -879,13 +860,6 @@ extension AIChatViewModel {
         Task { await ISHExecutionCoordinator.shared.mountForSession(sid) }
     }
 
-    /// [T-ish-container-identity GH#99] One-shot per launch: detect an iOS
-    /// data-container migration (the UUID rotates on EVERY app update /
-    /// reinstall; contents migrate). All /var/minis symlinks carry absolute
-    /// paths from the previous container, so right after an update — before
-    /// the first session mounts and re-points them — the shell sees dangling
-    /// links / empty dirs, which users read as data loss. Log the migration
-    /// explicitly so that window is diagnosable from the log alone.
     private static var containerMigrationChecked = false
     private static func noteContainerMigrationIfNeeded() {
         guard !containerMigrationChecked else { return }
@@ -1011,21 +985,6 @@ extension AIChatViewModel {
                 }
                 logger.info("[MinisSymlink] \(linuxDir): real dir -> persistDir migration, moved=\(moved) skipped(existing)=\(skipped)")
 
-                // [T-minis-symlink-placeholder-dir issue #380] The removal must
-                // actually succeed, or the symlink below cannot be created and the
-                // guest keeps reading a local empty directory that shadows the App
-                // Group — which is exactly how #380 presents: the host writes a
-                // bridge file the sandbox can never see.
-                //
-                // `try? removeItem` swallowed the failure, so a directory that
-                // still held un-migrated entries (a name collision above, or a file
-                // the move could not take) left a real dir in place and the next
-                // line failed too. Both errors were logged at different sites and
-                // read as unrelated.
-                //
-                // Recovery ladder: plain remove, then clear whatever survived and
-                // rmdir the now-empty directory. Anything left after that is
-                // reported loudly rather than silently degrading.
                 if !Self.forceRemovePlaceholderDirectory(at: hostPath, logger: logger, label: linuxDir) {
                     logger.error("[MinisSymlink] \(linuxDir): could not clear placeholder dir at \(hostPath.path) — guest will keep seeing a shadowed local dir")
                     continue
@@ -1204,19 +1163,6 @@ extension AIChatViewModel {
 // MARK: - [T-offload-scan-cache] Scan range + per-part verdict cache
 
 extension AIChatViewModel {
-    /// First raw `agentHistory` index the offload scanner needs to look at.
-    ///
-    /// Compact-v2 keeps the raw history and overlays a marker; what reaches the
-    /// model is `effectiveAgentHistory()` — a short warm-up before the anchor
-    /// (whose tool results over 1000 chars are already pruned there) plus
-    /// everything after it. Scanning from 0 walked the compacted half too
-    /// (device log: 2252 scanned vs 1104 sent), and offloading those parts
-    /// "freed" tokens that were never being sent, so the real usage barely
-    /// moved and the offload fired again minutes later.
-    ///
-    /// Mirrors `effectiveAgentHistoryUncounted`'s anchor resolution; any case it
-    /// degrades to full history (no marker, v1, unresolved anchor) returns 0 —
-    /// the previous behaviour.
     func offloadScanStartIndex() -> Int {
         guard let marker = cachedLatestMarker, marker.version >= 2,
               let anchorId = marker.lastCompactedMessageId,

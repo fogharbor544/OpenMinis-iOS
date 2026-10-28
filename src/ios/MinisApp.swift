@@ -194,16 +194,6 @@ struct MinisApp: App {
         // priority: it competes with nothing, and a zombie that survives one
         // extra launch costs nothing.
         Task.detached(priority: .background) {
-            // [T-ios27-scene-create-watchdog] Run the one-shot data migrations
-            // that used to sit inside ChatStore's dispatch_once (the part_flags
-            // backfill and the v1 dirty-row sweep). They are bulk UPDATE/DELETE
-            // over the whole messages / sync_dirty_records tables, and anything
-            // slow inside that once token blocks every later toucher of
-            // ChatStore.shared — including the main thread during scene
-            // creation, which is a 10 s hard kill.
-            //
-            // Ordered before the zombie sweep so the schema is fully settled
-            // before that query runs; both are idempotent and actor-serialised.
             await ChatStore.shared.sweepZombieChildSessions()
         }
     }
@@ -267,36 +257,11 @@ struct MinisApp: App {
                 )) { _ in
                     ConfigConfirmSheet(gate: configConfirmGate)
                 }
-                // [review S14] Restore flow for a `.minisbak` opened from
-                // Files / AirDrop / a share sheet. Mounted HERE rather than in
-                // BackupSettingsView, which was the only observer before: the
-                // user opening a backup is almost always mid device-migration
-                // and standing on the chat list, so setting `pendingPackage`
-                // did nothing visible until they happened to walk into
-                // Settings — at which point a restore sheet appeared
-                // unprompted. This is the primary migration entry point, so it
-                // has to work from wherever the user actually is.
-                //
-                // Gated on the lock state, and deliberately at the sheet rather
-                // than at each call site: AppLockOverlay is a ZStack sibling, so
-                // a sheet presents OVER it. `handle()` runs from three places
-                // (onOpenURL, the unlock replay, and AppDelegate's scene URL
-                // path for a cold launch) and only the first checks the lock —
-                // so a locked device could otherwise show a restore sheet, with
-                // the package's device name and contents, to whoever is holding
-                // the phone. Gating the presentation covers every path at once.
-                // The pending package survives here until unlock, so nothing is
-                // lost — `appIsLocked` publishing flips this back on.
                 .sheet(item: Binding(
                     get: { sessionLockStore.appIsLocked ? nil : openRouter.pendingPackage },
                     set: { openRouter.pendingPackage = $0 }
                 )) { pending in
                     NavigationStack {
-                        // Opens on the RESTORE tab with the package already
-                        // loaded. Someone who just tapped a .minisbak is mid
-                        // device-migration — landing them on the backup form
-                        // and making them find the switch would be exactly
-                        // backwards.
                         BackupAndRestoreView(initialTab: .restore,
                                              initialPackageURL: pending.url)
                             .toolbar {
@@ -379,11 +344,6 @@ struct MinisApp: App {
                     // itself is cheap (100ms poll on a background thread,
                     // observer write on each runloop hop).
                     StreamingHangLogger.shared.acquire(reason: "app-launch always-on")
-                    // [T-ios-backup-shared-leak] One-shot migration: an earlier
-                    // build delivered backup packages into shared/Backups/,
-                    // which is bind-mounted into the guest at /var/minis/shared
-                    // and is itself the Shared Files backup category. Move any
-                    // leftovers out of the agent-visible workspace.
                     BackupDelivery.migrateLegacySharedBackups()
                     // [T-ios-backup-rollback-persistence] If a restore was
                     // killed mid-flight, put back whatever snapshot survived
@@ -399,22 +359,6 @@ struct MinisApp: App {
                     // backup; without this the list shows a spinner forever
                     // for something that will never finish.
                     BackupHistory.shared.reconcileInterrupted()
-                    // NOTE: deliberately NOT releasing the backup keep-alive
-                    // here. It looks like useful belt-and-braces and is
-                    // actually all downside:
-                    //   - it cannot recover anything. `activated` is a static
-                    //     in memory, so a killed process zeroes it (and the
-                    //     audio session dies with the process anyway) — on the
-                    //     next launch the call is a no-op;
-                    //   - the ONLY state in which it would do something is when
-                    //     a backup is genuinely running, and .onAppear has no
-                    //     once-guard, so a root-view rebuild would cut the
-                    //     session of a live backup and leave it ~30s of
-                    //     beginBackgroundTask before iOS suspends it.
-                    // Ownership is enforced where it belongs, by the run token
-                    // in BackupRunController.finished(token:).
-                    // Migrate legacy provider config on first launch after upgrade
-                    // Refresh model lists once per day to keep them current
                     ProviderConfigStore.shared.refreshAllModelsIfNeeded()
                     // [T-mimo-shadow-voice] One-time upgrade fix: force-refresh
                     // mixed-modality providers (MiMo/DashScope) mis-classified by
@@ -435,7 +379,6 @@ struct MinisApp: App {
                     QuotaStore.shared.start()
                     // Register FileProvider domain for shared files
                     Self.registerFileProviderDomain()
-                    // Migrate legacy shared dir to App Group container
                     Self.migrateSharedDirToAppGroup()
                     // Trace the resolved AppGroup paths so we can confirm the
                     // main app, FileProvider extension, and iSH bind mount all
@@ -450,28 +393,10 @@ struct MinisApp: App {
                     // Create /var/minis/mounts/<name> symlinks in the fakefs now
                     // that the rootfs exists and mounts are active.
                     AIChatViewModel.refreshMountedFolderSymlinks()
-                    // Start iCloud sync engine. v2 takes precedence when its
-                    // feature flag is on (see SyncV2Bootstrap); v1 stays
-                    // paused while v2 is active. When v2 is off, v1 boots
-                    // exactly as before.
                     if #available(iOS 17.0, *) {
                         Task { @MainActor in
                             await Self.startSyncEngines()
                         }
-                        // [T-ios-reboot-keychain-identity-rotation] Retry once
-                        // protected data unlocks.
-                        //
-                        // This `.onAppear` fires when the root view MOUNTS, not on
-                        // every foreground, so it is a one-shot. Both sync
-                        // bootstraps now bail when the device identity is
-                        // provisional (Keychain unreadable on a pre-first-unlock
-                        // reboot relaunch) — without this observer that bail would
-                        // trade a corrupted zone for no sync at all until the user
-                        // force-quit the app.
-                        //
-                        // Both entry points are idempotent (`syncEngine == nil`
-                        // guard in v1; v2's own start flag), so an extra call on a
-                        // healthy launch is a no-op.
                         NotificationCenter.default.addObserver(
                             forName: UIApplication.protectedDataDidBecomeAvailableNotification,
                             object: nil, queue: .main
@@ -646,13 +571,6 @@ struct MinisApp: App {
                     }
                 }
             }
-            // Trigger iCloud sync on foreground resume: fetch remote changes + send local dirty records.
-            // Route to whichever engine is active. v1 must stay quiet whenever
-            // v2 has taken over (SyncV2Bootstrap.shouldPauseV1 == true) —
-            // otherwise v1's triggerFetch round-trips v1 records every scene-
-            // active tick, observed as endless `[iCloud] mergeRemoteMessage
-            // SKIP (local newer)` log spam plus continuous v1-side dirty
-            // drain that competes with v2's send pipeline.
             if #available(iOS 17.0, *) {
                 Task { @MainActor in
                     if SyncV2Bootstrap.isEnabled {
@@ -1160,12 +1078,6 @@ struct MinisApp: App {
         return n
     }
 
-    /// One-time migration: move files from old locations to App Group container.
-    /// Handles three sources:
-    /// 1. Library/MinisChat/shared/ → App Group MinisFileProvider/shared/
-    /// 2. Library/MinisChat/memory/ → App Group MinisFileProvider/memory/
-    /// 3. Library/MinisChat/skills/ → App Group MinisFileProvider/skills/
-    /// 4. Old App Group MinisShared/ → App Group MinisFileProvider/shared/
     private static func migrateSharedDirToAppGroup() {
         let fm = FileManager.default
         let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!

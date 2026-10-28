@@ -31,3 +31,19 @@ db.execute("INSERT INTO sync_dirty_records(record_type,record_id,zone_name) VALU
 assert db.execute('SELECT priority,created_at FROM sync_dirty_records').fetchone() == (0, 0)
 assert 'addColumnIfMissing(' not in source
 print('PASS: complete fresh schema, idempotent reopen, session/message/compact/sync writes')
+
+provider = (root / 'Providers/ProviderConfigDB.swift').read_text(encoding='utf-8')
+provider_setup = provider.split('    private static func createSchema')[1].split('    // MARK: - Member-timestamp')[0]
+provider_db = sqlite3.connect(':memory:')
+for _ in range(2):
+    for sql in re.findall(r'exec\(db: db, """\s*(.*?)\s*"""\)', provider_setup, re.S):
+        provider_db.execute(sql)
+for table, expected in {
+    'provider_instances': {'custom_user_agent', 'azure_mode'},
+    'provider_model_groups': {'removed_members_json', 'added_members_json'},
+    'provider_thinking_rules': {'wire_format_json'},
+    'provider_agent_loop_ids': {'kind', 'target_id'},
+}.items():
+    assert expected <= {r[1] for r in provider_db.execute(f'PRAGMA table_info({table})')}, table
+assert 'ALTER TABLE' not in provider_setup
+print('PASS: complete provider schema, idempotent reopen, current columns and tables')

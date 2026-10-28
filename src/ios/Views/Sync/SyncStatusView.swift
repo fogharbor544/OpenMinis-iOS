@@ -37,8 +37,8 @@ struct SyncStatusView: View {
     }
 
     @MainActor private func refresh() async {
-        guard #available(iOS 17.0, *) else { status = "Requires iOS 17"; return }
-        status = !SyncV2Bootstrap.isEnabled ? "Off" : (SyncCore.shared.isRunning ? "Running" : "Starting")
+        guard #available(iOS 17.0, *) else { status = String(localized: "Requires iOS 17"); return }
+        status = !SyncV2Bootstrap.isEnabled ? String(localized: "Off") : (SyncCore.shared.isRunning ? String(localized: "Running") : String(localized: "Starting"))
         let counts = await ChatStore.shared.countDirtyRecords()
         pending = counts.byType.values.reduce(0, +)
         sent = SyncCore.shared.totalSent

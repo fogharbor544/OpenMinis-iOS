@@ -242,7 +242,6 @@
 		E5D00004 /* ModelGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00014 /* ModelGroup.swift */; };
 		E5D00005 /* ProviderConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00015 /* ProviderConfigStore.swift */; };
 		E5D00006 /* ModelGroupRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00016 /* ModelGroupRouter.swift */; };
-		E5D00007 /* ProviderMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00017 /* ProviderMigration.swift */; };
 		E5D00008 /* ModelsDevAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00018 /* ModelsDevAPI.swift */; };
 		E5D00009 /* URLBuilding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00019 /* URLBuilding.swift */; };
 		E5D00020 /* ProviderInstancesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00030 /* ProviderInstancesView.swift */; };
@@ -419,9 +418,8 @@
 		E5R000002 /* ICloudBackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5R000012 /* ICloudBackupView.swift */; };
 		E5RSD0001 /* ResourceDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5RSD0011 /* ResourceDiagnostics.swift */; };
 		E5S000001 /* DeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5S000011 /* DeviceIdentity.swift */; };
-		E5S000002 /* CloudSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5S000012 /* CloudSyncEngine.swift */; };
+		E5S000002 /* ProviderBackupMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5S000012 /* ProviderBackupMerger.swift */; };
 		E5S000003 /* SessionForkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5S000013 /* SessionForkManager.swift */; };
-		E5S000004 /* CloudSyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5S000014 /* CloudSyncSettingsView.swift */; };
 		E5S000005 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E5S000015 /* CloudKit.framework */; };
 		E5S000006 /* SyncDirtyScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5S000016 /* SyncDirtyScanner.swift */; };
 		E5SAC0010 /* SubAgentsCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SAC0020 /* SubAgentsCollection.swift */; };
@@ -550,7 +548,6 @@
 		E5W000007 /* SyncCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5W000017 /* SyncCore.swift */; };
 		E5W000008 /* SyncCoreHydrators.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5W000018 /* SyncCoreHydrators.swift */; };
 		E5W000009 /* ICloudSharedZoneTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5W000019 /* ICloudSharedZoneTransport.swift */; };
-		E5W00000A /* MigrationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5W00001A /* MigrationEngine.swift */; };
 		E5W00000B /* TombstoneManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5W00001B /* TombstoneManager.swift */; };
 		E5W00000C /* SyncV2Bootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5W00001C /* SyncV2Bootstrap.swift */; };
 		E5W00000D /* ChatStoreSyncHydrators.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5W00001D /* ChatStoreSyncHydrators.swift */; };
@@ -574,7 +571,7 @@
 		E8A000001 /* OffloadPermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A000011 /* OffloadPermissionManager.swift */; };
 		E8A000002 /* OffloadPermissionDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A000012 /* OffloadPermissionDialog.swift */; };
 		E8A000003 /* OffloadPermissionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A000013 /* OffloadPermissionSettingsView.swift */; };
-		EAB000051 /* SyncMigrationDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAB000050 /* SyncMigrationDetailView.swift */; };
+		EAB000051 /* SyncStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAB000050 /* SyncStatusView.swift */; };
 		EAB000071 /* UploadPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAB000070 /* UploadPolicy.swift */; };
 		EAB000081 /* CloudSyncSettingsV2View.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAB000080 /* CloudSyncSettingsV2View.swift */; };
 		EXA000001 /* xAIModelsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXA000011 /* xAIModelsAPI.swift */; };
@@ -1019,7 +1016,6 @@
 		E5D00014 /* ModelGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelGroup.swift; sourceTree = "<group>"; };
 		E5D00015 /* ProviderConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderConfigStore.swift; sourceTree = "<group>"; };
 		E5D00016 /* ModelGroupRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelGroupRouter.swift; sourceTree = "<group>"; };
-		E5D00017 /* ProviderMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderMigration.swift; sourceTree = "<group>"; };
 		E5D00018 /* ModelsDevAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsDevAPI.swift; sourceTree = "<group>"; };
 		E5D00019 /* URLBuilding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLBuilding.swift; sourceTree = "<group>"; };
 		E5D00030 /* ProviderInstancesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderInstancesView.swift; sourceTree = "<group>"; };
@@ -1244,9 +1240,8 @@
 		E5R000012 /* ICloudBackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudBackupView.swift; sourceTree = "<group>"; };
 		E5RSD0011 /* ResourceDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceDiagnostics.swift; sourceTree = "<group>"; };
 		E5S000011 /* DeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentity.swift; sourceTree = "<group>"; };
-		E5S000012 /* CloudSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncEngine.swift; sourceTree = "<group>"; };
+		E5S000012 /* ProviderBackupMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderBackupMerger.swift; sourceTree = "<group>"; };
 		E5S000013 /* SessionForkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionForkManager.swift; sourceTree = "<group>"; };
-		E5S000014 /* CloudSyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncSettingsView.swift; sourceTree = "<group>"; };
 		E5S000015 /* CloudKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CloudKit.framework; path = System/Library/Frameworks/CloudKit.framework; sourceTree = SDKROOT; };
 		E5S000016 /* SyncDirtyScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncDirtyScanner.swift; sourceTree = "<group>"; };
 		E5SAC0020 /* SubAgentsCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SubAgentsCollection.swift; path = Config/Collections/SubAgentsCollection.swift; sourceTree = "<group>"; };
@@ -1373,7 +1368,6 @@
 		E5W000017 /* SyncCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCore.swift; sourceTree = "<group>"; };
 		E5W000018 /* SyncCoreHydrators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCoreHydrators.swift; sourceTree = "<group>"; };
 		E5W000019 /* ICloudSharedZoneTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudSharedZoneTransport.swift; sourceTree = "<group>"; };
-		E5W00001A /* MigrationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationEngine.swift; sourceTree = "<group>"; };
 		E5W00001B /* TombstoneManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TombstoneManager.swift; sourceTree = "<group>"; };
 		E5W00001C /* SyncV2Bootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncV2Bootstrap.swift; sourceTree = "<group>"; };
 		E5W00001D /* ChatStoreSyncHydrators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStoreSyncHydrators.swift; sourceTree = "<group>"; };
@@ -1398,7 +1392,7 @@
 		EAB00001E /* WebAppIconCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppIconCache.swift; sourceTree = "<group>"; };
 		EAB00001F /* WebAppPathClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppPathClassifier.swift; sourceTree = "<group>"; };
 		EAB000020 /* WebAppAddToHomeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppAddToHomeSheet.swift; sourceTree = "<group>"; };
-		EAB000050 /* SyncMigrationDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMigrationDetailView.swift; sourceTree = "<group>"; };
+		EAB000050 /* SyncStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStatusView.swift; sourceTree = "<group>"; };
 		EAB000070 /* UploadPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadPolicy.swift; sourceTree = "<group>"; };
 		EAB000080 /* CloudSyncSettingsV2View.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncSettingsV2View.swift; sourceTree = "<group>"; };
 		EF08A43E8045BF444E5F2DF1 /* UserAskCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAskCore.swift; sourceTree = "<group>"; };
@@ -1777,7 +1771,6 @@
 				E5D00199 /* ProviderConfigDB.swift */,
 				E5D00016 /* ModelGroupRouter.swift */,
 				E5DA0002 /* VisionGroupResolver.swift */,
-				E5D00017 /* ProviderMigration.swift */,
 				E5D0A102 /* ModelReleaseIndex.swift */,
 				E5D00018 /* ModelsDevAPI.swift */,
 				E5D00019 /* URLBuilding.swift */,
@@ -2307,7 +2300,7 @@
 		EAB000060 /* Sync */ = {
 			isa = PBXGroup;
 			children = (
-				EAB000050 /* SyncMigrationDetailView.swift */,
+				EAB000050 /* SyncStatusView.swift */,
 				EAB000080 /* CloudSyncSettingsV2View.swift */,
 			);
 			path = Sync;
@@ -2440,7 +2433,7 @@
 		F1A00013 /* Sync */ = {
 			isa = PBXGroup;
 			children = (
-				E5S000012 /* CloudSyncEngine.swift */,
+				E5S000012 /* ProviderBackupMerger.swift */,
 				E5R000011 /* ICloudBackupManager.swift */,
 				E5S000016 /* SyncDirtyScanner.swift */,
 				F1A00099 /* V2 */,
@@ -2523,7 +2516,6 @@
 				E5W000018 /* SyncCoreHydrators.swift */,
 				E5W000180 /* ForceSyncHelper.swift */,
 				E5W000019 /* ICloudSharedZoneTransport.swift */,
-				E5W00001A /* MigrationEngine.swift */,
 				E5W00001B /* TombstoneManager.swift */,
 				E5W00001C /* SyncV2Bootstrap.swift */,
 				EAB000070 /* UploadPolicy.swift */,
@@ -2600,7 +2592,6 @@
 			isa = PBXGroup;
 			children = (
 				AA0838A12F3B941A00049557 /* AboutView.swift */,
-				E5S000014 /* CloudSyncSettingsView.swift */,
 				E5G000013 /* EnhancedBackgroundSettingsView.swift */,
 				E5P000012 /* EnvironmentVariablesView.swift */,
 				E5J000012 /* LogManagementView.swift */,
@@ -3266,7 +3257,7 @@
 				E5F200006 /* ModelSelectionEntity.swift in Sources */,
 				E5T000004 /* OpenSessionIntent.swift in Sources */,
 				E5W000031 /* WebAppShortcut.swift in Sources */,
-				EAB000051 /* SyncMigrationDetailView.swift in Sources */,
+				EAB000051 /* SyncStatusView.swift in Sources */,
 				EAB000071 /* UploadPolicy.swift in Sources */,
 				EAB000081 /* CloudSyncSettingsV2View.swift in Sources */,
 				E5W000032 /* WebAppPathResolver.swift in Sources */,
@@ -3430,7 +3421,6 @@
 				E5D00099 /* ProviderConfigDB.swift in Sources */,
 				E5D00006 /* ModelGroupRouter.swift in Sources */,
 				E5DA0001 /* VisionGroupResolver.swift in Sources */,
-				E5D00007 /* ProviderMigration.swift in Sources */,
 				E5D0A101 /* ModelReleaseIndex.swift in Sources */,
 				E5D00008 /* ModelsDevAPI.swift in Sources */,
 				E5D00009 /* URLBuilding.swift in Sources */,
@@ -3547,9 +3537,8 @@
 				E5R000001 /* ICloudBackupManager.swift in Sources */,
 				E5R000002 /* ICloudBackupView.swift in Sources */,
 				E5S000001 /* DeviceIdentity.swift in Sources */,
-				E5S000002 /* CloudSyncEngine.swift in Sources */,
+				E5S000002 /* ProviderBackupMerger.swift in Sources */,
 				E5S000003 /* SessionForkManager.swift in Sources */,
-				E5S000004 /* CloudSyncSettingsView.swift in Sources */,
 				E5S000006 /* SyncDirtyScanner.swift in Sources */,
 				E5W000001 /* PortableRecord.swift in Sources */,
 				BKP000101 /* BackupFormat.swift in Sources */,
@@ -3601,7 +3590,6 @@
 				E5W000008 /* SyncCoreHydrators.swift in Sources */,
 				E5W000080 /* ForceSyncHelper.swift in Sources */,
 				E5W000009 /* ICloudSharedZoneTransport.swift in Sources */,
-				E5W00000A /* MigrationEngine.swift in Sources */,
 				E5W00000B /* TombstoneManager.swift in Sources */,
 				E5W00000C /* SyncV2Bootstrap.swift in Sources */,
 				E5W00000D /* ChatStoreSyncHydrators.swift in Sources */,

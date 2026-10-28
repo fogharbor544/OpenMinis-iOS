@@ -388,36 +388,11 @@ extension BackupImporter {
             report.unreadable += 1
             return report
         }
-        // [T-ios-backup-provider-merge] MUST NOT be applyConfig: that replaces
-        // the entire config, so any provider / model group / session binding
-        // that exists locally but not in the backup was silently deleted —
-        // while the restore confirmation promised "Nothing is deleted".
-        // mergeProviderConfigForRestore is the sync engine's union-by-id
-        // merger, which keeps local-only items and leaves the per-device
-        // pointer fields (voice/vision groups, session bindings, defaults)
-        // untouched.
-        // CloudSyncEngine is @available(iOS 17+) (it is CloudKit-backed), while
-        // the app targets iOS 16. On 16 the merge is done inline below with the
-        // same union-by-id rules — restoring must never fall back to the
-        // destructive whole-config replace just because sync is unavailable.
-        // Disambiguate model groups whose NAME collides with one already on
-        // this device. The merge is by id, so a restored group is correctly a
-        // separate entity — but on screen the user then sees two rows both
-        // called "Default Models" with no way to tell which is which. Seen for
-        // real: a restore produced three duplicate pairs in the model picker.
-        //
-        // Only collisions are touched. A group whose name is unique keeps it
-        // exactly, so the common case (restoring onto a clean device) reads
-        // the same as the source.
         let merged = await MainActor.run { Self.disambiguateGroupNames(config) }
 
         let before = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
         let groupsBefore = await MainActor.run { Set(ProviderConfigStore.shared.config.modelGroups.map(\.id)) }
-        if #available(iOS 17.0, *) {
-            await CloudSyncEngine.mergeProviderConfigForRestore(merged)
-        } else {
-            await MainActor.run { Self.mergeProviderConfigFallback(merged) }
-        }
+        await ProviderBackupMerger.restore(merged)
         let after = await MainActor.run { ProviderConfigStore.shared.config.instances.count }
         // [T-backup-restore-tombstone] Groups the restore brought back (a
         // deleted group, or one this device never had). Counted separately
@@ -427,21 +402,6 @@ extension BackupImporter {
             Set(ProviderConfigStore.shared.config.modelGroups.map(\.id)).subtracting(groupsBefore).count
         }
 
-        // Report what the merge actually did, not the package's instance count:
-        // an instance already present locally is not a new arrival.
-        //
-        // [T-backup-provider-false-updated] `updated` used to be
-        // `config.instances.count - imported`, i.e. "every instance in the
-        // package that wasn't newly inserted" — with no content comparison at
-        // all. Both mergers here are union-by-id and SKIP anything already
-        // present (mergeProviderConfigFallback appends only when the id is
-        // absent; CloudSyncEngine's restore merge behaves the same way), so
-        // those instances were not updated — they were left untouched.
-        // Restoring a package onto the device that produced it therefore
-        // reported "Updated 9" while changing nothing, which is the reported
-        // symptom. Count them as `skipped`, which is what actually happened
-        // and what every other category (chats via LWW, memory via content
-        // hash) already reports for an unchanged item.
         report.imported = max(0, after - before)
         report.skipped = max(0, config.instances.count - report.imported)
         report.imported += groupsRestored
@@ -580,19 +540,6 @@ extension BackupImporter {
         return (written, skipped)
     }
 
-    /// Union-by-id provider merge for iOS 16, where `CloudSyncEngine` (iOS 17+,
-    /// CloudKit-backed) is unavailable.
-    ///
-    /// Deliberately conservative and additive: local wins for anything already
-    /// present, backup-only items are appended, and every per-device pointer
-    /// field is left alone. It does NOT reimplement the sync merger's
-    /// Suffix restored model groups whose name is already taken locally.
-    ///
-    /// Returns the config unchanged when there is no collision — the suffix is
-    /// a disambiguator, not a label for "this came from a backup", so a group
-    /// that lands on a device without a same-named one keeps its original
-    /// name. A group already present BY ID is skipped too: that is the same
-    /// group coming home, not a duplicate.
     @MainActor
     static func disambiguateGroupNames(_ remote: ProviderConfig) -> ProviderConfig {
         let local = ProviderConfigStore.shared.config
@@ -630,86 +577,6 @@ extension BackupImporter {
     /// model-entry overlay or tombstone reconciliation — those matter for
     /// device-to-device convergence, not for "put my backup back" — but it
     /// must never delete, which is the property that was broken.
-    @MainActor
-    static func mergeProviderConfigFallback(_ remote: ProviderConfig) {
-        let store = ProviderConfigStore.shared
-        var local = store.config
-
-        // [T-backup-restore-order] Restore the BACKUP's order, then keep
-        // local-only items after it.
-        //
-        // Appending backup items to the end preserved neither side's
-        // arrangement: the provider list is drag-reorderable and its order
-        // lives in the array itself (ProviderConfigDB writes the array index
-        // into `sort_order`), so a restore used to leave the list looking
-        // shuffled — the reported "恢复会把服务商、分组的排序全部打乱".
-        //
-        // Local wins on CONTENT for an id present on both sides (this path is
-        // deliberately additive and never overwrites), but the package decides
-        // POSITION for the items it carries.
-        var instanceIds = Set(local.instances.map(\.id))
-        var orderedInstances: [ProviderInstance] = []
-        var placedInstances = Set<String>()
-        for ri in remote.instances {
-            if let existing = local.instances.first(where: { $0.id == ri.id }) {
-                orderedInstances.append(existing)
-            } else {
-                orderedInstances.append(ri)
-                instanceIds.insert(ri.id)
-            }
-            placedInstances.insert(ri.id)
-        }
-        for li in local.instances where !placedInstances.contains(li.id) {
-            orderedInstances.append(li)
-        }
-        local.instances = orderedInstances
-        var entryIds = Set(local.modelEntries.map(\.id))
-        for entry in remote.modelEntries where !entryIds.contains(entry.id) {
-            local.modelEntries.append(entry)
-            entryIds.insert(entry.id)
-        }
-        // [T-backup-restore-order] Same ordering rule as instances above:
-        // groups are drag-reorderable too, so the package decides the position
-        // of what it carries and local-only groups follow.
-        var orderedGroups: [ModelGroup] = []
-        var placedGroups = Set<String>()
-        for rg in remote.modelGroups {
-            if let existing = local.modelGroups.first(where: { $0.id == rg.id }) {
-                orderedGroups.append(existing)
-            } else {
-                orderedGroups.append(rg)
-            }
-            placedGroups.insert(rg.id)
-        }
-        for lg in local.modelGroups where !placedGroups.contains(lg.id) {
-            orderedGroups.append(lg)
-        }
-        local.modelGroups = orderedGroups
-        // agent-loop bindings are additive sets; per-device pointers
-        // (defaultPrimaryGroupId, voice*/visionGroupId, sessionBindings,
-        // sessionInferenceConfigs) are intentionally NOT touched.
-        local.agentLoopModelEntryIds = Array(
-            Set(local.agentLoopModelEntryIds).union(remote.agentLoopModelEntryIds))
-        local.agentLoopGroupIds = Array(
-            Set(local.agentLoopGroupIds).union(remote.agentLoopGroupIds))
-
-        // [T-backup-restore-tombstone] This path already brings a deleted item
-        // back (it appends by id and never consults tombstones), but it left
-        // the item's tombstone in place. Every later run of the shared merger
-        // starts by removing tombstoned ids, so the next restore or legacy
-        // snapshot merge would delete the group again. Clear the tombstones
-        // of everything the package carries, the same rule as the iOS 17 path.
-        local.deletedInstances = ProviderConfigTombstone.survivingRestore(
-            local.deletedInstances, restoring: Set(remote.instances.map(\.id)))
-        local.deletedModelEntries = ProviderConfigTombstone.survivingRestore(
-            local.deletedModelEntries, restoring: Set(remote.modelEntries.map(\.id)))
-        local.deletedModelGroups = ProviderConfigTombstone.survivingRestore(
-            local.deletedModelGroups, restoring: Set(remote.modelGroups.map(\.id)))
-
-        store.applyConfig(local, orderReason: "restore-merge")
-        logger.info("[Restore] provider merge (iOS16 path): instances=\(local.instances.count) entries=\(local.modelEntries.count) groups=\(local.modelGroups.count)")
-    }
-
     // MARK: - MCP servers
 
     private func importMCPServers(root: URL) async throws -> CategoryReport {

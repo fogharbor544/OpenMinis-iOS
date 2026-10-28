@@ -222,10 +222,6 @@ extension AIChatViewModel {
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user on the block in the tool bar and in the transcript (e.g. 'Survey repo test layout', 'Check on the research agent'). Use the same language as the user."),
                     "action": AgentToolParam(type: .string, description: "\"delegate\" (default): start a sub agent on `task`. \"status\": report this conversation's sub agents — state (queued/running/done/cancelled/failed/interrupted), current tool, elapsed, model, finished results; `job_id` for one, omit for all. \"steer\": course-correct a RUNNING one without stopping it (see `message`). \"cancel\": stop the one named by `job_id`; its partial result is still posted back. \"resume\": restart runs the app lost when it was killed (they report `interrupted`); `job_id`/`child_session_id` for one, omit both for all.", enumValues: ["delegate", "status", "steer", "cancel", "resume"]),
                     "task": AgentToolParam(type: .string, description: "action=delegate only, required. The complete, self-contained brief: goal, success criteria, relevant paths/URLs, constraints, and exactly what to return. The sub agent sees nothing else."),
-                    // [T-sub-agents-v1] enumValues are the enabled sub agent
-                    // names, rebuilt every turn (the schema is not cached), so a
-                    // rename takes effect on the next request and the model
-                    // cannot invent a name.
                     "agent": AgentToolParam(type: .string, description: "action=delegate only. Which sub agent runs this task. Pick the one whose description matches the work; omit it to use the general one.", enumValues: SubAgentStore.shared.subAgents.map(\.name)),
                     "model_choice": AgentToolParam(type: .string, description: "action=delegate only, and only when the chosen sub agent is set to Auto — one the user pinned to a group ignores it. DEFAULT TO \"same_as_me\". The user picked the model this conversation runs on, and that choice covers the work you delegate from it: a sub agent on a different model can cost far more, or be far weaker, than what they chose, and they never see it happen. Only depart from it when the task itself gives you a specific reason, judged by what the task demands and not by how long it will take. \"same_as_me\" (default): this conversation's model — anything continuing the work at hand, and every case where you are unsure. \"default_model\": the user's strongest group — only when this task clearly needs more capability than the current model, e.g. multi-step reasoning, design judgment, ambiguous requirements where a wrong answer is expensive. \"sub_model\": the user's light group — only when the task is clearly mechanical and well-bounded, verifiable at a glance (collecting files against a list, format conversion, fixed commands, lookups).", enumValues: ["same_as_me", "default_model", "sub_model"]),
                     "context": AgentToolParam(type: .string, description: "action=delegate only. Optional raw material to hand over verbatim (file excerpts, error output, a list of paths). Appended to the task."),
@@ -257,7 +253,6 @@ extension AIChatViewModel {
 
 }
 
-// MARK: - Sub agent roster  [T-sub-agents-v1]
 
 extension AIChatViewModel {
 

@@ -301,10 +301,6 @@ extension ChatStore {
             sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
-        // Clean up per-session etag cache
-        if #available(iOS 17.0, *) {
-            Task { @MainActor in CloudSyncEngine.shared.removeSessionCache(id) }
-        }
         // [T-ios-session-paused-badge] Drop any badge state for a deleted session
         // so a stale "paused" badge can't linger in the persisted store.
         Task { @MainActor in SessionBadgeStore.shared.clearAll(for: id) }

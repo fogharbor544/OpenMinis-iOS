@@ -213,7 +213,6 @@ final class GeminiOAuthManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Legacy singleton Keychain (for migration)
 
     static let legacyKeychainService = "com.openminis.app.gemini-oauth"
     static let legacyKeychainAccount = "token"

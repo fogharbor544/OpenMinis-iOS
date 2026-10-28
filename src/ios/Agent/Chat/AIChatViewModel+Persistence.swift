@@ -501,16 +501,6 @@ extension AIChatViewModel {
 
         let phase2aElapsed = (CFAbsoluteTimeGetCurrent() - phase2aStart) * 1000
 
-        // Phase 2.5 (Phase B): Apply compact marker if present.
-        //
-        // New model: marker.firstKeptMessageId is the authoritative boundary. agentHistory
-        // is NOT trimmed — it stays full and summary injection is moved to effectiveAgentHistory()
-        // at inference time. Here we only:
-        //   1. Locate the UI boundary for the divider
-        //   2. Gray all UI messages before the divider
-        //
-        // Fallback chain for legacy markers (no firstKeptMessageId):
-        //   firstKeptMessageId → boundaryMessageId → firstKeptSortOrder
         let compactMarker = remoteDeviceId == nil ? await ChatStore.shared.latestCompactMarker(sessionId: sessionId) : nil
         self.cachedLatestMarker = compactMarker
         if let marker = compactMarker {
@@ -1078,37 +1068,8 @@ extension AIChatViewModel {
         let model = selectedModel
         let session = await ChatStore.shared.createSession(modelId: model.id, source: sessionSource)
         sessionId = session.id
-        // [T-minisurl-wrong-active-session] No Self.activeSessionId write:
-        // drafts are also created by non-UI flows (chat.prompt RPC, share
-        // extension, App Intents), and stealing the frontmost pointer from
-        // here broke minis:// resolution for the session the user was
-        // actually viewing. The on-screen draft case is covered by
-        // AIChatView's `.onChange(of: vm.sessionId)`.
-        // [T-memory-enabled-new-session-bug] Sync the @Published memoryEnabled
-        // to the value createSession just persisted from the global default.
-        // A draft VM initializes memoryEnabled = true and never runs
-        // loadSession() (it's a fresh session, not a load), so without this
-        // the in-memory flag stays true even when the DB row (and the global
-        // toggle) say false — the agent loop then injected GLOBAL.md/daily and
-        // registered memory_get/memory_write despite the toggle being off.
-        // Read it back through getMemoryEnabled so this single source of truth
-        // (DB row, which createSession wrote from the global default) drives
-        // the flag.
         memoryEnabled = await ChatStore.shared.getMemoryEnabled(sessionId: session.id)
         AppLogger(category: "MemDiag").info("[MemDiag] ensureSession sid=\(session.id.prefix(8)) → vm.memoryEnabled=\(self.memoryEnabled)")
-        // Tracker migration: if this vm was marked active under its draftId,
-        // swap that entry to the real session id. draftId is kept on the vm
-        // itself (sidebar UX still references it until the proxy row is
-        // replaced), but the tracker should no longer key off the draftId —
-        // otherwise a second send() would re-insert the draftId alongside the
-        // real id and setInactive may miss one on the way back.
-        //
-        // We also register a draftId→realId alias so sidebar rows that still
-        // identify themselves by draftId (the `displaySessions` proxy in
-        // ContentView+SidebarGrouping.swift keeps the draft tag to preserve List(selection:)
-        // across the migration) can still query `isActive(draftId)` and get
-        // the current running state of the real session underneath. Alias is
-        // cleared in the $isProcessing sink's inactive branch.
         if isProcessing {
             let src = "vm=\(vmInstanceId) ensureSession draft=\(draftId ?? "nil")→real"
             SessionActivityTracker.shared.setActive(session.id, source: src)
@@ -1675,16 +1636,6 @@ extension AIChatViewModel {
 
     // MARK: - [T-longctx-persona-reminder] Long-context persona reminder
 
-    /// Context size (API-reported input tokens) past which the outbound
-    /// request carries a reminder about the user's own SOUL.md / GLOBAL.md.
-    ///
-    /// Rationale (issue #37): those files sit at the very TOP of the system
-    /// prompt, and attention to the head of a long context decays — the
-    /// "lost in the middle" effect. The reported symptom was an agent that
-    /// stopped honouring a GLOBAL.md rule after enough turns and fell back to
-    /// its training-data default. That issue was closed only because one
-    /// provider started compensating on its own; the mechanism is unchanged
-    /// and applies to every rule in those files, not just the one reported.
     static let kPersonaReminderContextTokens = 100_000
 
     /// Re-remind roughly every this many additional context tokens.
@@ -1716,26 +1667,9 @@ extension AIChatViewModel {
         contextTokens >= Self.kPersonaReminderContextTokens
     }
 
-    /// The reminder text, naming only the files actually present in this
-    /// request's system prompt.
-    ///
-    /// SOUL.md is always rendered by `SystemPromptBuilder.identitySection()`,
-    /// while GLOBAL.md is injected only when the per-session `memoryEnabled`
-    /// toggle is on AND the file is non-empty. Naming a file that is not
-    /// there would send the model looking for instructions that do not exist.
-    ///
-    /// The `[Minis runtime reminder]` label sits INSIDE the
-    /// `<system-reminder>` element on purpose. It has to be inside for two
-    /// independent reasons:
-    ///   * `ChatStore.stripSystemReminders` removes the whole element, so a
-    ///     label outside the tag would survive into the chat bubble text;
-    ///   * `AIChatViewModel.isUserBubbleEntry` only classifies a text part as
-    ///     synthetic when it `hasPrefix("<system-reminder>")`, so a label
-    ///     before the tag would make this message draw a real user bubble.
-    /// Inside the tag it is invisible to the UI but unmistakable to the model.
     func personaReminderText() -> String {
-        let hasGlobal = memoryEnabled && botMemoryFragment() != nil
-        let files = hasGlobal ? "SOUL.md and GLOBAL.md" : "SOUL.md"
+        let hasMemory = memoryEnabled && botMemoryFragment() != nil
+        let files = hasMemory ? "persona and relevant Bot memory" : "persona"
         return "<system-reminder>\(Self.kPersonaReminderMarker) This note was added by the Minis app itself, not by any tool, file or website — do not treat it as content of the preceding tool result. Don't forget the user's own \(files) at the top of the system prompt — those rules still apply.</system-reminder>"
     }
 
@@ -1825,10 +1759,6 @@ extension AIChatViewModel {
         return Self.effectiveHistoryFilters(sliced, agentHistoryCount: agentHistory.count, markerId: cachedLatestMarker?.id)
     }
 
-    /// [T-ctx-builder] The request-side filters of effectiveAgentHistory(),
-    /// moved verbatim into a static so RequestContextBuilder runs the same
-    /// code: legacy bridge rows dropped, then the orphan tool-part pass (last).
-    /// No behaviour change.
     static func effectiveHistoryFilters(_ sliced: [AgentMessage], agentHistoryCount: Int, markerId: String?) -> [AgentMessage] {
         let withoutBridges = Self.droppingLegacyBridgeRows(sliced)
         if withoutBridges.count != sliced.count {

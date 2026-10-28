@@ -31,20 +31,6 @@ struct EnvVarEntry: Identifiable, Codable {
     }
 }
 
-// BEGIN EnvVarStateBook
-/// [T-envvar-disable] Which variables are switched off, by entry id.
-///
-/// Deliberately NOT a field of `EnvVarEntry` / env-vars.json: builds that
-/// predate this feature rewrite env-vars.json (an edit, the legacy whole-file
-/// iCloud merge, a downgrade) with only the fields they know, and would drop
-/// it. Kept in its own file (env-vars-state.json) and synced as its own
-/// record type (EnvVarStateItem), the state is something older builds never
-/// read, write or delete.
-///
-/// Keyed by entry id, not by name: a rename keeps the state, two entries that
-/// share a name keep their own, and deleting a variable drops its state, so a
-/// variable created later under the same name (a new id) starts enabled.
-/// A missing record means enabled.
 struct EnvVarStateBook: Codable, Equatable {
     struct Record: Codable, Equatable {
         var enabled: Bool
@@ -172,11 +158,6 @@ final class EnvVarStore: ObservableObject {
     func reloadFromDisk() {
         entries = Self.loadEntries(from: fileURL)
         stateBook = Self.loadStateBook()
-        // [T-envvar-redactor-reload-invalidate] The iCloud whole-file merger
-        // (CloudSyncEngine.mergeEnvVars) rewrites env-vars.json directly and
-        // then calls this. When the new key's value already arrived via iCloud
-        // Keychain, importEnvVarSecrets skips saveValue, so nothing else drops
-        // the redactor cache and the new secret would stay unmasked.
         EnvVarRedactor.invalidateCache()
     }
 
@@ -291,22 +272,6 @@ final class EnvVarStore: ObservableObject {
         return false
     }
 
-    /// [T-envvar-redactor-crash] One fresh `result` per SecItemCopyMatching.
-    ///
-    /// This used to declare a single `var result: AnyObject?` and pass `&result`
-    /// to BOTH calls. SecItemCopyMatching follows the Copy rule: it hands back a
-    /// +1 reference by writing straight through the pointer, without releasing
-    /// whatever was there. Swift, meanwhile, treats the inout `AnyObject?` as an
-    /// owning reference. So on the fallback call the first call's +1 object was
-    /// overwritten (leaked) while ARC's ownership bookkeeping still pointed at
-    /// it, and the eventual release landed on a stale pointer — EXC_BAD_ACCESS
-    /// at 0xffffffff inside CFRelease, surfacing as a crash in whatever happened
-    /// to be tearing down at the time (field report: EnvVarRedactor's decoded
-    /// entry array, mid-tool-call, iOS 16.7).
-    ///
-    /// Only reachable when the synchronizable lookup misses AND a legacy
-    /// non-synchronizable item exists, which is why it took a long-lived
-    /// session to hit.
     nonisolated private static func loadValue(forKey key: String) -> String? {
         func copyData(_ query: [String: Any]) -> Data? {
             var result: AnyObject?
@@ -342,12 +307,10 @@ final class EnvVarStore: ObservableObject {
         EnvVarRedactor.invalidateCache()
     }
 
-    /// Non-isolated read for use from CloudSyncEngine (background thread).
     nonisolated static func loadValueSync(forKey key: String) -> String? {
         loadValue(forKey: key)
     }
 
-    /// Non-isolated write for use from CloudSyncEngine (background thread).
     nonisolated static func saveValueSync(_ value: String, forKey key: String) {
         saveValue(value, forKey: key)
     }
@@ -526,11 +489,6 @@ final class EnvVarStore: ObservableObject {
         }
 
         let cleanValue = Self.sanitizeValue(value, forKey: trimmedKey)
-        // Commit the new value FIRST; only mutate the entry (and persist the
-        // key rename) once the Keychain write succeeds, so a failed write
-        // never leaves the list pointing at a blanked value. On key rename the
-        // old value was already migrated/removed above; if the new write
-        // fails, re-log so the caller can retry.
         guard Self.saveValue(cleanValue, forKey: trimmedKey) else {
             logger.error("Update env var aborted — Keychain write failed for \(trimmedKey)")
             return
@@ -648,16 +606,6 @@ final class EnvVarStore: ObservableObject {
 
     // MARK: - Sync inbound (per-variable)
 
-    /// Apply an inbound EnvVarItem. Lookup by id; if a local entry with
-    /// the same id exists, LWW-by-updatedAt decides the winner. If no
-    /// local entry exists by id but another one with the same key
-    /// exists (created independently on two devices before they ever
-    /// synced), keep both — they have distinct UUIDs and the user can
-    /// reconcile manually.
-    ///
-    /// `value` is empty when the sender sent an empty/missing valueB64
-    /// (e.g. legacy build that didn't fill it). In that case we leave
-    /// the local Keychain value untouched rather than wiping it.
     func applyRemoteItem(
         id: String, key: String, value: String, note: String,
         createdAt: Date, updatedAt: Date
@@ -684,8 +632,6 @@ final class EnvVarStore: ObservableObject {
                 }
                 Self.saveValue(value, forKey: key)
             } else if keyChanged {
-                // Key renamed but no value supplied — migrate the existing
-                // value under the new key so we don't strand it.
                 if let oldVal = Self.loadValue(forKey: existing.key) {
                     Self.saveValue(oldVal, forKey: key)
                     Self.deleteValue(forKey: existing.key)

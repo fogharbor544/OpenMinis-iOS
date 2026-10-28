@@ -66,6 +66,10 @@ jobs:
           "$RUNNER_TEMP/bot-memory-tests"
       - name: Bot memory runtime boundaries
         run: python3 src/ios/MinisTests/Standalone/run_bot_memory_runtime_tests.py
+      - name: Current model identity
+        run: |
+          swiftc src/ios/Providers/ModelEntry.swift src/ios/MinisTests/Standalone/ModelEntryIdentityTests.swift -o "$RUNNER_TEMP/model-identity-tests"
+          "$RUNNER_TEMP/model-identity-tests"
       - name: Bot memory iOS UI type checking
         run: python3 src/ios/MinisTests/Standalone/check_bot_memory_ui.py
       - name: Browser storage behavior tests

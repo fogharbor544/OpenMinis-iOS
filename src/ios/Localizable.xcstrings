@@ -1,6 +1,86 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Exporting persona…": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Exporting persona…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在导出角色设定…"
+        }
+      }
+    }
+  },
+  "Persona": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Persona"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "角色设定"
+        }
+      }
+    }
+  },
+  "Pending uploads": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pending uploads"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "待上传"
+        }
+      }
+    }
+  },
+  "Long-term memory is available in Bots and groups.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Long-term memory is available in Bots and groups."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "长期记忆仅在 Bot 和群聊中提供。"
+        }
+      }
+    }
+  },
+  "New Bot and group conversations use this memory setting. Existing conversations keep their own setting.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "New Bot and group conversations use this memory setting. Existing conversations keep their own setting."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "新建 Bot 和群聊对话使用此记忆设置，已有对话保留各自的设置。"
+        }
+      }
+    }
+  },
   "Bot Memories": {
     "extractionState": "manual",
     "localizations": {
@@ -31,40 +111,6 @@
         "stringUnit": {
           "state": "translated",
           "value": "群聊记忆"
-        }
-      }
-    }
-  },
-  "Legacy Conversation Memory": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Legacy Conversation Memory"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "旧会话记忆"
-        }
-      }
-    }
-  },
-  "These files and the iCloud sync action apply to legacy conversations. Bot and group memories use separate local entries and are not automatically imported or synced.": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "These files and the iCloud sync action apply to legacy conversations. Bot and group memories use separate local entries and are not automatically imported or synced."
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "这些文件及 iCloud 同步操作仅适用于旧会话。Bot 与群聊使用独立的本地记忆条目，不会自动导入或同步。"
         }
       }
     }

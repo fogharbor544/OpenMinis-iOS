@@ -850,19 +850,10 @@ enum DebugMethodRegistry {
         ),
         MethodSpec(
             name: "debug.sync.providerV3.status",
-            description: "Report Provider Sync v3 (per-record SQLite-backed) state: feature flag, migration completion, db open status, per-table row counts. Used to verify the v3 surface is the authoritative inbound path after a build upgrade.",
+            description: "Report Provider Sync v3 (per-record SQLite-backed) state: db open status, per-table row counts. Used to verify the v3 surface is the authoritative inbound path after a build upgrade.",
             params: [],
-            returns: "{enabled, migrationCompleted, dbOpen, counts:{instances, entries, groups}}",
+            returns: "{enabled, dbOpen, counts:{instances, entries, groups}}",
             example: [:]
-        ),
-        MethodSpec(
-            name: "debug.sync.providerV3.setEnabled",
-            description: "Kill-switch for Provider Sync v3. Off resumes V2-merge inbound + stops the V3-inbound-merge path (V3 outbound dirty rows already in the queue still drain on next send, harmlessly). Use to revert v3 in the field without a code change. Takes effect immediately for inbound.",
-            params: [
-                ParamSpec(name: "enabled", type: "bool", required: true, default: nil, description: "true = v3 is authoritative for inbound, v2 inbound silently dropped; false = v3 dormant, v2 inbound merged normally."),
-            ],
-            returns: "{enabled}",
-            example: ["enabled": false]
         ),
         // MARK: Env vars
         MethodSpec(

@@ -1,13 +1,3 @@
-//
-//  ChatStore+Schema.swift
-//  Minis - chat persistence (Agent/Chat)
-//
-//  ChatStore, database setup: opening the SQLite file, the schema
-//  (createTables), deferred migrations and one-off backfills / cleanups, and
-//  the exec / column helpers they use.
-//
-//  Map of the ChatStore files: ChatStore.swift.
-//
 
 import Foundation
 import SQLite3
@@ -84,78 +74,8 @@ extension ChatStore {
         // idx_messages_session, on the 100k-message DB.
         exec("CREATE INDEX IF NOT EXISTS idx_msg_sess_role_sort ON messages(session_id, role, sort_order DESC)")
 
-        // [T-ios-moveto-perf] The session list is always ordered by
-        // `updated_at DESC`, and there was no index on it — so every rebuild
-        // sorted the whole table. Harmless at a few dozen sessions, a real cost
-        // at the 1772-session scale the preview subqueries were tuned against,
-        // and it is what makes the `LIMIT` in `listRecentSessions` actually
-        // cheap: with the index SQLite walks the first N rows in order instead
-        // of sorting everything and discarding the tail.
-        //
-        // `CREATE INDEX IF NOT EXISTS` runs on every open and is idempotent, so
-        // this needs no schema-version bump and no migration step.
         exec("CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC)")
 
-        // Idempotent column migrations — guarded via PRAGMA table_info so
-        // re-runs on already-migrated DBs don't emit duplicate-column errors.
-        // [T-responses-echo-persist] Native reasoning items (OpenAI Responses
-        // `reasoning` heads: id + summary + the upstream that minted them),
-        // JSON. Nullable with no DEFAULT so a row written before this column
-        // existed stays distinguishable from one that genuinely has no echo.
-        // Folder membership. NULL = ungrouped. Intentionally NOT a declared FK:
-        // a folder_id pointing at a folder that does not exist locally is a
-        // legitimate transient state (the session's SessionV2 record can arrive
-        // before its FolderV2 record, and a folder deleted on another device
-        // leaves references behind). Such orphans render as ungrouped rather
-        // than failing a constraint — see foldersById callers in ContentView.
-        // [T-p1-delegate-task] Child-session linkage. Nullable, no DEFAULT,
-        // no FK (orphan-tolerant like folder_id).
-        // [T-ios-listsessions-perf] Denormalised sidebar preview, computed when
-        // a message lands rather than re-derived for every session on every
-        // refresh. `preview_sort_order` is the sort_order of the message the
-        // text came from, so the assistant-wins-unless-the-user-is-newer rule
-        // can be applied incrementally without re-reading both candidate rows.
-        //
-        // Nullable with NO DEFAULT, deliberately: NULL is the signal "this row
-        // predates the column", which listSessions uses to fall back to the old
-        // extraction once and write the result back. A DEFAULT '' would erase
-        // the difference between "not computed yet" and "genuinely empty".
-        //
-        // These columns are NOT part of the sessions CREATE TABLE above (that
-        // DDL carries only the five original columns; every later column on
-        // this table arrives through addColumnIfMissing), so there is no
-        // both-places requirement here — unlike `folders.pinned_at` below,
-        // which IS in its DDL and therefore needs both.
-        //
-        // Derived state: deliberately absent from the iCloud wire format and
-        // the backup export. Each device computes its own, so an older peer
-        // that knows nothing about these columns is unaffected, and a downgrade
-        // simply ignores them.
-        // Folder pinning (mirrors sessions.pinned_at). Also present in the
-        // CREATE TABLE DDL above — per the add-column wipe trap, a new column
-        // must exist in BOTH the initial DDL and the idempotent migration.
-        // One-sentence group description (≤100 chars): written at creation
-        // (typed or AI-suggested), edited in the rename dialog, and fed to
-        // the auto-grouping prompt as context. Not rendered in the list.
-        // [T-error-persist-ios] Device-local error string shown on a failed
-        // assistant turn (provider/network/empty-response/context-full/…). Persisted
-        // so the indicator survives session reload / app restart. NULL = no error.
-        // Not synced via iCloud (errors are device-local; absent from the CKRecord).
-        // [T-ios-listsessions-part-flags] Device-local bitmask of which
-        // ContentPart types a row's parts_json contains — bit0=hasText,
-        // bit1=hasToolUse. Lets listSessions() replace 4 un-indexable
-        // `parts_json LIKE '%…%'` subqueries per session with cheap integer
-        // masks (523ms → single-digit ms cold on a 100k-message DB). Derived
-        // purely from parts_json, so it is NOT synced via iCloud (like
-        // error_info): inbound merge / backfill recompute it locally on write.
-        // Backfilled once for pre-existing rows below.
-        // v2 sync: soft-delete tombstone for sessions deleted on a peer
-        // device but kept locally. Non-nil = tombstoned at that timestamp.
-        // See SyncV2 §3.3.
-        // v2 sync: priority + creation order on dirty rows so migration's
-        // 28k+ row backlog never starves freshly-typed user messages.
-        // priority: 0 = user-driven (default), 1 = migration backlog
-        // (push only after priority=0 drains in each batch).
 
         // [T-token-attribution-snapshot] Which model actually produced each
         // message, captured at write time.
@@ -194,29 +114,8 @@ extension ChatStore {
             )
         """)
         exec("CREATE INDEX IF NOT EXISTS idx_compact_markers_session ON compact_markers(session_id, created_at)")
-        // Idempotent column migrations for compact_markers.
-        // Phase A: id-first boundary model. New markers MUST fill these columns.
-        // Phase v2: simplified marker model. version=2 markers anchor on
-        // last_compacted_message_id ONLY (a real, persisted, UI-visible message
-        // id). All other id/sortOrder fields are unused for v2 markers. Older
-        // markers default to version=1 so legacy resolution code keeps running.
         exec("CREATE INDEX IF NOT EXISTS idx_compact_markers_first_kept ON compact_markers(session_id, first_kept_message_id)")
 
-        // [T-ios-listsessions-part-flags] One-shot backfill of part_flags for
-        // rows written before the column existed (all default to 0). Computed
-        // in pure SQL with the SAME LIKE patterns the old listSessions used, so
-        // backfilled flags reproduce the previous preview selection exactly.
-        // Guarded by a UserDefaults flag (mirrors zombieCleanupKey) so it runs
-        // once. Scoped to rows still at the default (part_flags = 0 AND the JSON
-        // actually contains a text/toolUse part) so re-runs after a partial
-        // failure stay cheap and correct.
-        // [T-ios27-scene-create-watchdog] The backfill itself no longer runs
-        // here. It is an UPDATE with two unindexable LIKE scans over the whole
-        // messages table — on a 100k-message database that is seconds of work
-        // INSIDE the dispatch_once every other thread is waiting on. Moved to
-        // runDeferredMigrations(), which the launch path calls off the init.
-        // The ADD COLUMN above stays: the column must exist before any query
-        // references it, and ALTER TABLE ADD COLUMN is O(1) metadata in SQLite.
 
 
         // iCloud sync tables
@@ -231,12 +130,6 @@ extension ChatStore {
                 PRIMARY KEY (record_type, record_id)
             )
         """)
-        // Distinct recordIDs that have ever been confirmed saved to
-        // iCloud (via CKSyncEngine SentRecordZoneChanges). Used by the
-        // migration progress UI to show a real "unique records pushed"
-        // count rather than the historical save-event counter, which
-        // double-counts every relaunch's re-mark-dirty + re-save cycle.
-        // Insert is INSERT OR IGNORE so duplicate saves are silent.
         exec("""
             CREATE TABLE IF NOT EXISTS sync_pushed_records (
                 record_name TEXT PRIMARY KEY

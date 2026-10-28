@@ -95,8 +95,6 @@ final class SyncDirtyScanner {
 
     // MARK: - Skills
 
-    /// Return the max file modification date for a given skill ID.
-    /// Used by CloudSyncEngine to detect filesystem changes not reflected in the DB.
     static func maxModDate(inSkill skillId: String) -> Date {
         let dir = AIChatViewModel.minisSkillsPersistentDir.appendingPathComponent(skillId)
         return SyncDirtyScanner.shared.maxModDate(in: dir)

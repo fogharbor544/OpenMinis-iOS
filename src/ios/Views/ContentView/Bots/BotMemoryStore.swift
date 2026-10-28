@@ -129,7 +129,10 @@ enum BotMemoryError: LocalizedError {
         else { throw BotMemoryError.invalid("Use one concise memory without passwords, codes or secrets (up to 2000 characters; scope up to 160).") }
         entry.fingerprint = Self.fingerprint(entry.content)
         let all = try entries().filter { $0.owner == entry.owner }
-        if let duplicate = all.first(where: { $0.id != id && $0.status == "active" && $0.fingerprint == entry.fingerprint && $0.scope == entry.scope }) { return duplicate }
+        if let duplicate = all.first(where: { $0.id != id && $0.status == "active" && $0.fingerprint == entry.fingerprint && $0.scope == entry.scope }) {
+            guard id == nil else { throw BotMemoryError.invalid("An identical memory already exists. Delete the obsolete entry instead of creating a duplicate correction.") }
+            return duplicate
+        }
         if !userInitiated, all.contains(where: {
             $0.status != "active" && ($0.fingerprint == entry.fingerprint ||
                 (entry.sourceMessage != nil && $0.sourceMessage == entry.sourceMessage && $0.sourceSession == entry.sourceSession))

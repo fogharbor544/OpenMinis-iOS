@@ -293,8 +293,8 @@ private struct BuiltinCapabilitiesView: View {
             Section {
                 ForEach(Self.nativeCommands, id: \.name) { command in
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(command.displayLabel)
-                        Text(command.description.isEmpty ? (Self.purposes[command.name] ?? command.name) : command.description)
+                        Text(LocalizedStringKey(command.displayLabel))
+                        Text(LocalizedStringKey(command.description.isEmpty ? (Self.purposes[command.name] ?? command.name) : command.description))
                             .font(.caption).foregroundStyle(.secondary)
                         Text("Built-in · \(command.name)").font(.caption2).foregroundStyle(.secondary)
                         if command.showInSettings {

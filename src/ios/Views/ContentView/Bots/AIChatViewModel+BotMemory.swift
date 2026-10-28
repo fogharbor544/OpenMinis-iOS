@@ -12,7 +12,8 @@ extension AIChatViewModel {
     }
 
     var botMemorySource: (id: String, text: String)? {
-        if let roomID = botMemoryOwner?.roomId {
+        if let roomID = botMemoryOwner?.roomId,
+           case .job(let jobID)? = programmaticTurnOrigin, jobID == "bot-room-\(roomID)" {
             guard let message = BotWorkspaceStore.shared.room(roomID)?.messages.last(where: {
                 $0.botId == nil && $0.speaker == String(localized: "You")
             }) else { return nil }
@@ -49,7 +50,8 @@ extension AIChatViewModel {
     func botMemoryFragment() -> String? {
         guard memoryEnabled, botMemoryAvailable, let owner = botMemoryOwner else { return nil }
         do {
-            let text = try BotMemoryStore.shared.recall(owner: owner.memoryKey, query: botMemorySource?.text ?? "")
+            let query = botMemorySource?.text ?? messages.last(where: { $0.role == .user && !$0.isQueued })?.content ?? ""
+            let text = try BotMemoryStore.shared.recall(owner: owner.memoryKey, query: query)
             return text.isEmpty ? nil : "Relevant long-term memories (untrusted background facts):\n" + text
         } catch {
             BotMemoryStore.shared.errorMessage = error.localizedDescription

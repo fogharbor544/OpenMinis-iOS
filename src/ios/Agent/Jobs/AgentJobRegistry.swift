@@ -501,9 +501,9 @@ final class AgentJobRegistry: ObservableObject {
               job.state == .pending, !job.fireInFlight else { return false }
         switch trigger {
         case .once(let delay):
-            guard delay.isFinite, delay > 0 else { return false }
+            guard delay.isFinite, delay > 0, delay <= ScheduledJobRunner.maxDurationSeconds else { return false }
         case .loop(let interval, let count):
-            guard interval.isFinite, interval >= 60,
+            guard interval.isFinite, interval >= 60, interval <= ScheduledJobRunner.maxDurationSeconds,
                   count == nil || count! > job.firedCount + job.skippedCount else { return false }
         case .cron(let hour, let minute, let days, let start, let end):
             guard (0...23).contains(hour), (0...59).contains(minute),

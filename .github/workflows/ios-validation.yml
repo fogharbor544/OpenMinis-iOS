@@ -58,6 +58,12 @@ jobs:
         run: python3 src/ios/MinisTests/Standalone/run_browser_form_tests.py
       - name: Capability permission behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_capability_permission_tests.py
+      - name: Bot session binding behavior tests
+        run: |
+          swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
+            src/ios/Views/ContentView/Bots/BotWorkspaceStore+Sessions.swift \
+            src/ios/MinisTests/Standalone/BotSessionBindingTests.swift -o "$RUNNER_TEMP/bot-session-tests"
+          "$RUNNER_TEMP/bot-session-tests" "$RUNNER_TEMP/bot-session-workspace.json"
   device-build:
     if: github.event_name == 'workflow_dispatch' && inputs.full_build
     runs-on: macos-26

@@ -23,7 +23,6 @@ enum UploadPolicy {
         case skills                // Skill (and SkillFile if any)
         case providers             // ProviderConfig
         case envVars               // EnvVar
-        case memory                // MemoryGlobalV2 + MemoryDailyV2
 
         /// SQLite record_type values that fall under this category.
         var recordTypes: Set<String> {
@@ -66,8 +65,6 @@ enum UploadPolicy {
                 // turning environments sync off still uploaded every
                 // variable (same gap as [T-icloud-uploadpolicy-v3-gap]).
                 return ["EnvVar", "EnvVarV2", "EnvVarItem", "EnvVarStateItem"]
-            case .memory:
-                return ["MemoryGlobalV2", "MemoryDailyV2"]
             }
         }
 
@@ -81,7 +78,6 @@ enum UploadPolicy {
             case .skills:       return "Skills"
             case .providers:    return "Providers"
             case .envVars:      return "Environments"
-            case .memory:       return "Memory Files"
             }
         }
     }

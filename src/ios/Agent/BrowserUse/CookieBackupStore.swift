@@ -326,7 +326,6 @@ final class CookieBackupStore {
         for (_, text) in allCookieFiles() {
             entries.append(contentsOf: Self.parseNetscape(text))
         }
-        migrateLegacyJSONIfNeeded(into: &entries)
         return entries
     }
 
@@ -366,20 +365,6 @@ final class CookieBackupStore {
 
     private func deleteCookieItem(domain: String) {
         try? FileManager.default.removeItem(at: cookieFileURL(domain: domain))
-    }
-
-    /// Fold the pre-directory single-JSON backup in once, then delete it so no
-    /// stale plaintext copy lingers. (The per-domain .txt files are the
-    /// current format and are read directly by `allCookieFiles`.)
-    private func migrateLegacyJSONIfNeeded(into entries: inout [BackupCookie]) {
-        let legacyJSON = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("BrowserCookieBackup.json")
-        guard let data = try? Data(contentsOf: legacyJSON),
-              let legacy = try? JSONDecoder().decode([BackupCookie].self, from: data) else { return }
-        entries.append(contentsOf: legacy)
-        try? FileManager.default.removeItem(at: legacyJSON)
-        logger.info("migrated \(legacy.count) cookie(s) from legacy JSON backup")
     }
 
     private func loadVisitMap() -> [String: Double] {

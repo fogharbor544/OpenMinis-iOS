@@ -6,7 +6,7 @@ struct BotProfile: Identifiable, Codable {
     var instructions = ""
     var modelGroupId: String?
     var sessionId: String?
-    var conversationIds: [String]?
+    var conversationIds: [String] = []
 }
 
 struct BotSessionOwner: Codable {
@@ -36,7 +36,7 @@ struct BotRoom: Identifiable, Codable {
 struct BotWorkspaceData: Codable {
     var bots: [BotProfile] = []
     var rooms: [BotRoom] = []
-    var sessionOwners: [String: BotSessionOwner]?
+    var sessionOwners: [String: BotSessionOwner] = [:]
 }
 
 @MainActor
@@ -53,16 +53,6 @@ final class BotWorkspaceStore: ObservableObject {
         do {
             if FileManager.default.fileExists(atPath: self.fileURL.path) {
                 data = try JSONDecoder().decode(BotWorkspaceData.self, from: Data(contentsOf: self.fileURL))
-                var owners = data.sessionOwners ?? [:]
-                for bot in data.bots {
-                    for id in (bot.conversationIds ?? []) + [bot.sessionId].compactMap({ $0 }) {
-                        owners[id] = BotSessionOwner(botId: bot.id)
-                    }
-                }
-                for room in data.rooms {
-                    for (bot, id) in room.sessions { owners[id] = BotSessionOwner(botId: bot, roomId: room.id) }
-                }
-                data.sessionOwners = owners
             }
         } catch { unreadable = true; errorMessage = error.localizedDescription }
     }
@@ -71,23 +61,11 @@ final class BotWorkspaceStore: ObservableObject {
     func room(_ id: String) -> BotRoom? { data.rooms.first { $0.id == id } }
 
     func bot(forSession id: String) -> BotProfile? {
-        if let owner = owner(forSession: id) { return bot(owner.botId) }
-        if let bot = data.bots.first(where: { $0.sessionId == id }) { return bot }
-        for room in data.rooms {
-            if let pair = room.sessions.first(where: { $0.value == id }), let bot = bot(pair.key) { return bot }
-        }
-        return nil
+        owner(forSession: id).flatMap { bot($0.botId) }
     }
 
     func owner(forSession id: String) -> BotSessionOwner? {
-        if let owner = data.sessionOwners?[id] { return owner }
-        if let bot = data.bots.first(where: { $0.sessionId == id || $0.conversationIds?.contains(id) == true }) {
-            return BotSessionOwner(botId: bot.id)
-        }
-        for room in data.rooms {
-            if let pair = room.sessions.first(where: { $0.value == id }) { return BotSessionOwner(botId: pair.key, roomId: room.id) }
-        }
-        return nil
+        data.sessionOwners[id]
     }
 
     func selectConversation(_ id: String, botID: String) -> Bool {

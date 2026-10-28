@@ -153,28 +153,6 @@ extension AIChatViewModel {
                              "keywords": AgentToolParam(type: .string, description: "Relevant keywords; empty returns recent entries within the size limit.")],
                 required: ["tool_title"], propertyOrdering: ["tool_title", "keywords"]
             ))
-        } else if includeMemoryTools && botMemoryOwner == nil {
-            tools.append(AgentToolDefinition(
-                name: "memory_write",
-                description: "Write a memory entry to today's daily log (YYYY-MM-DD.md). Memories persist across all sessions. Each entry is prepended with a timestamp. Save: user preferences, recurring patterns, key facts, project conventions, reusable knowledge. Avoid saving passwords, API keys, tokens, or secrets unless the user explicitly confirms after being warned. Keep entries concise and general-purpose. GLOBAL.md is read-only (user-maintained via Settings).",
-                parameters: [
-                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Save user preference for Python', 'Note today's project context'). Use the same language as the user."),
-                    "content": AgentToolParam(type: .string, description: "The memory content to write. Use concise Markdown with a short heading (## Topic) and context about what was done/learned."),
-                ],
-                required: ["tool_title", "content"],
-                propertyOrdering: ["tool_title", "content"]
-            ))
-            tools.append(AgentToolDefinition(
-                name: "memory_get",
-                description: "Retrieve memories from persistent storage. Supports keyword-based fuzzy search across memory files. Returns matching lines with surrounding context. Use this to recall previous knowledge, user preferences, or past notes.",
-                parameters: [
-                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Recall user preferences', 'Search past notes'). Use the same language as the user."),
-                    "scope": AgentToolParam(type: .string, description: "Memory scope to search: 'daily' for daily logs only, 'all' for daily logs + GLOBAL.md.", enumValues: ["daily", "all"]),
-                    "keywords": AgentToolParam(type: .string, description: "Space-separated keywords for fuzzy matching (e.g. 'python preference' or 'API key setup'). All keywords must appear in a line or its surrounding context for a match. Leave empty to return full memory files."),
-                ],
-                required: ["tool_title"],
-                propertyOrdering: ["tool_title", "scope", "keywords"]
-            ))
         }
 
         // [T-ios-vision-group #182] Expose read_image when the model can see

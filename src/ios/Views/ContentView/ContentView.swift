@@ -810,7 +810,7 @@ struct ContentView: View {
                 }
             case .syncMigrationDetail:
                 NavigationStack {
-                    SyncMigrationDetailView()
+                    SyncStatusView()
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { activeToolSheet = nil }
@@ -1428,7 +1428,6 @@ struct ContentView: View {
                         // suspended by an older build) picks up again on
                         // foreground instead of waiting for a cold launch.
                         // No-op unless suspended and idle.
-                        Task { await MigrationEngine.shared.resumeIfSuspended(trigger: "foreground") }
                     }
                     #if DEBUG
                     IdleTimerLease.set(.debugMenu, held: keepScreenAwake, reason: "active")

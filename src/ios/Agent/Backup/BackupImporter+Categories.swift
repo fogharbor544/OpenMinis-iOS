@@ -48,7 +48,7 @@ extension BackupImporter {
         let liveDirs: [URL]
         switch category {
         case .sharedFiles: liveDirs = [AIChatViewModel.minisSharedPersistentDir]
-        case .memory: liveDirs = [AIChatViewModel.minisMemoryPersistentDir]
+        case .soul: liveDirs = [AIChatViewModel.minisMemoryPersistentDir]
         case .mcpServers: liveDirs = [MCPStore.syncFileURL.deletingLastPathComponent()]
         // [review B3] Providers had NO rollback at all. It is a single JSON
         // file rather than a directory, so it is snapshotted via a dedicated
@@ -128,7 +128,7 @@ extension BackupImporter {
         case .chats: return try await importChats(root: root, fileIndex: fileIndex, options: options)
         case .sharedFiles: return try importSharedFiles(root: root, fileIndex: fileIndex)
         case .skills: return try await importSkills(root: root, fileIndex: fileIndex)
-        case .memory: return try await importMemory(root: root)
+        case .soul: return try await importSoul(root: root)
         case .providers: return try await importProviders(root: root)
         case .mcpServers: return try await importMCPServers(root: root)
         case .voiceCorrections: return try await importVoiceCorrections(root: root)
@@ -331,10 +331,10 @@ extension BackupImporter {
 
     // MARK: - Memory & Soul
 
-    private func importMemory(root: URL) async throws -> CategoryReport {
-        var report = CategoryReport(category: BackupCategory.memory.rawValue)
+    private func importSoul(root: URL) async throws -> CategoryReport {
+        var report = CategoryReport(category: BackupCategory.soul.rawValue)
         let fm = FileManager.default
-        let src = root.appendingPathComponent("data/memory", isDirectory: true)
+        let src = root.appendingPathComponent("data/soul", isDirectory: true)
         guard fm.fileExists(atPath: src.path) else { return report }
         let dst = AIChatViewModel.minisMemoryPersistentDir
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
@@ -342,7 +342,7 @@ extension BackupImporter {
         // [T-soul-icon-sidecar] Mirror the exporter: the icon sidecar is not a
         // .md file but must restore with the persona it belongs to.
         for name in (try? fm.contentsOfDirectory(atPath: src.path)) ?? []
-        where name.hasSuffix(".md") || name == SoulIconImage.sidecarName {
+        where name == "SOUL.md" || name == SoulIconImage.sidecarName {
             let from = src.appendingPathComponent(name)
             let to = dst.appendingPathComponent(name)
 
@@ -850,7 +850,7 @@ extension BackupImporter {
         case .chats: return AIChatViewModel.minisPersistentBase
         case .sharedFiles: return AIChatViewModel.minisSharedPersistentDir
         case .skills: return AIChatViewModel.minisSkillsPersistentDir
-        case .memory: return AIChatViewModel.minisMemoryPersistentDir
+        case .soul: return AIChatViewModel.minisMemoryPersistentDir
         case .providers, .mcpServers, .voiceCorrections, .environmentVariables:
             // These write single known files, not index-driven trees; give them
             // the app-group root so the check is still meaningful if one ever

@@ -870,31 +870,6 @@ extension AIChatViewModel {
     }
 
     /// Sync a single minis subdirectory bidirectionally between persistent storage and iSH-visible path.
-    /// One-time migration: moves old `Library/MinisChat/offloads/<sid>/` to
-    /// `Library/MinisChat/minis/<sid>/offloads/`.
-    func migrateOffloadsIfNeeded(for sid: String) {
-        let fm = FileManager.default
-        let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let oldDir = lib.appendingPathComponent("MinisChat/offloads/\(sid)", isDirectory: true)
-        guard fm.fileExists(atPath: oldDir.path) else { return }
-
-        let newDir = Self.minisOffloadsPersistentDir(for: sid)
-        try? fm.createDirectory(at: newDir, withIntermediateDirectories: true)
-
-        // Move each file from old location to new
-        if let files = try? fm.contentsOfDirectory(atPath: oldDir.path) {
-            for file in files {
-                let src = oldDir.appendingPathComponent(file)
-                let dst = newDir.appendingPathComponent(file)
-                try? fm.moveItem(at: src, to: dst)
-            }
-        }
-
-        // Remove old directory
-        try? fm.removeItem(at: oldDir)
-        logger.info("Migrated offloads for session \(sid) to new minis path")
-    }
-
     /// Bind-mount a session's minis directories into iSH-visible /var/minis/.
     /// Delegates to ISHExecutionCoordinator for serialized mount management.
     func mountMinis(for sid: String) {

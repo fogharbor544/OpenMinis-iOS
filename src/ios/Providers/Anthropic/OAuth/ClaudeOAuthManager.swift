@@ -271,28 +271,9 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
     static let legacyKeychainService = "com.openminis.app.claude-oauth"
     static let legacyKeychainAccount = "token"
 
-    static func loadLegacyToken() -> ClaudeTokenStorage? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: legacyKeychainService,
-            kSecAttrAccount as String: legacyKeychainAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return try? JSONDecoder().decode(ClaudeTokenStorage.self, from: data)
-    }
 
-    static func deleteLegacyToken() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: legacyKeychainService,
-            kSecAttrAccount as String: legacyKeychainAccount,
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
+
+
 
     // MARK: - PKCE
 

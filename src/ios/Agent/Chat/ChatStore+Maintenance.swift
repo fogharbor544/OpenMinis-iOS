@@ -204,59 +204,6 @@ extension ChatStore {
         }
         sqlite3_finalize(updStmt)
 
-        // Step 3: upgrade legacy markers. Build a (oldSortOrder -> id) map first, then
-        // find each nil-firstKeptMessageId marker and fill it in using firstKeptSortOrder.
-        // NOTE: this lookup uses the NEW sortOrder (we just rewrote it), so we build
-        // the map from the rewritten enumeration.
-        var newSoToId: [Int: String] = [:]
-        for (idx, row) in rows.enumerated() { newSoToId[base + idx] = row.id }
-        // But legacy markers were written with OLD sortOrders. If rewrites happened,
-        // the legacy firstKeptSortOrder may no longer point to anything sensible.
-        // Strategy: try (a) newSO map, then (b) find old row whose OLD sort_order == legacy value.
-        // Because step 2 just changed the sort_orders, approach (b) needs to query the
-        // pre-update state — but we've already committed in memory. Instead, use the
-        // original `rows` list: row index i now corresponds to new sort_order base+i. Find
-        // any row where row.oldSortOrder == legacy value as a second-chance lookup.
-        var oldSoToId: [Int: String] = [:]
-        for row in rows { oldSoToId[row.oldSortOrder] = row.id }  // last write wins on dup
-
-        // Only true legacy markers (no id-based fields at all) are upgraded.
-        // compactAll markers (first_kept_message_id NULL but last_compacted_message_id set)
-        // are intentional — leave them alone.
-        let markerSelSql = "SELECT id, first_kept_sort_order FROM compact_markers WHERE session_id = ? AND first_kept_message_id IS NULL AND last_compacted_message_id IS NULL"
-        var mSelStmt: OpaquePointer?
-        var legacyMarkers: [(id: String, firstKeptSortOrder: Int)] = []
-        if sqlite3_prepare_v2(db, markerSelSql, -1, &mSelStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(mSelStmt, 1, (sessionId as NSString).utf8String, -1, nil)
-            while sqlite3_step(mSelStmt) == SQLITE_ROW {
-                let mid = sqlite3_column_text(mSelStmt, 0).map { String(cString: $0) } ?? ""
-                let fkso = Int(sqlite3_column_int64(mSelStmt, 1))
-                legacyMarkers.append((id: mid, firstKeptSortOrder: fkso))
-            }
-        }
-        sqlite3_finalize(mSelStmt)
-
-        let mUpdSql = "UPDATE compact_markers SET first_kept_message_id = ? WHERE id = ?"
-        var mUpdStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, mUpdSql, -1, &mUpdStmt, nil) == SQLITE_OK {
-            for lm in legacyMarkers {
-                // Try new map first (post-rewrite), then old map (pre-rewrite).
-                let resolved = newSoToId[lm.firstKeptSortOrder] ?? oldSoToId[lm.firstKeptSortOrder]
-                guard let fkmId = resolved else {
-                    logger.warning("[Repair] marker id=\(lm.id.prefix(8)) firstKeptSortOrder=\(lm.firstKeptSortOrder) has no matching row — cannot upgrade")
-                    continue
-                }
-                sqlite3_reset(mUpdStmt)
-                sqlite3_bind_text(mUpdStmt, 1, (fkmId as NSString).utf8String, -1, nil)
-                sqlite3_bind_text(mUpdStmt, 2, (lm.id as NSString).utf8String, -1, nil)
-                sqlite3_step(mUpdStmt)
-                report.markersUpgraded += 1
-                // Mark marker as dirty so the upgraded field propagates to iCloud.
-                markDirty(recordType: "CompactMarker", recordId: lm.id)
-            }
-        }
-        sqlite3_finalize(mUpdStmt)
-
         exec("COMMIT")
 
         // The list preview remembers the sort_order of the message it shows and

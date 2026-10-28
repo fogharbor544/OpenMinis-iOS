@@ -908,19 +908,13 @@ final class CloudSyncEngine: ObservableObject {
             logger.info("[CloudSync] markAllLocalContentDirty: SOUL.md missing on disk — skipping SoulV2 enqueue")
         }
 
-        // GLOBAL.md + recent daily memory logs. Reuses ForceSyncHelper
-        // so the file-presence rules stay in lockstep with the manual
-        // "Force iCloud Sync" button on the Memory screen.
-        let memoryMarked = await ForceSyncHelper.markMemoryDirty()
-        logger.info("[CloudSync] markAllLocalContentDirty Memory rows marked: \(memoryMarked)")
-
         // Summary: count dirty records broken down by type so we can confirm
         // every category actually got queued for upload.
         let after = await ChatStore.shared.countDirtyRecords()
         logger.info("[CloudSync] markAllLocalContentDirty DONE total=\(after.total) byType=\(after.byType)")
         for category in ["Session", "Message", "CompactMarker", "SessionFile",
                           "Skill", "ProviderConfig", "EnvVar",
-                          "SoulV2", "MemoryGlobalV2", "MemoryDailyV2"] {
+                          "SoulV2"] {
             if (after.byType[category] ?? 0) == 0 {
                 logger.warning("[CloudSync] markAllLocalContentDirty: 0 \(category) records queued — category will not be uploaded")
             }

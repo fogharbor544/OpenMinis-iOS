@@ -87,7 +87,7 @@ struct TestCapability { let id: String }
         precondition(replacement != privateID && store.bot(bot.id)?.sessionId == replacement)
         let freshTask = try await store.session(botID: bot.id, newConversation: true)
         precondition(freshTask != replacement && store.bot(bot.id)?.sessionId == freshTask)
-        precondition(store.bot(bot.id)?.conversationIds?.contains(replacement) == true)
+        precondition(store.bot(bot.id)?.conversationIds.contains(replacement) == true)
         precondition(store.bot(forSession: replacement)?.id == bot.id)
         precondition(store.selectConversation(replacement, botID: bot.id))
         let resumed = try await store.session(botID: bot.id)

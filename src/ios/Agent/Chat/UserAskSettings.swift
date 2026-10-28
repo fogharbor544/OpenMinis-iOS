@@ -50,20 +50,6 @@ struct UserAskSettings: Equatable {
 
     static func clampTimeout(_ m: Int) -> Int { min(max(m, 0), maxTimeoutMinutes) }
 
-    /// [T-user-ask-no-policy] Keys of the removed "Always allow" rules and
-    /// "apply the model's default on timeout" mode. Deleted at launch so an
-    /// old rule or mode can never come back into effect.
-    static let legacyKeys = [
-        "agent.tools.userAsk.alwaysAllowRules",
-        "agent.tools.userAsk.autoDefaultMode",
-    ]
 
-    /// Returns the legacy keys that were present (and are now removed).
-    @discardableResult
-    static func purgeLegacyKeys(_ d: UserDefaults = .standard) -> [String] {
-        let present = legacyKeys.filter { d.object(forKey: $0) != nil }
-        for k in present { d.removeObject(forKey: k) }
-        return present
-    }
 }
 // END UserAskSettings

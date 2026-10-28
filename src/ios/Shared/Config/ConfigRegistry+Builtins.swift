@@ -917,18 +917,6 @@ extension ConfigRegistry {
 
     // MARK: iCloud sync
 
-    /// True when the v2 engine is the one actually running on this device.
-    ///
-    /// [GH#101] Not simply `SyncV2Bootstrap.isEnabled`: `shouldPauseV1()`
-    /// deliberately keeps v1 alive when a v2 migration has FAILED, so a user in
-    /// that state is really running v1 and must not be shown v2's flags. This
-    /// mirrors the exact condition MinisApp uses to decide which engine to boot.
-    @MainActor
-    private static func syncV2Live() -> Bool {
-        guard #available(iOS 17.0, *) else { return false }
-        return SyncV2Bootstrap.isEnabled && SyncV2Bootstrap.shouldPauseV1()
-    }
-
     /// Stable `sync.<suffix>` path for an upload category.
     ///
     /// [GH#101] Deliberately NOT `category.rawValue`: the pre-existing field
@@ -944,7 +932,6 @@ extension ConfigRegistry {
         case .skills:       return "skills"
         case .providers:    return "providers"
         case .envVars:      return "environments"
-        case .memory:       return "memory"
         }
     }
 
@@ -960,50 +947,15 @@ extension ConfigRegistry {
         var syncFields: [ConfigField] = []
         func reg(_ field: ConfigField) { syncFields.append(field) }
 
-        // [GH#101] These fields USED to read/write the v1 `cloudSync.*`
-        // UserDefaults keys while the Settings UI and the engine that actually
-        // runs (SyncCore/v2) use `cloudSync.v2.*`. The two sets diverge
-        // permanently after `SyncV2Bootstrap.isEnabled` inherits v1 once, so
-        // `minis-config get sync.enabled` could report `false` while the UI
-        // showed "ON / Running" — and, worse, `set sync.files false` wrote a key
-        // no running engine reads and still reported success. Both sides were
-        // "current"; they described different subsystems.
-        //
-        // The fields now mirror whichever engine is actually live. v1 is NOT
-        // dead code: MinisApp starts it when v2 is off, and `shouldPauseV1()`
-        // deliberately lets it keep running when a v2 migration has failed, so
-        // reading v2 unconditionally would misreport state for those users.
-        // `syncV2Live` is the single predicate both the reader and writer use.
         reg(ClosureField(
-            path: "sync.enabled",
-            displayName: "iCloud sync enabled",
-            description: "Master switch for iCloud sync. Reflects the engine that is actually running (v2 when active, otherwise the legacy v1 engine).",
-            valueSchema: .bool,
-            risk: .sensitive, revertable: true,
+            path: "sync.enabled", displayName: "iCloud sync enabled",
+            description: "Master switch for iCloud sync.",
+            valueSchema: .bool, risk: .sensitive, revertable: true,
             readable: ConfigReadable(.bool()),
-            reader: {
-                if syncV2Live() {
-                    if #available(iOS 17.0, *) { return .bool(SyncV2Bootstrap.isEnabled) }
-                }
-                return .bool(UserDefaults.standard.bool(forKey: "cloudSync.enabled"))
-            },
+            reader: { .bool(SyncV2Bootstrap.isEnabled) },
             writer: { v in
                 guard case .bool(let on) = v else { throw ConfigError.typeMismatch(expected: "bool") }
-                if #available(iOS 17.0, *) {
-                    if syncV2Live() {
-                        // Goes through setEnabled so the engine start/stop side
-                        // effects fire exactly as they do from the Settings toggle.
-                        SyncV2Bootstrap.setEnabled(on)
-                    } else {
-                        // v1 is the live engine (v2 off, or its migration failed).
-                        // The property's didSet persists cloudSync.enabled.
-                        CloudSyncEngine.shared.isEnabled = on
-                    }
-                    return
-                }
-                // Pre-iOS 17 never reaches here: the whole sync block registers
-                // as UnavailableField below. Kept total for exhaustiveness.
-                UserDefaults.standard.set(on, forKey: "cloudSync.enabled")
+                SyncV2Bootstrap.setEnabled(on)
             }
         ))
 
@@ -1053,7 +1005,7 @@ extension ConfigRegistry {
             description: "Live engine state: running, stopped, or disabled. Read-only.",
             valueSchema: .string(maxLength: 64),
             reader: {
-                if #available(iOS 17.0, *), syncV2Live() {
+                if #available(iOS 17.0, *), SyncV2Bootstrap.isEnabled {
                     return .string(SyncCore.shared.isRunning ? "running" : "stopped")
                 }
                 let v1On = UserDefaults.standard.bool(forKey: "cloudSync.enabled")
@@ -1065,7 +1017,7 @@ extension ConfigRegistry {
             displayName: "Active sync engine",
             description: "Which sync implementation is live on this device: v2 or v1. Read-only.",
             valueSchema: .string(maxLength: 16),
-            reader: { .string(syncV2Live() ? "v2" : "v1") }
+            reader: { .string(SyncV2Bootstrap.isEnabled ? "v2" : "v1") }
         ))
 
         if #available(iOS 17.0, *) {

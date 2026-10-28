@@ -49,8 +49,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         "EnvVarItem":         secretsZoneName,
         "EnvVarStateItem":    secretsZoneName,  // [T-envvar-disable] beside its variable
         "SoulV2":             sharedZoneName,
-        "MemoryGlobalV2":     sharedZoneName,
-        "MemoryDailyV2":      sharedZoneName,
         // [T-provider-sync-v3-zone-mapping] Per-record provider sync v3.
         // Instances carry secretBlob (encrypted API keys), so they belong
         // in the secrets zone alongside ProviderConfigV2. Entries and
@@ -734,8 +732,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
             ("EnvVarItem", "updatedAt"),
             ("EnvVarStateItem", "updatedAt"),  // [T-envvar-disable]
             ("SoulV2", "updatedAt"),
-            ("MemoryGlobalV2", "updatedAt"),
-            ("MemoryDailyV2", "updatedAt"),
         ]
         var totalFetched = 0
         var byType: [String: Int] = [:]

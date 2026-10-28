@@ -76,31 +76,8 @@ extension ChatStore {
             INSERT OR REPLACE INTO sync_dirty_records (record_type, record_id, zone_name, operation, priority, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
         """
-        // When V2 is the active sync engine and this recordType has a v2
-        // counterpart, skip the v1 row entirely. The legacy dual-write was
-        // meant to keep both engines coexisting during rollout, but with
-        // v1 paused (SyncV2Bootstrap.shouldPauseV1) the v1 row has no
-        // consumer — SyncCore filters via v2Only:true, the v1 engine is
-        // off, and nothing ever clears it. The orphan row then poisons
-        // any code path that loads dirty rows without the v2-only filter
-        // (e.g. CloudSyncEngine.mergeProviderConfig's in-flight guard),
-        // pinning their state to "always skip" for the rest of the install.
-        //
-        // Mirror SyncV2Bootstrap.shouldPauseV1() so we stop writing the v1
-        // row exactly when nobody will consume it. shouldPauseV1 returns
-        // true whenever v2 is enabled AND migration status is one of
-        // .pending / .inProgress / .completed (i.e. anything except
-        // .failed, which falls back to v1). The launch path uses the
-        // same predicate to decide whether to start the v1 engine; we
-        // mirror it here so the two decisions stay aligned.
-        // UserDefaults is thread-safe; the actor isolation on
-        // SyncV2Bootstrap.* is a Swift-6 concurrency annotation, not a
-        // real main-thread requirement.
         let v2Type = Self.v2RecordType(forV1: recordType)
-        let v2Enabled = UserDefaults.standard.bool(forKey: "cloudSync.v2.enabled")
-        let migStatus = UserDefaults.standard.string(forKey: "cloudSync.v2.migrationStatus") ?? "pending"
-        let v1Paused = v2Enabled && migStatus != "failed"
-        let writeV1Row = !(v1Paused && v2Type != recordType)
+        let writeV1Row = v2Type == recordType
         // v1 dirty row.
         var stmt: OpaquePointer?
         // DIAG (T-memory-row-vanish): rows for MemoryGlobalV2/MemoryDailyV2
@@ -594,7 +571,6 @@ extension ChatStore {
         // and the CloudKit Dev schema never got auto-created — root
         // cause of the dashboard's persistent NOT_FOUND on these types
         // (T-soulv2-memory-whitelist).
-        "MemoryGlobalV2", "MemoryDailyV2",
         // v3 per-record provider sync (T-provider-sync-v3). The legacy
         // "ProviderConfigV2" remains in the whitelist too — outbound is
         // dual-written until all peers upgrade; inbound v2 is dropped

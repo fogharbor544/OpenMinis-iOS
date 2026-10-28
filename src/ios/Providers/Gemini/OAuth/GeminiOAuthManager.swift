@@ -217,31 +217,10 @@ final class GeminiOAuthManager: NSObject, ObservableObject {
 
     static let legacyKeychainService = "com.openminis.app.gemini-oauth"
     static let legacyKeychainAccount = "token"
-    static let legacyEmailKey = "com.openminis.app.gemini-email"
-    static let legacyProjectIDKey = "com.openminis.app.gemini-gcp-project"
 
-    static func loadLegacyToken() -> GeminiTokenStorage? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: legacyKeychainService,
-            kSecAttrAccount as String: legacyKeychainAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return try? JSONDecoder().decode(GeminiTokenStorage.self, from: data)
-    }
 
-    static func deleteLegacyToken() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: legacyKeychainService,
-            kSecAttrAccount as String: legacyKeychainAccount,
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
+
+
 
     // MARK: - State & PKCE Generation
 

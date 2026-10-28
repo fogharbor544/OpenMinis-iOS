@@ -204,7 +204,6 @@ struct MinisApp: App {
             //
             // Ordered before the zombie sweep so the schema is fully settled
             // before that query runs; both are idempotent and actor-serialised.
-            await ChatStore.shared.runDeferredMigrations()
             await ChatStore.shared.sweepZombieChildSessions()
         }
     }
@@ -216,9 +215,6 @@ struct MinisApp: App {
     @MainActor
     private static func startSyncEngines() async {
         await SyncV2Bootstrap.startIfEnabled()
-        if !SyncV2Bootstrap.shouldPauseV1() {
-            await CloudSyncEngine.shared.start()
-        }
     }
 
     var body: some Scene {
@@ -418,14 +414,12 @@ struct MinisApp: App {
                     // Ownership is enforced where it belongs, by the run token
                     // in BackupRunController.finished(token:).
                     // Migrate legacy provider config on first launch after upgrade
-                    ProviderMigration.migrateIfNeeded(store: ProviderConfigStore.shared)
                     // Refresh model lists once per day to keep them current
                     ProviderConfigStore.shared.refreshAllModelsIfNeeded()
                     // [T-mimo-shadow-voice] One-time upgrade fix: force-refresh
                     // mixed-modality providers (MiMo/DashScope) mis-classified by
                     // the old voice-only whitelist, so their text models + shadow
                     // voice rows recover promptly without waiting for a natural refresh.
-                    ProviderConfigStore.shared.migrateVoiceModalityIfNeeded()
                     // [T-tools-granular-switches] Carry the one-round master
                     // Tools switch forward into the per-tool Agents switch.
                     AgentToolSwitch.migrateLegacyIfNeeded()
@@ -661,7 +655,7 @@ struct MinisApp: App {
             // drain that competes with v2's send pipeline.
             if #available(iOS 17.0, *) {
                 Task { @MainActor in
-                    if SyncV2Bootstrap.shouldPauseV1() {
+                    if SyncV2Bootstrap.isEnabled {
                         // [T-icloud-device-heartbeat] Re-announce this device on
                         // every foreground resume so peers see a fresh lastSeen.
                         // The record was previously written ONCE per process
@@ -677,9 +671,6 @@ struct MinisApp: App {
                         ProviderConfigStore.shared.refreshAllModelsIfNeeded()
                         await SyncCore.shared.fetchNow(trigger: .foregroundTimer)
                         await SyncCore.shared.sendNow(trigger: .foregroundTimer)
-                    } else {
-                        await CloudSyncEngine.shared.triggerFetch()
-                        await CloudSyncEngine.shared.triggerSend()
                     }
                 }
             }

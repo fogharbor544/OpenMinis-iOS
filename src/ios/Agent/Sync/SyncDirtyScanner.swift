@@ -91,7 +91,6 @@ final class SyncDirtyScanner {
 
         await scanSkills()
         await scanConfigFiles()
-        await scanMemoryFiles()
     }
 
     // MARK: - Skills
@@ -244,64 +243,4 @@ final class SyncDirtyScanner {
 
     // MARK: - Memory Files
 
-    private func scanMemoryFiles() async {
-        let memDir = AIChatViewModel.minisMemoryPersistentDir
-        guard fm.fileExists(atPath: memDir.path),
-              let files = try? fm.contentsOfDirectory(at: memDir,
-                                                       includingPropertiesForKeys: [.contentModificationDateKey],
-                                                       options: [.skipsHiddenFiles])
-        else { return }
-
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
-
-        for fileURL in files {
-            let name = fileURL.lastPathComponent
-            guard fileURL.pathExtension == "md" else { continue }
-
-            let modDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
-                                .contentModificationDate) ?? Date.distantPast
-            let cacheKey = "memory:\(name)"
-
-            // [T-icloud-local-edit-clobber] Mirror the skills/config scans:
-            // first scan records a baseline WITHOUT marking dirty (in-app
-            // memory writes already markDirty event-driven; re-marking every
-            // file on each launch re-pushed the whole memory set every time).
-            // Only a mtime moving FORWARD marks dirty — an inbound apply
-            // backdates its mtime to the record's updatedAt, which must not
-            // count as a fresh local edit.
-            if name == "GLOBAL.md" {
-                if let known = knownModDates[cacheKey] {
-                    if modDate > known {
-                        knownModDates[cacheKey] = modDate
-                        await ChatStore.shared.markDirty(recordType: "MemoryGlobalV2",
-                                                         recordId: "memory-global")
-                        logger.info("[SyncDirtyScanner] GLOBAL.md changed, marked dirty")
-                    } else if modDate != known {
-                        // Backdated by an inbound apply — track, don't push.
-                        knownModDates[cacheKey] = modDate
-                    }
-                } else {
-                    knownModDates[cacheKey] = modDate
-                }
-            } else {
-                // Daily log: check 30-day cutoff
-                let stem = (name as NSString).deletingPathExtension
-                if let fileDate = fmt.date(from: stem), fileDate >= cutoff {
-                    if let known = knownModDates[cacheKey] {
-                        if modDate > known {
-                            knownModDates[cacheKey] = modDate
-                            await ChatStore.shared.markDirty(recordType: "MemoryDailyV2",
-                                                             recordId: stem)
-                            logger.info("[SyncDirtyScanner] \(name) changed, marked dirty")
-                        } else if modDate != known {
-                            knownModDates[cacheKey] = modDate
-                        }
-                    } else {
-                        knownModDates[cacheKey] = modDate
-                    }
-                }
-            }
-        }
-    }
 }

@@ -31,41 +31,13 @@ enum SyncV2Bootstrap {
     }
 
 
-    /// User-facing toggle. On a first read with no v2 key set we default
-    /// to OFF (clean install starts opted-out so the user gets to make
-    /// an informed decision instead of background iCloud traffic on
-    /// first launch). For users upgrading from a build that only had
-    /// the v1 engine we inherit their v1 toggle (`cloudSync.enabled`)
-    /// so a user who had iCloud Sync ON in v1 keeps it on after the
-    /// upgrade, and one who had it OFF keeps it off. The resolved
-    /// value is persisted under the v2 key.
-    /// Override via the `cloudSync.v2.enabled` UserDefaults key directly
-    /// during development.
+    /// Fresh installs opt in to the current sync engine.
     static var isEnabled: Bool {
-        let key = "cloudSync.v2.enabled"
-        if UserDefaults.standard.object(forKey: key) == nil {
-            // Inherit from v1 if the user ever interacted with that
-            // toggle (object(forKey:) returns non-nil once any write
-            // occurred — including the v1 engine's own write-back at
-            // init). If neither key exists this is a clean install:
-            // default OFF.
-            let v1Key = "cloudSync.enabled"
-            let inherited: Bool
-            if let v1 = UserDefaults.standard.object(forKey: v1Key) as? Bool {
-                inherited = v1
-                logger.info("[SyncCore] v2 isEnabled bootstrap — inheriting v1 cloudSync.enabled=\(v1)")
-            } else {
-                inherited = false
-                logger.info("[SyncCore] v2 isEnabled bootstrap — fresh install, defaulting OFF")
-            }
-            UserDefaults.standard.set(inherited, forKey: key)
-            return inherited
-        }
-        return UserDefaults.standard.bool(forKey: key)
+        UserDefaults.standard.bool(forKey: "cloudSync.v2.enabled")
     }
 
     static func setEnabled(_ enabled: Bool) {
-        let prev = UserDefaults.standard.object(forKey: "cloudSync.v2.enabled") as? Bool ?? true
+        let prev = UserDefaults.standard.object(forKey: "cloudSync.v2.enabled") as? Bool ?? false
         UserDefaults.standard.set(enabled, forKey: "cloudSync.v2.enabled")
         logger.info("[SyncCore] v2 enabled flag set to \(enabled) (was \(prev))")
         // When the user disables iCloud Sync, stop the active SyncCore +
@@ -96,49 +68,14 @@ enum SyncV2Bootstrap {
         }
     }
 
-    /// Has the user explicitly requested migration of their pre-v2 history?
-    /// Default OFF: only newly-created sessions/messages sync to v2 by
-    /// default. The user must tap "Request Migration" in the Sync sheet
-    /// to backfill historical data — and can also tap "Force Delete V1
-    /// Zone" to discard the legacy copy entirely. Earlier builds defaulted
-    /// to ON which kicked off a multi-hour throttled push on every
-    /// upgrading device, often without the user's knowledge.
-    private static let migrationRequestedKey = "cloudSync.v2.migrationRequested"
-    static var isMigrationRequested: Bool {
-        UserDefaults.standard.bool(forKey: migrationRequestedKey)
-    }
     private static var provisionalRetryTask: Task<Void, Never>?
-    static func setMigrationRequested(_ requested: Bool) {
-        UserDefaults.standard.set(requested, forKey: migrationRequestedKey)
-        logger.info("[SyncCore] migration requested=\(requested)")
-    }
-
-    /// Should v1 CloudSyncEngine be allowed to run? It is paused as soon
-    /// as v2 is enabled AND migration is in progress / completed. While
-    /// migration is `inProgress`, v2 fetches v1 data via a minimal shim
-    /// — full v1 engine MUST stay quiet to avoid double-sends.
-    @MainActor
-    static func shouldPauseV1() -> Bool {
-        guard isEnabled else { return false }
-        if #available(iOS 17.0, *) {
-            switch MigrationEngine.shared.currentStatus() {
-            case .pending:
-                return true   // about to start migration; v1 must already be quiet
-            case .inProgress, .completed:
-                return true
-            case .failed:
-                return false  // migration broke; let v1 keep running so user isn't stranded
-            }
-        }
-        return false
-    }
 
     /// Called once from MinisApp launch (or on flag flip in debug builds).
     /// Idempotent — running twice is harmless.
     @MainActor
     static func startIfEnabled() async {
         guard isEnabled else {
-            logger.debug("[SyncCore] v2 disabled (flag off) — staying on v1")
+            logger.debug("[SyncCore] v2 disabled (flag off) — sync remains off")
             return
         }
         guard #available(iOS 17.0, *) else {
@@ -273,11 +210,6 @@ enum SyncV2Bootstrap {
                     }
                 }
                 logger.info("[SyncCore] v2 startup STEP=device registered (deviceId=\(DeviceIdentity.deviceId.prefix(8)))")
-                logger.info("[SyncCore] v2 startup STEP=migration begin")
-                await runGuarded("migration") {
-                    await MigrationEngine.shared.runIfNeeded()
-                }
-                logger.info("[SyncCore] v2 startup STEP=migration done")
                 // Start the periodic dirty scanner. Under v1 this was kicked
                 // off by CloudSyncEngine.start(); but v2 paused v1, so the
                 // scanner was never running — and any record type that

@@ -443,7 +443,7 @@ actor BackupImporter {
         //
         // A category missing from this list is silently skipped, which is how
         // this one would have failed had it simply been appended to the enum.
-        let order: [BackupCategory] = [.chats, .sharedFiles, .skills, .memory,
+        let order: [BackupCategory] = [.chats, .sharedFiles, .skills, .soul,
                                        .providers, .environmentVariables,
                                        .mcpServers, .voiceCorrections]
         return order.filter { wanted.contains($0) }

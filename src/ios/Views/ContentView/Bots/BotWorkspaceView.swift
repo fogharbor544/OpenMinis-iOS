@@ -221,7 +221,7 @@ private struct BotRoomView: View {
                         if let error = store.errorMessage { Text(error).foregroundStyle(.red) }
                     }.padding()
                 }
-                .onChange(of: room?.messages.count) { _, _ in
+                .onChange(of: room?.messages.count) { _ in
                     if let last = room?.messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }

@@ -231,7 +231,7 @@ struct BrowserSheetView: View {
             .sheet(isPresented: $showPasswords) {
                 if let manager { BrowserPasswordsView(manager: manager) }
             }
-            .onChange(of: isAgentBusy) { _, busy in
+            .onChange(of: isAgentBusy) { busy in
                 if busy { showPasswords = false }
             }
             .onAppear {

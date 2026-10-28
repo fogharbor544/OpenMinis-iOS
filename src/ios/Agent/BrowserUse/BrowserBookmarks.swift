@@ -13,6 +13,7 @@ final class BrowserBookmarkStore: ObservableObject {
     @Published private(set) var entries: [BrowserBookmark] = []
     @Published var errorMessage: String?
     private let fileURL: URL
+    private var loadFailed = false
 
     init(fileURL: URL? = nil) {
         self.fileURL = fileURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -22,6 +23,7 @@ final class BrowserBookmarkStore: ObservableObject {
                 entries = try JSONDecoder().decode([BrowserBookmark].self, from: Data(contentsOf: self.fileURL))
             }
         } catch {
+            loadFailed = true
             errorMessage = error.localizedDescription
         }
     }
@@ -59,6 +61,10 @@ final class BrowserBookmarkStore: ObservableObject {
     }
 
     private func persist(_ next: [BrowserBookmark]) -> Bool {
+        guard !loadFailed else {
+            errorMessage = String(localized: "Bookmarks could not be loaded. The original file has been preserved.")
+            return false
+        }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(next).write(to: fileURL, options: .atomic)
@@ -90,7 +96,11 @@ struct BrowserBookmarksView: View {
                 }
                 .disabled(BrowserBookmarkStore.normalizedURL(currentURL) == nil)
                 if store.entries.isEmpty {
-                    ContentUnavailableView("No Bookmarks", systemImage: "bookmark", description: Text("Save pages to open them again later."))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("No Bookmarks", systemImage: "bookmark")
+                        Text("Save pages to open them again later.").font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
                 }
                 ForEach(store.entries) { bookmark in
                     Button {

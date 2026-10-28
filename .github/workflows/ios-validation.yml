@@ -48,6 +48,8 @@ jobs:
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"
           "$RUNNER_TEMP/bot-tests"
+      - name: Browser storage behavior tests
+        run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
   device-build:
     if: github.event_name == 'workflow_dispatch' && inputs.full_build
     runs-on: macos-26

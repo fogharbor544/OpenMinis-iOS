@@ -10,11 +10,61 @@ struct BrowserCredential: Identifiable, Codable {
 }
 
 @MainActor
+protocol BrowserCredentialVault {
+    func read() throws -> Data?
+    func write(_ data: Data) throws
+}
+
+@MainActor
+struct KeychainBrowserCredentialVault: BrowserCredentialVault {
+    private var query: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: "com.openminis.browser.credentials",
+         kSecAttrAccount as String: "vault",
+         kSecAttrSynchronizable as String: false]
+    }
+
+    func read() throws -> Data? {
+        var request = query
+        request[kSecReturnData as String] = true
+        request[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(request as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+        return data
+    }
+
+    func write(_ data: Data) throws {
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
+        ]
+        var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            status = SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
+        }
+        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+    }
+}
+
+@MainActor
 final class BrowserCredentialStore: ObservableObject {
     @Published private(set) var entries: [BrowserCredential] = []
     @Published private(set) var isUnlocked = false
     @Published var errorMessage: String?
-    private let service = "com.openminis.browser.credentials"
+    private let vault: any BrowserCredentialVault
+    private let authenticate: () async -> Bool
+
+    init(vault: any BrowserCredentialVault = KeychainBrowserCredentialVault(),
+         authenticate: @escaping () async -> Bool = {
+             await BiometricAuth.authenticate(reason: String(localized: "Unlock browser passwords"))
+         }) {
+        self.vault = vault
+        self.authenticate = authenticate
+    }
     private var unlockGeneration = UUID()
 
     static func origin(for text: String) -> String? {
@@ -27,34 +77,18 @@ final class BrowserCredentialStore: ObservableObject {
         return components.string
     }
 
-    private var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: "vault",
-         kSecAttrSynchronizable as String: false]
-    }
-
     func unlock() async {
         let generation = UUID()
         unlockGeneration = generation
-        guard await BiometricAuth.authenticate(reason: String(localized: "Unlock browser passwords")) else {
+        guard await authenticate() else {
             errorMessage = String(localized: "Authentication was cancelled or unavailable.")
             return
         }
         guard unlockGeneration == generation else { return }
-        var request = query
-        request[kSecReturnData as String] = true
-        request[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(request as CFDictionary, &result)
         do {
-            if status == errSecItemNotFound { entries = [] }
-            else {
-                guard status == errSecSuccess, let data = result as? Data else {
-                    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-                }
+            if let data = try vault.read() {
                 entries = try JSONDecoder().decode([BrowserCredential].self, from: data)
-            }
+            } else { entries = [] }
             isUnlocked = true
             errorMessage = nil
         } catch { errorMessage = String(localized: "Unable to read browser passwords from Keychain.") }
@@ -71,7 +105,13 @@ final class BrowserCredentialStore: ObservableObject {
         var entry = entry
         entry.origin = origin
         var next = entries
-        if let index = next.firstIndex(where: { $0.id == entry.id || ($0.origin == origin && $0.username == entry.username) }) {
+        if let index = next.firstIndex(where: { $0.id == entry.id }) {
+            guard !next.contains(where: { $0.id != entry.id && $0.origin == origin && $0.username == entry.username }) else {
+                errorMessage = String(localized: "This website and username already have a saved password. Edit that entry instead.")
+                return false
+            }
+            next[index] = entry
+        } else if let index = next.firstIndex(where: { $0.origin == origin && $0.username == entry.username }) {
             entry.id = next[index].id
             next[index] = entry
         } else { next.append(entry) }
@@ -85,15 +125,7 @@ final class BrowserCredentialStore: ObservableObject {
 
     private func persist(_ next: [BrowserCredential]) -> Bool {
         do {
-            let attributes: [String: Any] = [
-                kSecValueData as String: try JSONEncoder().encode(next),
-                kSecAttrAccessible as String: kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
-            ]
-            var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-            if status == errSecItemNotFound {
-                status = SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
-            }
-            guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+            try vault.write(JSONEncoder().encode(next))
             entries = next
             errorMessage = nil
             return true

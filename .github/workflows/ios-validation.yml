@@ -29,6 +29,13 @@ jobs:
             src/ios/Views/MCP/MCPIntegrationsView.swift \
             src/ios/Views/Settings/OffloadPermissionSettingsView.swift \
             src/ios/Agent/Offload/OffloadPermissionManager.swift \
+            src/ios/Agent/Chat/AIChatViewModel+SystemPrompt.swift \
+            src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
+            src/ios/Views/ContentView/Bots/BotWorkspaceStore+Sessions.swift \
+            src/ios/Views/ContentView/Bots/BotRoomRunner.swift \
+            src/ios/Views/ContentView/Bots/BotWorkspaceView.swift \
+            src/ios/Views/ContentView/ContentView.swift \
+            src/ios/Views/ContentView/ContentView+SessionList.swift \
             src/ios/MinisTests/BrowserBookmarkStoreTests.swift \
             src/ios/MinisTests/BrowserCredentialOriginTests.swift; do
             xcrun swiftc -frontend -parse "$file"
@@ -37,6 +44,10 @@ jobs:
         run: |
           swift src/ios/MinisTests/Standalone/ScheduledRunNowTests.swift
           swift src/ios/MinisTests/Standalone/ScheduledTaskDetailTests.swift
+      - name: Bot workspace persistence tests
+        run: |
+          swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"
+          "$RUNNER_TEMP/bot-tests"
   device-build:
     if: github.event_name == 'workflow_dispatch' && inputs.full_build
     runs-on: macos-26
@@ -49,7 +60,8 @@ jobs:
         run: |
           xcodebuild -version
           xcodebuild -downloadComponent MetalToolchain
-          brew install ninja llvm libarchive pkg-config meson go
+          brew install ninja llvm lld libarchive pkg-config meson go
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
       - name: Native dependencies
         run: |
           bash deps/build_lame.sh

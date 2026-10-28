@@ -1469,3 +1469,166 @@ extension ScheduledBannerModel {
         }
     }
 }
+
+// Global entry shares the registry and detail view used by conversation task cards.
+struct ScheduledTasksManagementView: View {
+    @ObservedObject private var registry = AgentJobRegistry.shared
+    @State private var selected: AgentJob?
+    @State private var editing: AgentJob?
+    @State private var deleting: AgentJob?
+
+    private var schedules: [AgentJob] {
+        registry.list().filter { $0.trigger != .immediate }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Text("Scheduled tasks only run while the app is running and don't resume after a relaunch.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if schedules.isEmpty {
+                ContentUnavailableView("No Scheduled Tasks", systemImage: "calendar.badge.clock")
+            }
+            ForEach(schedules) { job in
+                Section {
+                    Button { selected = job } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(job.label ?? job.title).foregroundStyle(.primary)
+                            Text(job.trigger.logLabel).font(.caption).foregroundStyle(.secondary)
+                            Text(job.state.rawValue).font(.caption).foregroundStyle(.secondary)
+                            if let next = job.nextFireAt {
+                                Text(next, style: .date) + Text(" ") + Text(next, style: .time)
+                            }
+                        }
+                    }
+                    if job.state == .pending {
+                        Toggle("Enabled", isOn: Binding(
+                            get: { job.isEnabled },
+                            set: { registry.setEnabled(jobId: job.id, enabled: $0) }
+                        ))
+                        .disabled(job.fireInFlight)
+                        Button("Edit") { editing = job }
+                            .disabled(job.fireInFlight)
+                    }
+                    Button("Delete", role: .destructive) { deleting = job }
+                        .disabled(job.fireInFlight || job.state == .running)
+                }
+            }
+        }
+        .navigationTitle("Scheduled Tasks")
+        .sheet(item: $selected) { job in
+            ScheduledTaskDetailView(callback: ScheduledJobRunner.detailCallback(for: job), hostSessionId: job.creatorSessionId)
+        }
+        .sheet(item: $editing) { job in
+            ScheduledTaskEditor(job: job)
+        }
+        .confirmationDialog("Delete scheduled task?", isPresented: Binding(
+            get: { deleting != nil }, set: { if !$0 { deleting = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let job = deleting, !job.fireInFlight, job.state != .running {
+                    registry.cancel(jobId: job.id, reason: "user deleted from task management", silent: true)
+                    registry.remove(jobId: job.id)
+                }
+                deleting = nil
+            }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        }
+    }
+}
+
+private struct ScheduledTaskEditor: View {
+    let job: AgentJob
+    @Environment(\.dismiss) private var dismiss
+    @State private var prompt: String
+    @State private var seconds: String
+    @State private var count: String
+    @State private var hour: Int
+    @State private var minute: Int
+    @State private var days: Set<Int>
+    @State private var error: String?
+
+    init(job: AgentJob) {
+        self.job = job
+        _prompt = State(initialValue: job.prompt ?? "")
+        var seconds = ""
+        var count = ""
+        var hour = 9
+        var minute = 0
+        var days = Set<Int>()
+        switch job.trigger {
+        case .once(let delay): seconds = String(Int(delay))
+        case .loop(let interval, let total):
+            seconds = String(Int(interval)); count = total.map(String.init) ?? ""
+        case .cron(let h, let m, let d, _, _): hour = h; minute = m; days = d
+        default: break
+        }
+        _seconds = State(initialValue: seconds)
+        _count = State(initialValue: count)
+        _hour = State(initialValue: hour)
+        _minute = State(initialValue: minute)
+        _days = State(initialValue: days)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Schedule") {
+                    switch job.trigger {
+                    case .once:
+                        TextField("Delay from save (seconds)", text: $seconds).keyboardType(.numberPad)
+                    case .loop:
+                        TextField("Interval (seconds, minimum 60)", text: $seconds).keyboardType(.numberPad)
+                        TextField("Total runs (empty for unlimited)", text: $count).keyboardType(.numberPad)
+                        Text("The total includes completed and skipped runs.").font(.footnote)
+                    case .cron:
+                        Stepper("Hour: \(hour)", value: $hour, in: 0...23)
+                        Stepper("Minute: \(minute)", value: $minute, in: 0...59)
+                        ForEach(1...7, id: \.self) { day in
+                            Toggle(Calendar.current.weekdaySymbols[day - 1], isOn: Binding(
+                                get: { days.contains(day) },
+                                set: { if $0 { days.insert(day) } else { days.remove(day) } }
+                            ))
+                        }
+                        Text("No days selected means every day. Existing start and end dates are preserved.").font(.footnote)
+                    case .onCompletion:
+                        Text(job.trigger.logLabel)
+                    case .immediate: EmptyView()
+                    }
+                }
+                if job.prompt != nil {
+                    Section("Prompt") { TextEditor(text: $prompt).frame(minHeight: 120) }
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+            }
+            .navigationTitle("Edit Scheduled Task")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save) }
+            }
+        }
+    }
+
+    private func save() {
+        let trigger: AgentJobTrigger
+        switch job.trigger {
+        case .once:
+            guard let delay = TimeInterval(seconds) else { invalid(); return }
+            trigger = .once(after: delay)
+        case .loop:
+            guard let interval = TimeInterval(seconds), count.isEmpty || Int(count) != nil else { invalid(); return }
+            trigger = .loop(interval: interval, count: Int(count))
+        case .cron(_, _, _, let start, let end):
+            trigger = .cron(hour: hour, minute: minute, days: days, start: start, end: end)
+        default: trigger = job.trigger
+        }
+        if AgentJobRegistry.shared.updateSchedule(jobId: job.id, trigger: trigger, prompt: prompt) {
+            dismiss()
+        } else { invalid() }
+    }
+
+    private func invalid() {
+        error = String(localized: "Check the schedule and prompt. A running or finished task cannot be edited.")
+    }
+}

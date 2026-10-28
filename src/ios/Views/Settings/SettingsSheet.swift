@@ -183,6 +183,11 @@ struct SettingsSheet: View {
                         }
                     }
                     NavigationLink {
+                        ScheduledTasksManagementView()
+                    } label: {
+                        Label("Scheduled Tasks", systemImage: "calendar.badge.clock")
+                    }
+                    NavigationLink {
                         EnvironmentVariablesView()
                     } label: {
                         Label {

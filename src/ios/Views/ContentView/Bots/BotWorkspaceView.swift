@@ -18,6 +18,7 @@ struct BotWorkspaceView: View {
     @State private var deletingRoom: BotRoom?
     @State private var memoryTarget: BotMemoryTarget?
     @State private var conversationsBot: BotProfile?
+    @State private var selectedConversation: String?
     @ObservedObject private var memory = BotMemoryStore.shared
 
     var body: some View {
@@ -88,25 +89,32 @@ struct BotWorkspaceView: View {
             .sheet(item: $memoryTarget) { target in
                 NavigationStack { BotMemoryView(owner: target.id, title: target.title).toolbar { Button("Done") { memoryTarget = nil } } }
             }
-            .sheet(item: $conversationsBot) { bot in
-                BotConversationsView(botID: bot.id) { id in chat = BotChatTarget(id: id) }
+            .sheet(item: $conversationsBot, onDismiss: {
+                if let id = selectedConversation { selectedConversation = nil; chat = BotChatTarget(id: id) }
+            }) { bot in
+                BotConversationsView(botID: bot.id) { id in selectedConversation = id }
             }
             .sheet(item: $chat) { target in
                 NavigationStack {
                     AIChatView(sessionId: target.id)
+                        .id(target.id)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { chat = nil } } }
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 if let bot = store.bot(forSession: target.id) {
-                                    Menu {
-                                        Button("New Conversation") { open(bot, newConversation: true) }
-                                        NavigationLink("Memory") { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }
-                                    } label: { Image(systemName: "brain") }
+                                    HStack {
+                                        Button { open(bot, newConversation: true) } label: { Image(systemName: "square.and.pencil") }
+                                            .accessibilityLabel("New Conversation")
+                                            .disabled(opening)
+                                        NavigationLink { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }
+                                        label: { Image(systemName: "brain") }
+                                        .accessibilityLabel("Memory")
+                                    }
                                 }
                             }
                         }
                         .safeAreaInset(edge: .bottom) {
-                            if let entry = memory.lastSaved, store.owner(forSession: target.id)?.memoryKey == entry.owner {
+                            if let entry = memory.lastSaved, entry.sourceSession == target.id, store.owner(forSession: target.id)?.memoryKey == entry.owner {
                                 HStack {
                                     Text("Remembered: \(entry.content)").font(.caption).lineLimit(2)
                                     Button("Undo") {
@@ -127,8 +135,14 @@ struct BotWorkspaceView: View {
                     deletingBot = nil
                 }
             }
-            .confirmationDialog("Delete this group and its shared transcript? Member conversations remain in History.", isPresented: Binding(get: { deletingRoom != nil }, set: { if !$0 { deletingRoom = nil } })) {
-                Button("Delete", role: .destructive) { if let deletingRoom { store.deleteRoom(deletingRoom.id) }; deletingRoom = nil }
+            .confirmationDialog("Delete this group, its memories and shared transcript? Member conversations remain in History.", isPresented: Binding(get: { deletingRoom != nil }, set: { if !$0 { deletingRoom = nil } })) {
+                Button("Delete", role: .destructive) {
+                    if let deletingRoom {
+                        do { try memory.forgetOwner("room:\(deletingRoom.id)"); store.deleteRoom(deletingRoom.id) }
+                        catch { store.errorMessage = error.localizedDescription }
+                    }
+                    deletingRoom = nil
+                }
             }
     }
 

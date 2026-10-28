@@ -2,7 +2,7 @@ import SwiftUI
 
 struct BotMemoryView: View {
     let owner: String
-    var title = "Memory"
+    var title = String(localized: "Memory")
     @ObservedObject private var store = BotMemoryStore.shared
     @State private var entries: [BotMemoryEntry] = []
     @State private var editing: BotMemoryEntry?

@@ -1,6 +1,448 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "New Conversation": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "New Conversation"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "新对话"
+        }
+      }
+    }
+  },
+  "Conversations": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Conversations"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "对话列表"
+        }
+      }
+    }
+  },
+  "Shared Materials": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Shared Materials"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "共享资料"
+        }
+      }
+    }
+  },
+  "No Memories": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "No Memories"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "暂无记忆"
+        }
+      }
+    }
+  },
+  "Add Memory": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Add Memory"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "添加记忆"
+        }
+      }
+    }
+  },
+  "Edit Memory": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Edit Memory"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "编辑记忆"
+        }
+      }
+    }
+  },
+  "Share Memory": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Share Memory"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "共享记忆"
+        }
+      }
+    }
+  },
+  "Undo Memory": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Undo Memory"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "撤销记忆"
+        }
+      }
+    }
+  },
+  "Forget": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Forget"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "忘记"
+        }
+      }
+    }
+  },
+  "Preference": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Preference"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "偏好"
+        }
+      }
+    }
+  },
+  "Fact": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Fact"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "事实"
+        }
+      }
+    }
+  },
+  "Convention": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Convention"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "约定"
+        }
+      }
+    }
+  },
+  "Experience": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Experience"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "经验"
+        }
+      }
+    }
+  },
+  "Always include": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Always include"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "固定加载"
+        }
+      }
+    }
+  },
+  "Automatically remembered": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Automatically remembered"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "自动记住的内容"
+        }
+      }
+    }
+  },
+  "Added or edited by you": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Added or edited by you"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "由你添加或修改"
+        }
+      }
+    }
+  },
+  "Memories belong to this Bot or group. Private memories are not automatically used in groups. Shared entries appear only where you grant access.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Memories belong to this Bot or group. Private memories are not automatically used in groups. Shared entries appear only where you grant access."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "记忆归属于当前 Bot 或群聊。私聊记忆不会自动用于群聊；只有你主动授权后，其他 Bot 或群聊才能读取共享条目。"
+        }
+      }
+    }
+  },
+  "Shared with this conversation. Manage the original entry to change or revoke sharing.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Shared with this conversation. Manage the original entry to change or revoke sharing."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "这是共享给当前对话的记忆，请在原条目中修改内容或撤销共享。"
+        }
+      }
+    }
+  },
+  "Forget this memory? It will no longer be retrieved or shared, and old source messages cannot automatically restore it.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Forget this memory? It will no longer be retrieved or shared, and old source messages cannot automatically restore it."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "忘记这条记忆？它将不再被检索或共享，旧消息也不能自动恢复它。"
+        }
+      }
+    }
+  },
+  "Pin only a few general preferences. Other memories are retrieved when relevant, within a fixed context budget.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pin only a few general preferences. Other memories are retrieved when relevant, within a fixed context budget."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "只固定少量通用偏好。其他记忆按相关性检索，并限制加载长度。"
+        }
+      }
+    }
+  },
+  "Only selected Bots and groups may retrieve this entry. Unchecking revokes future access; previously sent chat messages remain in their conversations.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Only selected Bots and groups may retrieve this entry. Unchecking revokes future access; previously sent chat messages remain in their conversations."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "仅选中的 Bot 和群聊可以读取此条目。取消选择将撤销后续访问；已经发送到对话中的消息仍会保留。"
+        }
+      }
+    }
+  },
+  "Delete Bot and its memories? Shared access to its memories will be removed. Conversations remain in History.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Delete Bot and its memories? Shared access to its memories will be removed. Conversations remain in History."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除 Bot 及其记忆？对这些记忆的共享访问也将移除，历史对话仍会保留。"
+        }
+      }
+    }
+  },
+  "Delete this group, its memories and shared transcript? Member conversations remain in History.": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Delete this group, its memories and shared transcript? Member conversations remain in History."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除此群聊、群聊记忆和共享记录？成员对话仍会保留在历史中。"
+        }
+      }
+    }
+  },
+  "Remembered: %@": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Remembered: %@"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已记住：%@"
+        }
+      }
+    }
+  },
+  "Conversation: %@": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Conversation: %@"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "来源对话：%@"
+        }
+      }
+    }
+  },
+  "Message: %@": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Message: %@"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "来源消息：%@"
+        }
+      }
+    }
+  },
   "Bookmarks could not be loaded. The original file has been preserved.": {
     "extractionState": "manual",
     "localizations": {

@@ -209,6 +209,11 @@ extension ContentView {
     private func stackListBody(scrollProxy: ScrollViewProxy) -> AnyView {
         AnyView(
         List {
+            Section("Bots & Groups") {
+                Button { showBotWorkspace = true } label: {
+                    Label("Open Bots & Groups", systemImage: "person.2.fill")
+                }
+            }
             // [T-ios-session-list-equatable-jank] id-list projection — see splitList.
             // [T-home-list-perf-diag] Times the grouping and opens a pass
             // for the row lookups that follow; see HomeListPerf.
@@ -309,6 +314,11 @@ extension ContentView {
     private var splitList: some View {
         ScrollViewReader { scrollProxy in
         List(selection: $selectedSessionId) {
+            Section("Bots & Groups") {
+                Button { showBotWorkspace = true } label: {
+                    Label("Open Bots & Groups", systemImage: "person.2.fill")
+                }
+            }
             // [T-ios-session-list-equatable-jank] Diff a (label, ids) projection
             // so SwiftUI compares a [String] id list, not a [ChatSession] value
             // array. Rows resolve the model via displaySessionsById.

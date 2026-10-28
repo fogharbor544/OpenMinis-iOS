@@ -315,6 +315,7 @@ struct ContentView: View {
     // showSettings consolidated into activeToolSheet (.settings)
     @State var showTerminal = false
     @State var showAlarmList = false
+    @State var showBotWorkspace = false
     @State var hasAlarms = false
     @State var activeToolSheet: ToolSheet?
     #if DEBUG
@@ -787,6 +788,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAlarmList, onDismiss: { fetchAlarmsIfNeeded() }) {
             AlarmListView()
+        }
+        .sheet(isPresented: $showBotWorkspace) {
+            BotWorkspaceView()
         }
         .sheet(item: $activeToolSheet) { sheet in
             switch sheet {

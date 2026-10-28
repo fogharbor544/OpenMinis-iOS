@@ -20,6 +20,12 @@ import UIKit
 import os.log
 
 extension AIChatViewModel {
+    private var botProfileInstructions: String {
+        guard helperConfig == nil, let sessionId,
+              let profile = BotWorkspaceStore.shared.bot(forSession: sessionId) else { return "" }
+        return "\nBot profile: \(profile.name)\n\(profile.instructions)\n\n"
+    }
+
     private var approximateTimeString: String {
         let now = Date()
         if now.timeIntervalSince(_cachedTimeDate) > 3600 {
@@ -54,6 +60,7 @@ extension AIChatViewModel {
         // is preserved inside SystemPromptBuilder.identityTemplate so we
         // don't regress model behavior that depended on it.
         (helperConfig != nil ? helperIdentitySection : SystemPromptBuilder.identitySection())
+            + botProfileInstructions
             + "You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), "
             + "writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.\n\n"
             + "Available tools:\n"

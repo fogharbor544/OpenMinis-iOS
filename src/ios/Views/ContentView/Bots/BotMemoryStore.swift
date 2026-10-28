@@ -108,7 +108,7 @@ enum BotMemoryError: LocalizedError {
         }
         if automatic {
             let text = evidence.lowercased()
-            let durable = ["偏好", "通常", "一直", "长期", "以后", "总是", "我喜欢", "我不喜欢", "prefer", "always", "usually", "from now on"]
+            let durable = ["偏好", "通常", "一直", "长期", "以后", "总是", "我喜欢", "我不喜欢", "我住在", "我的职业", "我叫", "prefer", "always", "usually", "from now on", "i live in", "i work as", "my name is"]
             let temporary = ["这次", "这篇", "今天", "暂时", "this time", "this article", "today", "temporarily"]
             guard durable.contains(where: text.contains), !temporary.contains(where: text.contains) else {
                 throw BotMemoryError.invalid("This is not a clear durable preference. Keep it in the conversation or ask the user.")

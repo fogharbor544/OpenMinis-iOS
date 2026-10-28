@@ -47,6 +47,7 @@ enum BotMemoryError: LocalizedError {
             }
             try execute("CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, owner TEXT NOT NULL, payload TEXT NOT NULL)")
             try execute("CREATE INDEX IF NOT EXISTS memory_owner ON memories(owner)")
+            try execute("PRAGMA secure_delete=ON")
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -151,12 +152,25 @@ enum BotMemoryError: LocalizedError {
     }
 
     func forget(id: String, owner: String) throws {
-        guard var entry = try entries().first(where: { $0.id == id && $0.owner == owner && $0.status == "active" }) else {
+        let owned = try entries().filter { $0.owner == owner }
+        guard let entry = owned.first(where: { $0.id == id && $0.status == "active" }) else {
             throw BotMemoryError.invalid("Memory entry not found.")
         }
-        entry.status = "deleted"
-        entry.content = ""; entry.evidence = ""; entry.grants = []; entry.updatedAt = Date()
-        try write(entry)
+        // Forget the superseded versions too; only fingerprints/source keys remain
+        // as suppression markers, never a hidden plaintext archive of the forgotten fact.
+        var lineage = [entry]
+        var previous = entry.replaces
+        while let key = previous, let old = owned.first(where: { $0.id == key }), !lineage.contains(where: { $0.id == key }) {
+            lineage.append(old); previous = old.replaces
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for var version in lineage {
+                version.status = "deleted"; version.content = ""; version.evidence = ""; version.grants = []; version.updatedAt = Date()
+                try write(version)
+            }
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
         if lastSaved?.id == id { lastSaved = nil }
         revision += 1
     }

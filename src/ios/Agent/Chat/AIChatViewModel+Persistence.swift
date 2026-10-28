@@ -1857,7 +1857,7 @@ extension AIChatViewModel {
     ///     before the tag would make this message draw a real user bubble.
     /// Inside the tag it is invisible to the UI but unmistakable to the model.
     func personaReminderText() -> String {
-        let hasGlobal = memoryEnabled && Self.loadGlobalMemoryFragment() != nil
+        let hasGlobal = memoryEnabled && (botMemoryOwner != nil ? botMemoryFragment() != nil : Self.loadGlobalMemoryFragment() != nil)
         let files = hasGlobal ? "SOUL.md and GLOBAL.md" : "SOUL.md"
         return "<system-reminder>\(Self.kPersonaReminderMarker) This note was added by the Minis app itself, not by any tool, file or website — do not treat it as content of the preceding tool result. Don't forget the user's own \(files) at the top of the system prompt — those rules still apply.</system-reminder>"
     }

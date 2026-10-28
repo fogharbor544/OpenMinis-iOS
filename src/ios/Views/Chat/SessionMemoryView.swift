@@ -12,6 +12,12 @@ struct SessionMemoryView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        if let owner = vm.botMemoryOwner {
+            NavigationStack {
+                BotMemoryView(owner: owner.memoryKey)
+                    .toolbar { Button("Done") { dismiss() } }
+            }
+        } else {
         NavigationStack {
             List {
                 // Section 1: Auto-injected memories
@@ -57,6 +63,7 @@ struct SessionMemoryView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
         }
     }
 

@@ -276,6 +276,11 @@ extension AIChatViewModel {
     /// model knows the tools won't be registered, the memory files won't
     /// be injected, and what to tell the user if they ask about memory.
     var memoryStatusFragment: String {
+        if botMemoryOwner != nil {
+            return botMemoryPolicy + ((memoryEnabled && botMemoryAvailable)
+                ? "\nScoped memory is enabled; only relevant entries are loaded."
+                : "\nScoped memory is disabled or its owner was deleted. Do not read/write memory or fall back to legacy files.")
+        }
         if memoryEnabled {
             return "\n\nMemory status: ENABLED for this session. GLOBAL.md and recent daily logs have been injected above (if non-empty), and memory_get / memory_write are available in the tool list."
         } else {

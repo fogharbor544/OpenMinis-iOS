@@ -1,6 +1,7 @@
 import SwiftUI
 
 private struct BotChatTarget: Identifiable { var id: String }
+private struct BotMemoryTarget: Identifiable { var id: String; var title: String }
 
 struct BotWorkspaceView: View {
     var embedded = false
@@ -15,6 +16,9 @@ struct BotWorkspaceView: View {
     @State private var opening = false
     @State private var deletingBot: BotProfile?
     @State private var deletingRoom: BotRoom?
+    @State private var memoryTarget: BotMemoryTarget?
+    @State private var conversationsBot: BotProfile?
+    @ObservedObject private var memory = BotMemoryStore.shared
 
     var body: some View {
         Group {
@@ -34,6 +38,9 @@ struct BotWorkspaceView: View {
                         }
                         .disabled(opening)
                         .contextMenu {
+                            Button("New Conversation") { open(bot, newConversation: true) }
+                            Button("Conversations") { conversationsBot = bot }
+                            Button("Memory") { memoryTarget = BotMemoryTarget(id: "bot:\(bot.id)", title: bot.name) }
                             Button("Edit") { editingBot = bot }
                                 .disabled(!runner.activeRooms.isEmpty)
                             Button("Delete", role: .destructive) { deletingBot = bot }
@@ -61,6 +68,7 @@ struct BotWorkspaceView: View {
                     }
                 }
                 Section {
+                    NavigationLink("Shared Materials") { BotMemoryView(owner: "shared", title: "Shared Materials") }
                     Text("Bots use OpenMinis model groups, skills, MCP servers and device permissions. Existing conversations remain in History. Bot profiles and group transcripts are stored on this device.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -77,25 +85,58 @@ struct BotWorkspaceView: View {
             }
             .sheet(item: $editingBot) { BotProfileEditor(profile: $0) }
             .sheet(item: $editingRoom) { BotRoomEditor(room: $0) }
+            .sheet(item: $memoryTarget) { target in
+                NavigationStack { BotMemoryView(owner: target.id, title: target.title).toolbar { Button("Done") { memoryTarget = nil } } }
+            }
+            .sheet(item: $conversationsBot) { bot in
+                BotConversationsView(botID: bot.id) { id in chat = BotChatTarget(id: id) }
+            }
             .sheet(item: $chat) { target in
                 NavigationStack {
                     AIChatView(sessionId: target.id)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { chat = nil } } }
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                if let bot = store.bot(forSession: target.id) {
+                                    Menu {
+                                        Button("New Conversation") { open(bot, newConversation: true) }
+                                        NavigationLink("Memory") { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }
+                                    } label: { Image(systemName: "brain") }
+                                }
+                            }
+                        }
+                        .safeAreaInset(edge: .bottom) {
+                            if let entry = memory.lastSaved, store.owner(forSession: target.id)?.memoryKey == entry.owner {
+                                HStack {
+                                    Text("Remembered: \(entry.content)").font(.caption).lineLimit(2)
+                                    Button("Undo") {
+                                        do { try memory.forget(id: entry.id, owner: entry.owner) }
+                                        catch { store.errorMessage = error.localizedDescription }
+                                    }
+                                }.padding(8).background(.regularMaterial)
+                            }
+                        }
                 }
             }
-            .confirmationDialog("Delete Bot? Its conversations will remain in History.", isPresented: Binding(get: { deletingBot != nil }, set: { if !$0 { deletingBot = nil } })) {
-                Button("Delete", role: .destructive) { if let deletingBot { store.deleteBot(deletingBot.id) }; deletingBot = nil }
+            .confirmationDialog("Delete Bot and its memories? Shared access to its memories will be removed. Conversations remain in History.", isPresented: Binding(get: { deletingBot != nil }, set: { if !$0 { deletingBot = nil } })) {
+                Button("Delete", role: .destructive) {
+                    if let deletingBot {
+                        do { try memory.forgetOwner("bot:\(deletingBot.id)"); store.deleteBot(deletingBot.id) }
+                        catch { store.errorMessage = error.localizedDescription }
+                    }
+                    deletingBot = nil
+                }
             }
             .confirmationDialog("Delete this group and its shared transcript? Member conversations remain in History.", isPresented: Binding(get: { deletingRoom != nil }, set: { if !$0 { deletingRoom = nil } })) {
                 Button("Delete", role: .destructive) { if let deletingRoom { store.deleteRoom(deletingRoom.id) }; deletingRoom = nil }
             }
     }
 
-    private func open(_ bot: BotProfile) {
+    private func open(_ bot: BotProfile, newConversation: Bool = false) {
         opening = true
         Task { @MainActor in
             defer { opening = false }
-            do { chat = BotChatTarget(id: try await store.session(botID: bot.id)) }
+            do { chat = BotChatTarget(id: try await store.session(botID: bot.id, newConversation: newConversation)) }
             catch { store.errorMessage = error.localizedDescription }
         }
     }
@@ -244,7 +285,10 @@ private struct BotRoomView: View {
             }.padding()
         }
         .navigationTitle(room?.name ?? String(localized: "Group"))
-        .toolbar { Button("Members") { editing = room }.disabled(isRunning) }
+        .toolbar {
+            Button("Members") { editing = room }.disabled(isRunning)
+            NavigationLink("Memory") { BotMemoryView(owner: "room:\(roomID)", title: room?.name ?? "Group Memory") }
+        }
         .sheet(item: $editing) { BotRoomEditor(room: $0) }
         .sheet(item: $chat) { target in
             NavigationStack {

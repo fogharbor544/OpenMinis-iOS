@@ -8,6 +8,14 @@
 //
 
 import SwiftUI
+import EventKit
+import Photos
+import MediaPlayer
+import UserNotifications
+import HomeKit
+import HealthKit
+import AlarmKit
+import AVFoundation
 
 struct MCPIntegrationsView: View {
     /// [T-mcp-oauth-deeplink] When set (minis://settings/mcp-servers/<id>),
@@ -34,7 +42,7 @@ struct MCPIntegrationsView: View {
                     Label("Built-in Capabilities", systemImage: "square.grid.2x2")
                 }
             } footer: {
-                Text("Manage OpenMinis tools, permissions, skills and scheduled tasks. Built-in capabilities are not external MCP servers.")
+                Text("Manage supported iOS apps and external connectors.")
             }
             Section("External MCP Servers") {
             if store.servers.isEmpty {
@@ -255,103 +263,200 @@ struct MCPToolsSheet: View {
     }
 }
 
-/// A catalog of existing controls, backed by the same stores used during execution.
-private struct BuiltinCapabilitiesView: View {
-    @ObservedObject private var configGate = MinisConfigPermissionStore.shared
-    @AppStorage(AgentToolSwitch.browser.key) private var browser = AgentToolSwitch.browser.defaultValue
-    @AppStorage(AgentToolSwitch.agents.key) private var agents = AgentToolSwitch.agents.defaultValue
-    @AppStorage(AgentToolSwitch.userAsk.key) private var userAsk = AgentToolSwitch.userAsk.defaultValue
+/// System authorization is queried again after returning from Settings; local policy
+/// never stands in for an OS grant. Some Apple services deliberately hide read grants.
+struct BuiltinCapabilitiesView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var statuses: [String: String] = [:]
+    @State private var granted: Set<String> = []
+    @State private var busy: String?
+    @State private var message: String?
+    @StateObject private var homeAuthorization = HomeConnectorAuthorization()
+    private let events = EKEventStore()
+    @ObservedObject private var permissions = OffloadPermissionManager.shared
+
+    private let apps: [(id: String, name: String, icon: String)] = [
+        ("calendar", "日历", "calendar"), ("reminders", "提醒事项", "checklist"),
+        ("photos", "照片", "photo"), ("camera", "相机", "camera"), ("music", "音乐", "music.note"),
+        ("home", "家庭", "house"), ("health", "健康", "heart"),
+        ("alarm", "时钟与闹钟", "alarm"), ("notification", "通知", "bell"),
+        ("maps", "地图", "map"), ("weather", "天气", "cloud.sun")
+    ]
 
     var body: some View {
         List {
             Section {
-                Toggle("Browser Use", isOn: $browser)
-                Toggle("Sub Agents", isOn: $agents)
-                Toggle("Ask the User", isOn: $userAsk)
-                Toggle("Allow minis-config", isOn: $configGate.enabled)
-            } header: { Text("Agent Tools") } footer: {
-                Text("These are the existing global tool switches. Conversations and delegated agents use the same controls; asking the user is available only in interactive runs.")
-            }
-            Section("Configuration") {
-                NavigationLink("Models") { ProviderInstancesView() }
-                NavigationLink("Model Groups") { ModelGroupsView() }
-                NavigationLink("Sub Agents") { HelperSettingsView() }
-                NavigationLink("Skills") { SkillsManagementView() }
-                NavigationLink("Soul") { SoulSettingsView() }
-                NavigationLink("Memory") { MemoryManagementView() }
-                NavigationLink("Scheduled Tasks") { ScheduledTasksManagementView() }
-                NavigationLink("Permissions") { OffloadPermissionSettingsView() }
-                NavigationLink("Environment Variables") { EnvironmentVariablesView() }
-                NavigationLink("Shared Folders") { SharedFoldersSettingsView() }
-                NavigationLink("Mounted Folders") { MountedFoldersSettingsView() }
-            }
-            Section {
-                Label("Shell and Files", systemImage: "terminal")
-                Text("Shell execution, file reading, writing, editing and image reading are core tools. They have no separate global disable switch.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            } header: { Text("Core Tools") }
-            Section {
-                ForEach(Self.nativeCommands, id: \.name) { command in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(LocalizedStringKey(command.displayLabel))
-                        Text(LocalizedStringKey(command.description.isEmpty ? (Self.purposes[command.name] ?? command.name) : command.description))
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text("Built-in · \(command.name)").font(.caption2).foregroundStyle(.secondary)
-                        if command.showInSettings {
-                            CapabilityPermissionPicker(command: command)
-                        } else if command.name == "minis-browser-use" {
-                            Text(browser ? "Enabled" : "Disabled").font(.caption)
-                        } else if command.name == "minis-config" {
-                            Text(configGate.enabled ? "Enabled" : "Disabled").font(.caption)
-                        } else {
-                            Text("No additional OpenMinis permission gate")
-                                .font(.caption).foregroundStyle(.secondary)
+                ForEach(apps, id: \.id) { app in
+                    Button { Task { await manage(app.id) } } label: {
+                        HStack {
+                            Label(app.name, systemImage: app.icon).foregroundStyle(.primary)
+                            Spacer()
+                            if busy == app.id { ProgressView() }
+                            else {
+                                Text(statuses[app.id] ?? "检查中")
+                                    .font(.caption)
+                                    .foregroundStyle(granted.contains(app.id) ? Color.green : Color.secondary)
+                            }
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }
+                        .frame(minHeight: 44)
+                    }
+                    .disabled(busy != nil)
+                    if let command = command(for: app.id) {
+                        Picker("工具使用许可", selection: Binding(get: { permissions.permissionLevel(for: command) }, set: { permissions.setPermissionLevel($0, for: command) })) {
+                            Text("允许").tag(OffloadPermissionLevel.bypass)
+                            Text("每个会话首次询问").tag(OffloadPermissionLevel.askOnce)
+                            Text("禁止").tag(OffloadPermissionLevel.notAllowed)
                         }
                     }
                 }
-            } header: { Text("Device Capabilities") } footer: {
-                Text("These native commands are invoked through the existing shell/offload path. iOS authorization, device support and foreground requirements still apply. Permission policy does not guarantee system access.")
+            } footer: {
+                Text("开启状态来自 iOS 实际授权。点击可请求权限或前往系统设置；关闭系统权限也需在设置中操作。返回后会自动刷新。工具使用许可对所有 Bot 生效，控制是否允许工具调用，不会替你开启 iOS 权限。相机和音乐共用媒体工具的使用许可。")
+            }
+            Section {
+                Text("健康的读取权限由 iOS 隐藏，不能显示为已开启。地图和天气查询无需独立系统权限；系统未提供的应用接口不会出现在这里。")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Built-in Capabilities")
+        .task { await refresh() }
+        .onChange(of: homeAuthorization.authorized) { _ in Task { await refresh() } }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { Task { await refresh() } }
+        }
+        .alert("系统权限", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("打开系统设置") { openSettings() }
+            Button("好", role: .cancel) { message = nil }
+        } message: { Text(message ?? "") }
     }
 
-    // Public native handlers registered by ISHKernel; permission ownership stays with the existing stores.
-    private static var nativeCommands: [OffloadCommandInfo] {
-        OffloadPermissionManager.allCommands + [
-            .init(name: "apple-bluetooth", displayLabel: "Bluetooth", description: "Discover devices and read or write Bluetooth characteristics", category: .system, showInSettings: false),
-            .init(name: "apple-nfc", displayLabel: "NFC", description: "Scan, read and write NFC tags on supported devices", category: .system, showInSettings: false),
-            .init(name: "ffmpeg", displayLabel: "FFmpeg", description: "Native audio and video processing", category: .media, showInSettings: false),
-            .init(name: "minis-model-use", displayLabel: "Model Calls", description: "List, search and invoke configured models", category: .system, showInSettings: false),
-            .init(name: "minis-sessions-cli", displayLabel: "Sessions", description: "Read conversations and send prompts through the existing chat runtime", category: .system, showInSettings: false),
-            .init(name: "minis-scheduled", displayLabel: "Scheduled Tasks", description: "Create and manage in-process scheduled prompts", category: .system, showInSettings: false),
-            .init(name: "minis-browser-use", displayLabel: "Browser Commands", description: "Navigate and interact with the built-in browser", category: .system, showInSettings: false),
-            .init(name: "minis-config", displayLabel: "Configuration Tool", description: "Read or change supported settings through the configuration permission gate", category: .system, showInSettings: false),
-            .init(name: "minis-debug", displayLabel: "Diagnostics", description: "Read logs; developer RPC commands are available only in debug builds", category: .system, showInSettings: false)
-        ]
+    @MainActor private func refresh() async {
+        var enabled = Set<String>()
+        var values: [String: String] = [:]
+        func record(_ id: String, _ allowed: Bool, _ other: String = "未开启") {
+            values[id] = allowed ? "已开启" : other
+            if allowed { enabled.insert(id) }
+        }
+        if #available(iOS 17.0, *) {
+            record("calendar", EKEventStore.authorizationStatus(for: .event) == .fullAccess,
+                   EKEventStore.authorizationStatus(for: .event) == .writeOnly ? "仅允许写入" : "未开启")
+            record("reminders", EKEventStore.authorizationStatus(for: .reminder) == .fullAccess)
+        } else {
+            record("calendar", EKEventStore.authorizationStatus(for: .event) == .authorized)
+            record("reminders", EKEventStore.authorizationStatus(for: .reminder) == .authorized)
+        }
+        let photos = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        record("photos", photos == .authorized, photos == .limited ? "仅选定照片" : "未开启")
+        record("camera", AVCaptureDevice.authorizationStatus(for: .video) == .authorized)
+        record("music", MPMediaLibrary.authorizationStatus() == .authorized)
+        homeAuthorization.update()
+        if let authorized = homeAuthorization.authorized {
+            record("home", authorized)
+        } else { values["home"] = "点按检查授权" }
+        values["health"] = HKHealthStore.isHealthDataAvailable() ? "在健康中管理" : "设备不支持"
+        if #available(iOS 26.0, *) {
+            record("alarm", AlarmManager.shared.authorizationState == .authorized)
+        } else { values["alarm"] = "需要 iOS 26" }
+        let notification = await UNUserNotificationCenter.current().notificationSettings()
+        record("notification", notification.authorizationStatus == .authorized,
+               notification.authorizationStatus == .provisional ? "静默通知" : "未开启")
+        values["maps"] = "无需独立授权"
+        values["weather"] = "无需独立授权"
+        statuses = values
+        granted = enabled
     }
 
-    private static let purposes: [String: String] = [
-        "apple-speak": "Synthesize speech", "apple-speech": "Transcribe speech",
-        "apple-player": "Play audio and video", "apple-media": "Inspect and transform media",
-        "apple-device": "Read device information", "apple-notification": "Manage local notifications",
-        "apple-alarm": "Manage alarms", "apple-open": "Open URLs in system apps",
-        "apple-maps": "Search places and routes", "apple-weather": "Read weather information",
-        "apple-nlp": "Analyze text", "apple-vision": "Recognize text and analyze images"
-    ]
+    @MainActor private func manage(_ id: String) async {
+        busy = id
+        defer { busy = nil }
+        do {
+            switch id {
+            case "calendar":
+                if EKEventStore.authorizationStatus(for: .event) == .notDetermined {
+                    if #available(iOS 17.0, *) { _ = try await events.requestFullAccessToEvents() }
+                    else { _ = try await events.requestAccess(to: .event) }
+                } else { openSettings() }
+            case "reminders":
+                if EKEventStore.authorizationStatus(for: .reminder) == .notDetermined {
+                    if #available(iOS 17.0, *) { _ = try await events.requestFullAccessToReminders() }
+                    else { _ = try await events.requestAccess(to: .reminder) }
+                } else { openSettings() }
+            case "photos":
+                if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined {
+                    _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                } else { openSettings() }
+            case "music":
+                if MPMediaLibrary.authorizationStatus() == .notDetermined {
+                    _ = await MPMediaLibrary.requestAuthorization()
+                } else { openSettings() }
+            case "camera":
+                if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+                    _ = await AVCaptureDevice.requestAccess(for: .video)
+                } else { openSettings() }
+            case "notification":
+                let settings = await UNUserNotificationCenter.current().notificationSettings()
+                if settings.authorizationStatus == .notDetermined {
+                    _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+                } else { openSettings() }
+            case "alarm":
+                if #available(iOS 26.0, *) {
+                    if AlarmManager.shared.authorizationState == .notDetermined {
+                        _ = try await AlarmManager.shared.requestAuthorization()
+                    } else { openSettings() }
+                }
+            case "home":
+                homeAuthorization.start()
+                message = "请在系统弹窗或设置 → 隐私与安全性 → HomeKit 中管理家庭权限。自签名证书需要包含 HomeKit 能力。"
+            case "health":
+                message = "请在健康 App → 头像 → App → OpenMinis 中按数据类型管理权限。首次使用健康工具时会申请授权；自签名证书需要包含 HealthKit 能力。iOS 不向 App 披露读取授权状态，授权弹窗完成也不代表所有权限已开启。"
+            case "maps":
+                message = "地图支持地点搜索和路线查询，无需独立授权。使用当前位置时，请在系统设置 → OpenMinis → 位置中管理定位权限。"
+            case "weather":
+                message = "天气支持指定地点的天气查询，无需独立授权。使用当前位置时，请在系统设置 → OpenMinis → 位置中管理定位权限。"
+            default: break
+            }
+            await refresh()
+        } catch { message = error.localizedDescription }
+    }
+
+    private func command(for id: String) -> String? {
+        switch id {
+        case "health": return "apple-healthkit"
+        case "home": return "apple-homekit"
+        case "music", "camera": return "apple-media"
+        default: return "apple-" + id
+        }
+    }
+
+    private func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
 }
 
-private struct CapabilityPermissionPicker: View {
-    let command: OffloadCommandInfo
-    @ObservedObject private var manager = OffloadPermissionManager.shared
-    var body: some View {
-        Picker("Permission", selection: Binding(
-            get: { manager.permissionLevel(for: command.name) },
-            set: { manager.setPermissionLevel($0, for: command.name) }
-        )) {
-            ForEach(OffloadPermissionLevel.allCases, id: \.self) { level in
-                Text(level.displayName).tag(level)
-            }
+@MainActor
+private final class HomeConnectorAuthorization: NSObject, ObservableObject, HMHomeManagerDelegate {
+    @Published var authorized: Bool?
+    private var manager: HMHomeManager?
+
+    func start() {
+        if manager == nil {
+            let manager = HMHomeManager()
+            manager.delegate = self
+            self.manager = manager
         }
+        update()
+    }
+
+    func update() {
+        authorized = manager.map { $0.authorizationStatus.contains(.authorized) }
+    }
+
+    nonisolated func homeManagerDidUpdateHomes(_ manager: HMHomeManager) {
+        Task { @MainActor [weak self] in self?.update() }
+    }
+
+    nonisolated func homeManager(_ manager: HMHomeManager, didUpdate status: HMHomeManagerAuthorizationStatus) {
+        Task { @MainActor [weak self] in self?.update() }
     }
 }

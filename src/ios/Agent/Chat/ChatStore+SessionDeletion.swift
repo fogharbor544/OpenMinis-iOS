@@ -22,41 +22,18 @@ private let iCloudLogger = AppLogger(category: "iCloud")
 
 extension ChatStore {
     func getMemoryEnabled(sessionId: String) -> Bool {
-        // [T-memory-global-toggle-settings-ui-ios] If the session row
-        // already exists, return its stored per-session value. If no
-        // row exists (genuinely new session — loadSession ran before
-        // the session was persisted), fall back to the global default
-        // from UserDefaults("memory.global.enabled"), defaulting to
-        // true so users upgrading without the key set see no change.
-        // Already-existing sessions keep their stored value when the
-        // global toggle changes — only NEW sessions inherit it.
+        // Read legacy data only when adopting an existing Bot/group setting.
         let sql = "SELECT memory_enabled FROM sessions WHERE id = ?"
         var stmt: OpaquePointer?
-        var rowFound = false
         var enabled = true
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
             if sqlite3_step(stmt) == SQLITE_ROW {
                 enabled = sqlite3_column_int(stmt, 0) != 0
-                rowFound = true
             }
         }
         sqlite3_finalize(stmt)
-        // [T-memory-enabled-new-session-bug DIAG]
-        let rawObj = UserDefaults.standard.object(forKey: "memory.global.enabled")
-        if rowFound {
-            memDiagLogger.info("[MemDiag] getMemoryEnabled sid=\(sessionId.prefix(8)) rowFound=true storedRow=\(enabled) (returning storedRow) globalRaw=\(String(describing: rawObj))")
-            return enabled
-        }
-        // No row — apply global default. UserDefaults.bool returns false
-        // for unset keys, so probe presence via object(forKey:) first
-        // and treat absent as true (matches @AppStorage default).
-        if let stored = UserDefaults.standard.object(forKey: "memory.global.enabled") as? Bool {
-            memDiagLogger.info("[MemDiag] getMemoryEnabled sid=\(sessionId.prefix(8)) rowFound=false → global=\(stored)")
-            return stored
-        }
-        memDiagLogger.info("[MemDiag] getMemoryEnabled sid=\(sessionId.prefix(8)) rowFound=false global unset → true")
-        return true
+        return enabled
     }
 
     func setMemoryEnabled(sessionId: String, enabled: Bool) {

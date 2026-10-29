@@ -20,7 +20,6 @@ private enum SettingsDestination: Hashable {
     case usage
     case skills
     // [T-ios-assistant-header-open-soul]
-    case soul
     // [T-tools-master-switch]
     case tools
     case memory
@@ -94,112 +93,8 @@ struct SettingsSheet: View {
                 }
 
                 Section("Agent Runtime") {
-                    // [T-tools-granular-switches] First row: per-tool switches.
-                    NavigationLink {
-                        ToolsSettingsView()
-                    } label: {
-                        Label {
-                            Text(AppLocalized("Agent Tools"))
-                        } icon: {
-                            Image(systemName: "wrench.and.screwdriver.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
-                        }
-                    }
-                    // [T-sub-agents-v1] Directly under Agent Tools: the two pages
-                    // are the tool surface (which tools exist) and the delegation
-                    // surface (who runs a delegated task), so they read as a pair.
-                    NavigationLink {
-                        HelperSettingsView()
-                    } label: {
-                        Label {
-                            Text(AppLocalized("Sub Agents"))
-                        } icon: {
-                            // [T-agent-icon] Same violet and glyph the agent block
-                            // and tool sheet use in chat, so the settings row reads
-                            // as the same feature. `glyph` is the bare figure pair
-                            // meant for a caller that already draws the disc — the
-                            // wider person.2.wave.2 reached the edge of the 21pt
-                            // circle at this section's icon size.
-                            Image(systemName: HelperAccent.glyph)
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(HelperAccent.color, in: Circle())
-                        }
-                    }
-                    NavigationLink {
-                        SkillsManagementView()
-                    } label: {
-                        Label {
-                            Text("Skills")
-                        } icon: {
-                            Image(systemName: "puzzlepiece.extension")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.blue, in: Circle())
-                        }
-                    }
-                    NavigationLink {
-                        SoulSettingsView()
-                    } label: {
-                        Label {
-                            Text("Soul")
-                        } icon: {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.pink, in: Circle())
-                        }
-                    }
-                    NavigationLink {
-                        MemoryManagementView()
-                    } label: {
-                        Label {
-                            Text("Memory")
-                        } icon: {
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.purple, in: Circle())
-                        }
-                    }
-                    NavigationLink {
-                        MCPIntegrationsView()
-                    } label: {
-                        Label {
-                            Text("MCP Integrations")
-                        } icon: {
-                            Image(systemName: "square.stack.3d.up")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.teal, in: Circle())
-                        }
-                    }
-                    NavigationLink {
-                        ScheduledTasksManagementView()
-                    } label: {
-                        Label("Scheduled Tasks", systemImage: "calendar.badge.clock")
-                    }
-                    NavigationLink {
-                        EnvironmentVariablesView()
-                    } label: {
-                        Label {
-                            Text("Environment Variables")
-                        } icon: {
-                            Image(systemName: "terminal")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.green, in: Circle())
-                        }
-                    }
+                    NavigationLink { SkillsManagementView() } label: { Label("Skills", systemImage: "puzzlepiece.extension") }
+                    NavigationLink { MCPIntegrationsView() } label: { Label("MCP Integrations", systemImage: "square.stack.3d.up") }
                 }
 
                 Section("Storage") {
@@ -403,8 +298,6 @@ struct SettingsSheet: View {
                     UsageStatsView()
                 case .skills:
                     SkillsManagementView()
-                case .soul:
-                    SoulSettingsView()
                 case .tools:
                     ToolsSettingsView()
                 case .memory:
@@ -508,8 +401,6 @@ struct SettingsSheet: View {
             navPath.append(SettingsDestination.usage)
         case .skills:
             navPath.append(SettingsDestination.skills)
-        case .soul:
-            navPath.append(SettingsDestination.soul)
         case .tools:
             navPath.append(SettingsDestination.tools)
         case .memory:

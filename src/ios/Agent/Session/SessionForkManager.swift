@@ -31,6 +31,12 @@ final class SessionForkManager {
         // Create new local session
         let forkTitle = (remoteSession.title ?? "Untitled") + " (Fork)"
         let newSession = await store.createSession(modelId: remoteSession.modelId, title: forkTitle)
+        guard BotWorkspaceStore.shared.inheritOwner(for: newSession.id, from: remoteSessionId) else {
+            await store.deleteSession(newSession.id)
+            BotWorkspaceStore.shared.errorMessage = String(localized: "Choose a Bot before starting a conversation")
+            return nil
+        }
+        BotWorkspaceStore.shared.copyCapabilities(to: newSession.id, from: remoteSessionId)
 
         // Update category if present
         if let category = remoteSession.category {
@@ -86,6 +92,12 @@ final class SessionForkManager {
         // createSession invalidates the session-list cache, so the title is
         // visible to the next duplicate from here on.
         reservedDuplicateTitles.remove(dupTitle)
+        guard BotWorkspaceStore.shared.inheritOwner(for: newSession.id, from: sessionId) else {
+            await store.deleteSession(newSession.id)
+            BotWorkspaceStore.shared.errorMessage = String(localized: "Choose a Bot before starting a conversation")
+            return nil
+        }
+        BotWorkspaceStore.shared.copyCapabilities(to: newSession.id, from: sessionId)
 
         if let category = session.category {
             await store.updateSessionTitle(newSession.id, title: dupTitle, category: category)

@@ -7,6 +7,16 @@ struct BotProfile: Identifiable, Codable {
     var modelGroupId: String?
     var sessionId: String?
     var conversationIds: [String] = []
+    var iconSymbol: String?
+    var iconImageData: Data?
+    var skillOverrides: [String: Bool]?
+    var connectorOverrides: [String: Bool]?
+    var memoryEnabled: Bool?
+
+    static let builtinIcons = ["sparkles", "brain", "book.closed", "pencil.and.outline",
+                               "terminal", "globe", "leaf", "lightbulb", "paintpalette",
+                               "music.note", "graduationcap", "bolt", "heart", "star",
+                               "camera", "paperplane"]
 }
 
 struct BotSessionOwner: Codable {
@@ -31,6 +41,7 @@ struct BotRoom: Identifiable, Codable {
     var sessions: [String: String] = [:]
     var messages: [BotRoomMessage] = []
     var interrupted = false
+    var memoryEnabled: Bool?
 }
 
 struct BotWorkspaceData: Codable {
@@ -60,12 +71,51 @@ final class BotWorkspaceStore: ObservableObject {
     func bot(_ id: String) -> BotProfile? { data.bots.first { $0.id == id } }
     func room(_ id: String) -> BotRoom? { data.rooms.first { $0.id == id } }
 
+    func newBot() -> BotProfile {
+        let counts = Dictionary(grouping: data.bots.filter { $0.iconImageData == nil },
+                                by: { $0.iconSymbol ?? "sparkles" }).mapValues(\.count)
+        let symbol = BotProfile.builtinIcons.min { counts[$0, default: 0] < counts[$1, default: 0] }
+        return BotProfile(name: "", iconSymbol: symbol, skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
+    }
+
     func bot(forSession id: String) -> BotProfile? {
         owner(forSession: id).flatMap { bot($0.botId) }
     }
 
     func owner(forSession id: String) -> BotSessionOwner? {
         data.sessionOwners[id]
+    }
+
+    func memoryEnabled(forSession id: String) -> Bool {
+        guard let owner = owner(forSession: id), let bot = bot(owner.botId) else { return false }
+        if let roomID = owner.roomId { return room(roomID).map { $0.memoryEnabled ?? true } ?? false }
+        return bot.memoryEnabled ?? true
+    }
+
+    @discardableResult
+    func setMemoryEnabled(_ enabled: Bool, forSession id: String) -> Bool {
+        guard let owner = owner(forSession: id) else { return false }
+        if let roomID = owner.roomId, var room = room(roomID) {
+            room.memoryEnabled = enabled
+            return save(room)
+        }
+        guard owner.roomId == nil, var bot = bot(owner.botId) else { return false }
+        bot.memoryEnabled = enabled
+        return save(bot)
+    }
+
+    /// Copies keep their source's Bot and memory boundary, including group scope.
+    @discardableResult
+    func inheritOwner(for sessionID: String, from sourceID: String) -> Bool {
+        guard let owner = owner(forSession: sourceID),
+              let index = data.bots.firstIndex(where: { $0.id == owner.botId }),
+              owner.roomId == nil || room(owner.roomId!) != nil else { return false }
+        var next = data
+        next.sessionOwners[sessionID] = owner
+        if owner.roomId == nil && !next.bots[index].conversationIds.contains(sessionID) {
+            next.bots[index].conversationIds.append(sessionID)
+        }
+        return persist(next)
     }
 
     @discardableResult
@@ -134,10 +184,11 @@ final class BotWorkspaceStore: ObservableObject {
 }
 
 enum BotWorkspaceError: LocalizedError {
-    case missingBot, noModel, storage, busy, rejected(String)
+    case missingBot, botRequired, noModel, storage, busy, rejected(String)
     var errorDescription: String? {
         switch self {
         case .missingBot: return String(localized: "This Bot or group no longer exists.")
+        case .botRequired: return String(localized: "Choose a Bot before starting a conversation")
         case .noModel: return String(localized: "Configure an available model group before starting this Bot.")
         case .storage: return String(localized: "Unable to save the Bot workspace.")
         case .busy: return String(localized: "This Bot is already working. Wait or stop its current turn.")

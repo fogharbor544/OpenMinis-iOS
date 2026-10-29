@@ -37,26 +37,7 @@ extension ChatStore {
         session.parentSessionId = parentSessionId
         session.parentToolUseId = parentToolUseId
 
-        // [T-memory-enabled-new-session-bug] Explicitly write memory_enabled
-        // from the global default. Previously the INSERT omitted the column
-        // and relied on the SQL `DEFAULT 1`, so every new session was
-        // memory_enabled=1 regardless of the Settings → Memory global toggle
-        // (UserDefaults "memory.global.enabled"). That also made
-        // getMemoryEnabled()'s "no row → read global default" fallback dead
-        // code, since the row always existed with 1. Read the global default
-        // here (mirroring that fallback) so turning the toggle off actually
-        // starts new sessions with memory disabled. Existing sessions keep
-        // their stored value; iCloud-synced sessions (the INSERT at ~L4492)
-        // intentionally use the remote record's memory_enabled and are NOT
-        // changed.
-        let globalMemoryEnabled = (UserDefaults.standard.object(forKey: "memory.global.enabled") as? Bool) ?? true
-
-        // [T-memory-enabled-new-session-bug DIAG] Trace what we read from
-        // UserDefaults and what we bind, so a live repro shows whether the
-        // global default is reaching createSession.
-        let rawObj = UserDefaults.standard.object(forKey: "memory.global.enabled")
-        memDiagLogger.info("[MemDiag] createSession sid=\(session.id.prefix(8)) rawDefaults=\(String(describing: rawObj)) resolved=\(globalMemoryEnabled) → bind memory_enabled=\(globalMemoryEnabled ? 1 : 0)")
-
+        // Legacy column retained for archive compatibility; Bot/group owns runtime memory policy.
         let sql = "INSERT INTO sessions (id, title, model_id, created_at, updated_at, source, memory_enabled, parent_session_id, parent_tool_use_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
@@ -66,7 +47,7 @@ extension ChatStore {
             sqlite3_bind_double(stmt, 4, now.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 5, now.timeIntervalSince1970)
             bindOptionalText(stmt, index: 6, value: source)
-            sqlite3_bind_int(stmt, 7, globalMemoryEnabled ? 1 : 0)
+            sqlite3_bind_int(stmt, 7, 1)
             bindOptionalText(stmt, index: 8, value: parentSessionId)
             bindOptionalText(stmt, index: 9, value: parentToolUseId)
             let rc = sqlite3_step(stmt)

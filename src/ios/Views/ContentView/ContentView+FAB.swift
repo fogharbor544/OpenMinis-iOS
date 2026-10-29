@@ -259,17 +259,8 @@ extension ContentView {
                         .foregroundStyle(Self.newChatIconColor)
                 }
                     .contextMenu {
-                        let groups = Array(ProviderConfigStore.shared.config.modelGroups.prefix(10))
-                        if !groups.isEmpty {
-                            Section(AppLocalized("New Chat with Group")) {
-                                ForEach(groups) { group in
-                                    Button { [fabActions] in
-                                        fabActions.send(.newChatInGroup(group.id))
-                                    } label: {
-                                        Label(group.name, systemImage: "square.stack.3d.up")
-                                    }
-                                }
-                            }
+                        Button { [fabActions] in fabActions.send(.newChat) } label: {
+                            Label("Choose Bot", systemImage: "person.crop.square")
                         }
                     }
             }

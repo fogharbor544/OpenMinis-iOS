@@ -43,3 +43,26 @@ struct SessionEntityQuery: EntityQuery {
         return sessions.prefix(100).map { SessionEntity(from: $0) }
     }
 }
+
+/// Shortcuts explicitly select the Bot that owns any new conversation.
+struct BotEntity: AppEntity {
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Bot")
+    static var defaultQuery = BotEntityQuery()
+    var id: String
+    var name: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+
+struct BotEntityQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [BotEntity] {
+        await MainActor.run {
+            BotWorkspaceStore.shared.data.bots.filter { identifiers.contains($0.id) }
+                .map { BotEntity(id: $0.id, name: $0.name) }
+        }
+    }
+    func suggestedEntities() async throws -> [BotEntity] {
+        await MainActor.run {
+            BotWorkspaceStore.shared.data.bots.map { BotEntity(id: $0.id, name: $0.name) }
+        }
+    }
+}

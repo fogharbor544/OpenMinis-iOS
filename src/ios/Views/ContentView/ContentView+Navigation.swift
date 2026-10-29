@@ -197,12 +197,7 @@ extension ContentView {
             popToHomeForQuickAction()
             return
         }
-        if isWideLayout {
-            openSession(newId)
-        } else {
-            commitNavigationPath(NavigationPath([newId]))
-            currentStackSessionId = newId
-        }
+        switchToSession(newId)
     }
 
     /// Drive the quick-action workflow's `ensuringHome → pendingDispatch
@@ -249,14 +244,7 @@ extension ContentView {
     /// can match.
     func openSessionForPendingQuickAction() {
         guard case .pendingDispatch = QuickActionWorkflow.shared.state else { return }
-        let newId = Self.makeNewSessionId()
-        if isWideLayout {
-            openSession(newId)
-        } else {
-            commitNavigationPath(NavigationPath([newId]))
-            currentStackSessionId = newId
-        }
-        QuickActionWorkflow.shared.attachTargetSession(newId)
+        showNewBotConversation = true
     }
 
     /// Switch to `id` as the one and only session on screen, replacing whatever
@@ -408,6 +396,11 @@ extension ContentView {
     /// every other caller is unchanged.
     func switchToSession(_ id: String, animated: Bool = false,
                          file: String = #fileID, line: Int = #line) {
+        if Self.isNewSessionId(id) {
+            pendingBotDraftId = id
+            showNewBotConversation = true
+            return
+        }
         if isWideLayout {
             openSession(id)
             return
@@ -424,6 +417,11 @@ extension ContentView {
 
     /// Opens a session in the appropriate layout mode.
     func openSession(_ id: String, file: String = #fileID, line: Int = #line) {
+        if Self.isNewSessionId(id) {
+            pendingBotDraftId = id
+            showNewBotConversation = true
+            return
+        }
         draftLog.info("🔑DRAFT openSession id=\(id) isWide=\(isWideLayout) prevSel=\(selectedSessionId ?? "nil") prevReal=\(newSessionRealId ?? "nil") prevDraft=\(activeDraftId ?? "nil")")
         // Dismiss keyboard when navigating to a session
         searchFocused = false

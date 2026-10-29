@@ -130,13 +130,6 @@ enum DeepLinkRouter {
         case "skills":
             coord.pendingSettingsTarget = .skills
 
-        // [T-ios-assistant-header-open-soul] Previously fell through to the
-        // `default` branch and landed on Settings home, even though the Soul
-        // screen exists — so a `minis://settings/soul` link (or the agent
-        // generating one) quietly under-delivered.
-        case "soul":
-            coord.pendingSettingsTarget = .soul
-
         case "tools":
             coord.pendingSettingsTarget = .tools
 

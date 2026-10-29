@@ -57,6 +57,10 @@ struct BrowserSheetView: View {
                     .allowsHitTesting(!isAgentBusy)
                 }
 
+                if let manager {
+                    BrowserLoginAutofillButton(manager: manager, isAgentBusy: isAgentBusy) { showPasswords = true }
+                }
+
                 // Live webview + agent overlay
                 ZStack {
                     if let manager {

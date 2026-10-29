@@ -272,8 +272,7 @@ struct ContentView: View {
     @State var sessionRowLookupMemo = SessionRowLookupMemo()
     /// Soul name shown as the sidebar title. Sourced from SOUL.md, falls
     /// back to "Minis". Refreshed whenever SoulStore posts .soulMdChanged.
-    @State var soulName: String = SoulStore.cachedMetadata.name.isEmpty
-        ? "Minis" : SoulStore.cachedMetadata.name
+    let soulName = "OpenMinis"
     /// Subtitle state shown under the "Minis" sidebar title. nil hides the
     /// row; otherwise it renders as small capsules per type or a single
     /// status string. Refreshed by a 5s timer.
@@ -307,6 +306,8 @@ struct ContentView: View {
     @State var showTerminal = false
     @State var showAlarmList = false
     @AppStorage("home.showsBots") var homeShowsBots = true
+    @State var showNewBotConversation = false
+    @State var pendingBotDraftId: String?
     @State var hasAlarms = false
     @State var activeToolSheet: ToolSheet?
     #if DEBUG
@@ -360,7 +361,7 @@ struct ContentView: View {
     @State var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     /// Launch screen preference: 0=Auto, 1=Last Session, 2=New Chat.
-    @AppStorage("launchScreen") private var launchScreen: Int = 0
+    @AppStorage("launch.destination") private var launchScreen: Int = 0
     /// FAB position preference: false = right (default), true = left.
     @AppStorage("fabOnLeft") var fabOnLeft = false
     /// Mirror of `SyncV2Bootstrap.isEnabled` so SwiftUI re-evaluates
@@ -589,8 +590,31 @@ struct ContentView: View {
             NotificationCenter.default.publisher(for: .sessionDidCreate),
             perform: handleSessionCreatedForPendingFolder
         )
-        .onReceive(NotificationCenter.default.publisher(for: .newChatRequested)) { _ in
-            handleNewChatRequest()
+        .onReceive(NotificationCenter.default.publisher(for: .newChatRequested)) { note in
+            if let id = note.userInfo?["sessionId"] as? String { switchToSession(id) }
+            else { handleNewChatRequest() }
+        }
+        .sheet(isPresented: $showNewBotConversation, onDismiss: {
+            pendingBotDraftId = nil
+            if case .pendingDispatch = QuickActionWorkflow.shared.state {
+                QuickActionWorkflow.shared.reset(reason: "Bot selection cancelled")
+            }
+        }) {
+            BotConversationPicker { sessionID in
+                if shareCoordinator.pendingShareBuffer != nil {
+                    shareCoordinator.setBufferTarget(sessionID)
+                }
+                if let pending = pendingFolderDraft, pending.draftId == pendingBotDraftId {
+                    pendingFolderDraft = nil
+                    Task { _ = await ChatStore.shared.setFolderIfUnfiled(pending.folderId, forSession: sessionID) }
+                }
+                pendingBotDraftId = nil
+                if case .pendingDispatch = QuickActionWorkflow.shared.state {
+                    QuickActionWorkflow.shared.attachTargetSession(sessionID)
+                }
+                showNewBotConversation = false
+                switchToSession(sessionID)
+            }
         }
         // Cold-launch belt-and-braces: a Home Screen Quick Action that
         // fires before `.onReceive(.newChatRequested)` is attached
@@ -1071,26 +1095,11 @@ struct ContentView: View {
                         tx.disablesAnimations = true
                         withTransaction(tx) { openSession(latest.id) }
                     }
-                case 2:
-                    var tx = Transaction()
-                    tx.disablesAnimations = true
-                    withTransaction(tx) { openSession(Self.makeNewSessionId()) }
-                case 3:
-                    break
                 default:
-                    if !sessions.isEmpty,
-                       let latest = sessions.first,
-                       Date().timeIntervalSince(latest.updatedAt) > 15 * 60 {
-                        var tx = Transaction()
-                        tx.disablesAnimations = true
-                        withTransaction(tx) { openSession(Self.makeNewSessionId()) }
-                    } else if isWideLayout, let latest = sessions.first {
-                        var tx = Transaction()
-                        tx.disablesAnimations = true
-                        withTransaction(tx) { openSession(latest.id) }
-                    }
+                    homeShowsBots = true
                 }
             }
+
             // iPad split launch: every launchScreen branch above has resolved
             // by now, so if the restored selection lives inside a collapsed
             // folder, expand that folder (accordion — closes the others) so

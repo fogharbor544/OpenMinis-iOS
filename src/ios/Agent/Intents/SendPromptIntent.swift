@@ -41,8 +41,12 @@ struct SendPromptIntent: AppIntent {
     @Parameter(title: "Send Notifications", description: "When enabled, posts a system notification when the task starts and again when it finishes. Turn this off for automations that run silently. The app's global task-notification setting still applies.", default: true)
     var sendCompletionNotification: Bool
 
+    @Parameter(title: "Bot", description: "Choose a Bot before starting a conversation")
+    var bot: BotEntity?
+
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<SendPromptResult> & ProvidesDialog {
+        guard session != nil || bot != nil else { throw BotWorkspaceError.botRequired }
         // Ensure BackgroundKeepAliveManager is set up
         BackgroundKeepAliveManager.shared.setup()
 
@@ -127,7 +131,11 @@ struct SendPromptIntent: AppIntent {
             await vm.loadSession()
             isNewSession = false
         } else {
-            vm = ViewModelCache.shared.createDraft()
+            guard let bot else { throw BotWorkspaceError.botRequired }
+            let botSessionID = try await BotWorkspaceStore.shared.session(botID: bot.id, newConversation: true)
+            let (cached, _) = ViewModelCache.shared.getOrCreate(for: botSessionID)
+            vm = cached
+            await vm.loadSession()
             isNewSession = true
         }
 
@@ -329,6 +337,7 @@ struct SendPromptIntent: AppIntent {
     // first thing surfaced when chaining from a previous action.
     static var parameterSummary: some ParameterSummary {
         Summary("Send \(\.$prompt) to Minis") {
+            \.$bot
             \.$files
             \.$session
             \.$model

@@ -169,7 +169,6 @@ struct MinisApp: App {
         // @State initializer (evaluated at ContentView instantiation, before any
         // .onAppear refresh) locks the sidebar title to the default even when the
         // user set a custom name. refreshCache() only reads the tiny SOUL.md file.
-        SoulStore.refreshCache()
         // Pre-warm KaTeX WKWebView as fallback for formulas SwiftMath can't render
         KaTeXRenderer.shared.warmUp()
         // Pre-warm the biometric capability probe off the main thread. The
@@ -722,6 +721,10 @@ struct MinisApp: App {
     }
 
     private static func registerFileProviderDomain() {
+        guard FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SharedContainerStore.appGroupID) != nil else {
+            lifecycleLog.warning("[FileProvider] Signature has no shared container; Files integration unavailable")
+            return
+        }
         logAppUpdateMarkerForFPTrace()
 
         // [T-ios-fp-mac-bootcrash] Circuit breaker, NOT a blanket disable.
@@ -774,13 +777,11 @@ struct MinisApp: App {
         // to render before the user customizes anything. Never overwrites
         // an existing file. Cache the parsed metadata so synchronous call
         // sites (chat bubble header) see the user's name/emoji immediately.
-        SoulStore.ensureExists()
         // [T-ios-soul-name-sidebar-stale] Refresh synchronously. This runs from
         // the app's .onAppear (main thread) and refreshCache() is @MainActor, so
         // the async hop only delayed cachedMetadata for no reason and let the
         // sidebar title render stale first. App.init() already pre-loads it; this
         // keeps the cache fresh after ensureExists() seeds a first-launch SOUL.md.
-        SoulStore.refreshCache()
 
         // Clean up stale directory created by a bug where workingSet identifier
         // was passed through as a subdirectory name.
@@ -1081,7 +1082,10 @@ struct MinisApp: App {
     private static func migrateSharedDirToAppGroup() {
         let fm = FileManager.default
         let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app")!
+        guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app") else {
+            lifecycleLog.warning("[FileProvider] App Group unavailable for this signature; skipping shared-container migration")
+            return
+        }
 
         let migrations: [(source: URL, dest: URL, label: String)] = [
             // Legacy Library/MinisChat/shared → new shared

@@ -289,10 +289,6 @@ extension AIChatView {
                     // breathing room above the semibold cap height without
                     // re-introducing the top crop.
                     .padding(.top, legacyLayout ? 0 : 2)
-                    .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-                        let n = SoulStore.cachedMetadata.name
-                        soulName = n.isEmpty ? "Minis" : n
-                    }
             }
             .buttonStyle(.plain)
             .disabled(!canEditTitle)

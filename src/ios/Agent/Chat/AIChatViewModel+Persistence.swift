@@ -243,11 +243,7 @@ extension AIChatViewModel {
         // Loop detector state is per-runtime; reload of a session clears it.
         toolLoopDetector.reset()
 
-        // Load persisted memory-write toggle
-        memoryEnabled = await ChatStore.shared.getMemoryEnabled(sessionId: sessionId)
-        // [T-memory-enabled-new-session-bug DIAG] confirm loadSession set
-        // vm.memoryEnabled from the DB/global default, and which session.
-        AppLogger(category: "MemDiag").info("[MemDiag] loadSession sid=\(sessionId.prefix(8)) → vm.memoryEnabled=\(self.memoryEnabled)")
+        await BotWorkspaceStore.shared.adoptLegacyMemorySetting(for: sessionId)
 
         // Clear stale compact/pending state from previous lifecycle
         skipCompactCheck = false
@@ -1068,7 +1064,6 @@ extension AIChatViewModel {
         let model = selectedModel
         let session = await ChatStore.shared.createSession(modelId: model.id, source: sessionSource)
         sessionId = session.id
-        memoryEnabled = await ChatStore.shared.getMemoryEnabled(sessionId: session.id)
         AppLogger(category: "MemDiag").info("[MemDiag] ensureSession sid=\(session.id.prefix(8)) → vm.memoryEnabled=\(self.memoryEnabled)")
         if isProcessing {
             let src = "vm=\(vmInstanceId) ensureSession draft=\(draftId ?? "nil")→real"

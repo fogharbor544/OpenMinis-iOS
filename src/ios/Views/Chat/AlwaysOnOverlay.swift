@@ -126,7 +126,6 @@ struct AlwaysOnOverlayView: View {
 
     @ObservedObject private var controller = AlwaysOnController.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var soul: SoulMetadata = SoulStore.cachedMetadata
     @State private var offset: CGSize = .zero
     @State private var contentSize: CGSize = .zero
 
@@ -159,9 +158,6 @@ struct AlwaysOnOverlayView: View {
         .contentShape(Rectangle())
         // Any touch, tap or drag, closes it at touch-down.
         .gesture(DragGesture(minimumDistance: 0).onChanged { _ in onTouch() })
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            soul = SoulStore.cachedMetadata
-        }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
     }
@@ -174,14 +170,7 @@ struct AlwaysOnOverlayView: View {
                     .stroke(dim.opacity(calm ? 0.2 : (controller.tick.isMultiple(of: 2) ? 0.12 : 0.35)), lineWidth: 2)
                     .frame(width: 84, height: 84)
                     .animation(calm ? nil : .easeInOut(duration: 1), value: controller.tick)
-                SoulIconView(
-                    icon: soul.icon,
-                    size: 56,
-                    sparkleGradient: LinearGradient(
-                        colors: [Color(red: 0.72, green: 0.69, blue: 0.59),
-                                 Color(red: 0.6, green: 0.6, blue: 0.55)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
+                Image(systemName: "sparkles").font(.system(size: 56))
                 .opacity(0.8)
             }
             // [T-always-on-step-icon] What kind of step this is, in front of its

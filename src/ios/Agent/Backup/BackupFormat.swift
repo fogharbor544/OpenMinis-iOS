@@ -51,7 +51,7 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     /// drop data the user already backed up. So: not written into new
     /// packages, still restored from old ones.
     static var backupable: [BackupCategory] {
-        allCases.filter { $0 != .voiceCorrections }
+        allCases.filter { $0 != .voiceCorrections && $0 != .soul }
     }
 
     /// Categories that stream file trees through the blob store, i.e. the ones

@@ -9,7 +9,7 @@ registry = (root / 'Agent/Jobs/AgentJobRegistry.swift').read_text(encoding='utf-
 runner = (root / 'Agent/Jobs/ScheduledJobRunner.swift').read_text(encoding='utf-8')
 trigger = registry.split('enum AgentJobTrigger: Equatable {', 1)[1].split('/// Where the job', 1)[0]
 method = registry.split('    func updateSchedule(', 1)[1].split('    /// Drop a job', 1)[0]
-cron = runner.split('    nonisolated static func nextCronDate(', 1)[1].split('    /// "30m"', 1)[0]
+calendar = runner.split('    nonisolated static func nextCalendarFire(', 1)[1].split('    /// "30m"', 1)[0]
 source = '''import Foundation
 enum AgentJobTrigger: Equatable {''' + trigger + '''
 enum State { case pending, running, done }
@@ -34,7 +34,7 @@ enum ScheduledJobRunner {
  static let maxDurationSeconds: TimeInterval = 10 * 365 * 86400
  static var arms = 0
  static func arm(_ job: Job) { arms += 1 }
- nonisolated static func nextCronDate(''' + cron + '''
+ nonisolated static func nextCalendarFire(''' + calendar + '''
 }
 final class Registry {
  var jobs: [String: Job] = [:]
@@ -57,6 +57,9 @@ precondition(!edit(.once(after: 60), "  "))
 precondition(!edit(.cron(hour: 24, minute: 0, days: [], start: nil, end: nil)))
 precondition(!edit(.cron(hour: 12, minute: 0, days: [8], start: nil, end: nil)))
 precondition(!edit(.cron(hour: 12, minute: 0, days: [], start: nil, end: Date(timeIntervalSince1970: 0))))
+precondition(!edit(.calendar(hour: 24, minute: 0, day: 1, month: nil)))
+precondition(!edit(.calendar(hour: 12, minute: 0, day: 0, month: nil)))
+precondition(!edit(.calendar(hour: 12, minute: 0, day: 1, month: 13)))
 precondition(!edit(.onCompletion(ofJobId: job.id)))
 precondition(!edit(.onCompletion(ofJobId: "missing")))
 precondition(registry.changes == 0 && ScheduledJobRunner.arms == 0 && JobInsuranceNotification.cancellations == 0)
@@ -79,6 +82,12 @@ precondition(job.remaining == nil && job.nextFireAt == nil && ScheduledJobRunner
 job.prompt = nil
 precondition(edit(.cron(hour: 12, minute: 0, days: [], start: nil, end: nil), nil))
 precondition(job.prompt == nil)
+precondition(edit(.calendar(hour: 9, minute: 30, day: 15, month: nil), nil))
+precondition(job.trigger == .calendar(hour: 9, minute: 30, day: 15, month: nil))
+let calendar = Calendar.current
+let januaryEnd = calendar.date(from: DateComponents(year: 2026, month: 1, day: 31, hour: 10))!
+let monthly = ScheduledJobRunner.nextCalendarFire(trigger: .calendar(hour: 9, minute: 30, day: 31, month: nil), from: januaryEnd)!
+precondition(calendar.component(.month, from: monthly) == 3 && calendar.component(.day, from: monthly) == 31)
 print("PASS: shipping schedule edit validation, identity, counters, paused state, rearming and notifications")
 '''
 with tempfile.TemporaryDirectory(prefix='minis-schedule-tests-') as temp:

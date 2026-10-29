@@ -183,7 +183,17 @@ extension AIChatView {
         if vm.isProcessing {
             showNewChatStopConfirm = true
         } else {
-            NotificationCenter.default.post(name: .newChatRequested, object: nil)
+            createNewConversationForCurrentBot()
+        }
+    }
+
+    func createNewConversationForCurrentBot() {
+        guard let sid = vm.sessionId, let bot = BotWorkspaceStore.shared.bot(forSession: sid) else { return }
+        Task {
+            do {
+                let id = try await BotWorkspaceStore.shared.session(botID: bot.id, newConversation: true)
+                NotificationCenter.default.post(name: .newChatRequested, object: nil, userInfo: ["sessionId": id])
+            } catch { vm.appendSystemInfo("创建会话失败：\(error.localizedDescription)", icon: "exclamationmark.triangle") }
         }
     }
 

@@ -167,7 +167,7 @@ extension AIChatViewModel {
         var commands = Self.availableSlashCommands.map { cmd -> SlashCommand in
             if cmd.id == "memory" {
                 let status = memoryEnabled ? "on" : "off"
-                return SlashCommand(id: cmd.id, icon: cmd.icon, title: cmd.title, subtitle: "Writes \(status) — tap to toggle")
+                return SlashCommand(id: cmd.id, icon: cmd.icon, title: cmd.title, subtitle: "Bot／群组长期记忆 \(status) — 点击切换")
             }
             return cmd
         }
@@ -402,11 +402,7 @@ extension AIChatViewModel {
             compactAll()
         case "memory":
             memoryEnabled.toggle()
-            if let sid = sessionId {
-                Task { await ChatStore.shared.setMemoryEnabled(sessionId: sid, enabled: memoryEnabled) }
-            }
-            let status = memoryEnabled ? "enabled" : "disabled"
-            appendSystemInfo("Memory writes \(status). Reads are unaffected.", icon: "brain.head.profile")
+            appendSystemInfo("所属 Bot／群组的长期记忆已\(memoryEnabled ? "开启" : "关闭")，对其全部会话生效。", icon: "brain.head.profile")
         case "clear":
             clearChatConfirmRequested = true
         default:

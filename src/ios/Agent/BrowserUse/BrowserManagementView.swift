@@ -8,6 +8,8 @@ struct BrowserManagementView: View {
     @State private var cookieCount: Int = 0
     @State private var cookies: [HTTPCookie] = []
     @State private var showClearConfirm = false
+    @State private var showBookmarks = false
+    @State private var showPasswords = false
     @State private var searchText: String = ""
     @State private var customUA: String = ""
 
@@ -31,11 +33,29 @@ struct BrowserManagementView: View {
 
     var body: some View {
         List {
+            Section("浏览资料") {
+                Button { showBookmarks = true } label: { Label("书签管理", systemImage: "bookmark") }
+                Button {
+                    pool.ensureTabForUI()
+                    showPasswords = true
+                } label: { Label("密码管理器", systemImage: "key") }
+                .disabled(pool.isAgentBrowsing)
+            }
             userAgentSection
             viewportSection
             cookiesSection
             domainListSection
         }
+        .sheet(isPresented: $showBookmarks) {
+            BrowserBookmarksView(store: .shared, currentURL: pool.activeManager?.currentURL ?? "", currentTitle: pool.activeManager?.pageTitle ?? "") { url in
+                pool.ensureTabForUI()
+                pool.activeManager?.loadURL(url)
+            }
+        }
+        .sheet(isPresented: $showPasswords) {
+            if let manager = pool.activeManager { BrowserPasswordsView(manager: manager) }
+        }
+        .onChange(of: pool.isAgentBrowsing) { busy in if busy { showPasswords = false } }
         .searchable(text: $searchText, prompt: "Filter by domain")
         .navigationTitle("Browser Settings")
         .navigationBarTitleDisplayMode(.inline)

@@ -80,13 +80,13 @@ extension ContentView {
                 // Step 3 – Start chatting
                 setupStep(
                     number: 3,
-                    title: "Start a Conversation",
-                    subtitle: hasGroups ? "Tap the button below to begin" : "Complete step 2 first",
+                    title: "Create Bots and Groups",
+                    subtitle: hasGroups ? "Choose a Bot before starting a conversation" : "Complete step 2 first",
                     isDone: false
                 ) {
                     if hasGroups {
                         // [T-nav-ghost-row-link] From the home list: replace, never append.
-                        switchToSession(Self.makeNewSessionId())
+                        homeShowsBots = true
                     }
                 }
             }

@@ -14,9 +14,17 @@ with tempfile.TemporaryDirectory(prefix='minis-browser-tests-') as temp:
         out = temp / (name + '.swift')
         out.write_text(text.split(boundary)[0], encoding='utf-8')
         sources.append(str(out))
-    auth = temp / 'BiometricAuth.swift'
-    auth.write_text('import Foundation\n@MainActor enum BiometricAuth { static func authenticate(reason: String) async -> Bool { false } }\n')
+    auth = temp / 'TestBoundaries.swift'
+    auth.write_text('''import Foundation
+@MainActor enum BiometricAuth {
+    static func authenticate(reason: String) async -> Bool { false }
+}
+// Keep the default shared-vault lookup inside this test's disposable directory.
+enum AIChatViewModel {
+    static var minisSharedPersistentDir: URL { URL(fileURLWithPath: CommandLine.arguments[1]) }
+}
+''', encoding='utf-8')
     executable = temp / 'browser-tests'
     for language_version in ['5', '6']:
         subprocess.run(['swiftc', '-swift-version', language_version, *sources, str(auth), str(Path(__file__).with_name('BrowserStorageBehaviorTests.swift')), '-o', str(executable)], check=True)
-        subprocess.run([str(executable)], check=True)
+        subprocess.run([str(executable), str(temp / 'shared')], check=True)

@@ -10,7 +10,7 @@ registry = (root / 'Agent/Jobs/AgentJobRegistry.swift').read_text(encoding='utf-
 runner = (root / 'Agent/Jobs/ScheduledJobRunner.swift').read_text(encoding='utf-8')
 trigger = registry.split('enum AgentJobTrigger: Equatable {', 1)[1].split('/// Where the job', 1)[0]
 edit = registry.split('    func updateSchedule(', 1)[1].split('    /// Drop a job', 1)[0]
-cron = runner.split('    nonisolated static func nextCronDate(', 1)[1].split('    /// "30m"', 1)[0]
+calendar = runner.split('    nonisolated static func nextCalendarFire(', 1)[1].split('    /// "30m"', 1)[0]
 wait = runner.split('        case .onCompletion(let ofJobId):', 1)[1].split('\n        }\n        logger.info', 1)[0]
 wait = wait.replace('let seq = NotificationCenter.default.notifications(named: .agentJobDidFinish)',
                     'let seq = NotificationCenter.default.notifications(named: .agentJobDidFinish)\n                ready += 1')
@@ -48,7 +48,7 @@ enum JobInsuranceNotification { static func cancel(jobId: String) {} }
  static var prompts: [String] = []
  static let maxDurationSeconds: TimeInterval = 10 * 365 * 86400
  static func fire(_ job: Job, upstreamJobId: String) async { prompts.append(job.prompt!); job.firedCount += 1 }
- nonisolated static func nextCronDate(''' + cron + '''
+ nonisolated static func nextCalendarFire(''' + calendar + '''
  static func arm(_ job: Job) {
   job.task?.cancel()
   guard case .onCompletion(let ofJobId) = job.trigger else { fatalError("Unexpected test trigger") }

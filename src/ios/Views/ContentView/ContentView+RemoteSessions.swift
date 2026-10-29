@@ -61,6 +61,8 @@ extension ContentView {
                                     ) {
                                         refreshSessionList()
                                         selectedSessionId = forked.id
+                                    } else if let error = BotWorkspaceStore.shared.errorMessage {
+                                        forceSyncToast = error
                                     }
                                 }
                             } label: {

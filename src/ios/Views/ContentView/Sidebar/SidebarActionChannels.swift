@@ -41,7 +41,7 @@ final class SessionMenuActionChannel {
 /// closure captures only this one reference, never the view struct.
 @MainActor
 final class FABActionChannel {
-    enum Action { case newChat, newChatInGroup(String), openSearch }
+    enum Action { case newChat, openSearch }
     var handler: ((Action) -> Void)?
     func send(_ action: Action) { handler?(action) }
 }

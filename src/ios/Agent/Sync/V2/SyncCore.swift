@@ -2,6 +2,11 @@ import Foundation
 import os.log
 import Network
 
+extension Notification.Name {
+    /// Current sync and backup imports notify mounted views after applying records.
+    static let cloudSyncDidFetchChanges = Notification.Name("cloudSyncDidFetchChanges")
+}
+
 private let logger = AppLogger(category: "SyncCore")
 
 /// Why a record was marked dirty. Used in logs.

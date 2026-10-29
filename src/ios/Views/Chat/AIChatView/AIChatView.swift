@@ -904,10 +904,10 @@ struct AIChatView: View {
             Text(AppLocalized("Conversation context is nearly full. Compact the history to free up space before sending. Enabling auto-compact will do this automatically from now on."))
         }
         .alert(AppLocalized("Context Full"), isPresented: Binding(get: { vm.showContextExhaustedPrompt }, set: { vm.showContextExhaustedPrompt = $0 })) {
-            Button(AppLocalized("New Session")) {
+            Button(AppLocalized("Compact Messages")) {
                 vm.showContextExhaustedPrompt = false
                 vm.cancelCompactBeforeSend()
-                NotificationCenter.default.post(name: .newChatRequested, object: nil)
+                vm.compactAll()
             }
             Button(AppLocalized("Clear Chat"), role: .destructive) {
                 vm.showContextExhaustedPrompt = false
@@ -1123,13 +1123,8 @@ struct AIChatView: View {
             SessionMemoryView(vm: cached.vm)
         }
         .sheet(isPresented: $showMoveToSheet) {
-            // [T-ios-moveto-seed] Seed the picker with the last list the
-            // sidebar loaded. Read synchronously here because ViewModelCache is
-            // @MainActor and so is this body — no actor hop, no await, so the
-            // sheet has rows to draw on its very first frame. Its `.task` still
-            // runs and replaces them with the authoritative query.
-            MoveToSessionSheet(currentSessionId: vm.sessionId,
-                               initialSessions: ViewModelCache.recentSessionsSeed) { targetId in
+            BotConversationPicker(excludedSessionID: vm.sessionId) { targetId in
+                showMoveToSheet = false
                 // [T-ios-moveto-transfer-race] Stash bound to the target, so
                 // only that session can consume it.
                 let movedText = vm.inputText

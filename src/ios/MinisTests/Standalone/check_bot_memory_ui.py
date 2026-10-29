@@ -10,11 +10,51 @@ import tempfile
 root = Path(__file__).resolve().parents[2]
 stubs = Path(__file__).with_name('BotSessionBindingTests.swift').read_text(encoding='utf-8').split('@main struct')[0]
 stubs = stubs.replace('import Foundation', 'import Foundation\nimport SwiftUI')
-stubs = stubs.replace('struct TestSession { let id: String }', 'struct TestSession { let id: String; var title: String? = nil }')
+stubs = stubs.replace('struct TestSession { let id: String }', '''
+struct TestSession: Identifiable, Equatable {
+    let id: String
+    var title: String? = nil
+    var isPinned = false
+    var isFiled = false
+    var updatedAt = Date()
+}
+typealias ChatSession = TestSession
+''')
+stubs = stubs.replace('struct TestCapability { let id: String }', '''
+struct TestCapability: Identifiable {
+    let id: String
+    var name: String { id }
+    var isEnabled = true
+    var enabled = true
+}
+''')
 stubs = stubs.replace('struct TestGroup { let id: String }', 'struct TestGroup: Identifiable { let id: String; var name: String { id } }')
 stubs = stubs.replace('final class ProviderConfigStore {', 'final class ProviderConfigStore: ObservableObject {\n    var modelGroups: [TestGroup] = []')
 stubs += '''
 func AppLocalized(_ value: String) -> String { value }
+@MainActor final class SessionMenuActionChannel: ObservableObject {}
+struct MenuKey {
+    let sid: String
+    let pinned: Bool
+    let title: String?
+    let filed: Bool
+}
+struct SessionRow: View, Equatable {
+    let session: ChatSession
+    var body: some View { EmptyView() }
+}
+struct SessionContextMenu: View {
+    let key: MenuKey
+    let actions: SessionMenuActionChannel
+    var body: some View { EmptyView() }
+}
+struct ToolsSettingsView: View { var body: some View { EmptyView() } }
+struct HelperSettingsView: View { var body: some View { EmptyView() } }
+struct EnvironmentVariablesView: View { var body: some View { EmptyView() } }
+struct ScheduledTasksManagementView: View {
+    var botID: String? = nil
+    var body: some View { EmptyView() }
+}
 @MainActor final class AIChatViewModel: ObservableObject {
     var botMemoryOwner: BotSessionOwner? = nil
 }

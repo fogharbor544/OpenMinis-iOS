@@ -156,7 +156,7 @@ out("cron.early", ScheduledFireClaim.cronSearchStart(now: slot.addingTimeInterva
     // (a) pending -> manual fire succeeds once.
     do {
         let j = Job(interval: 3600, count: nil); Runner.arm(j, first: 3600)
-        let ok = Runner.runNow(j); await settle(j, finished: true)
+        let ok = Runner.runNow(j); await settle(j)
         out("a", "\(ok),\(j.executions),\(j.fireInFlight)")
         j.task?.cancel()
     }

@@ -123,10 +123,13 @@ enum ScheduledJobRunner {
                 let seq = NotificationCenter.default.notifications(named: .agentJobDidFinish)
                 for await note in seq {
                     if Task.isCancelled { return }
-                    if (note.object as? String) == ofJobId { break }
+                    guard (note.object as? String) == ofJobId else { continue }
+                    await fire(job, upstreamJobId: ofJobId)
+                    guard !Task.isCancelled else { return }
+                    AgentJobRegistry.shared.finish(job.id, state: .done, result: nil, keepIfChildRunning: true)
+                    return
                 }
-                await fire(job, upstreamJobId: ofJobId)
-                AgentJobRegistry.shared.finish(job.id, state: .done, result: nil, keepIfChildRunning: true)
+                // Cancellation or the end of the sequence is not a completion event.
             }
         }
         logger.info("[Sched] ARMED \(job.logLabel) next=\(job.nextFireAt.map { Self.iso($0) } ?? "event")")

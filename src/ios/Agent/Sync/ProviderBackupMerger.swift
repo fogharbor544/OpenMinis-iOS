@@ -111,25 +111,9 @@ enum ProviderBackupMerger {
         // no entries that belong to it.
         local.modelEntries.removeAll { tombstonedInstanceIds.contains($0.providerInstanceId) }
 
-        // 2. Merge modelEntries — consume only user-modified remote entries.
-        //
-        // iCloud must NOT propagate API-truth model metadata between devices: each
-        // device can fetch its own models.dev/provider response, and copying one
-        // device's fetched list on top of another's produces ghost entries when
-        // the two fetches disagree (different UUIDs for the same model id, stale
-        // contextWindow, etc.). This is what caused model lists to update
-        // "spontaneously" with results that differed from a manual Refresh.
-        //
-        // New semantics: remote entries are only applied when they carry a user
-        // intent — custom additions, overrides (displayName / maxOutputTokens),
-        // or an explicit isHidden. Everything else is API truth and is dropped.
-        // Pure API-truth entries are never touched; the local list stays exactly
-        // as the last Refresh left it.
-        //
-        // Remote user-modified entries are aligned to local by (providerInstanceId,
-        // baseModel.id), NOT by UUID — that way a model the user renamed on
-        // device A ends up mapped onto device B's same-id local entry even if
-        // the two devices generated different UUIDs during independent refreshes.
+        // 2. Restore every missing model, including API-discovered entries.
+        // Existing models retain local API metadata and newer user overrides.
+        // Stable (instance, model) IDs keep restored group references intact.
         let localEntriesSnapshot = local.modelEntries
 
         // Index local entries for lookup by (instanceId, baseModelId).
@@ -143,7 +127,7 @@ enum ProviderBackupMerger {
         var skipped = 0
         var appliedOverrides = 0
         var appliedHidden = 0
-        var insertedCustom = 0
+        var insertedMissing = 0
         var skippedLegacyOverlay = 0   // remote had no userModifiedAt → overrides/isHidden not applied
         var skippedOlderRemote = 0     // remote userModifiedAt <= local userModifiedAt
 
@@ -166,14 +150,10 @@ enum ProviderBackupMerger {
             // deleted on this device.
             if tombstonedEntryIds.contains(re.id) { continue }
             if tombstonedInstanceIds.contains(re.providerInstanceId) { continue }
-            guard re.isUserModified else {
-                skipped += 1
-                continue
-            }
-            accepted += 1
-
             let key = EntryKey(instanceId: re.providerInstanceId, modelId: re.baseModel.id)
             if let idx = localIndex[key] {
+                guard re.isUserModified else { skipped += 1; continue }
+                accepted += 1
                 // Local already has this model id under this instance.
                 //
                 // Timestamp-based conflict resolution for overlay (overrides + isHidden):
@@ -219,15 +199,11 @@ enum ProviderBackupMerger {
                     updated.userModifiedAt = re.userModifiedAt
                     local.modelEntries[idx] = updated
                 }
-            } else if re.isCustom {
+            } else {
                 local.modelEntries.append(re)
                 localIndex[key] = local.modelEntries.count - 1
-                insertedCustom += 1
+                insertedMissing += 1
             }
-            // else: remote has a non-custom entry for a model id local doesn't have.
-            // That means the other device's API fetch returned a model this device's
-            // fetch didn't — treat it as phantom and drop. Local Refresh is the only
-            // authority for which non-custom models exist on this device.
         }
 
         // Per-instance before/after diff (unchanged structure — but now should be
@@ -244,7 +220,7 @@ enum ProviderBackupMerger {
             let instanceLabel = local.instances.first(where: { $0.id == iid })?.label ?? "?"
             logger.info("[ModelList] mergeProviderConfig: instance=\(instanceLabel)(\(iid.prefix(8))) before=\(beforeIds.count) after=\(afterIds.count) added=\(added.count)[\(added.prefix(10).joined(separator: ","))] removed=\(removed.count)[\(removed.prefix(10).joined(separator: ","))]")
         }
-        logger.info("[ModelList] mergeProviderConfig: remoteEntries=\(remote.modelEntries.count) accepted=\(accepted) skipped=\(skipped) appliedOverrides=\(appliedOverrides) appliedHidden=\(appliedHidden) insertedCustom=\(insertedCustom) skippedLegacyOverlay=\(skippedLegacyOverlay) skippedOlderRemote=\(skippedOlderRemote) totalAfter=\(local.modelEntries.count)")
+        logger.info("[ModelList] mergeProviderConfig: remoteEntries=\(remote.modelEntries.count) accepted=\(accepted) skipped=\(skipped) appliedOverrides=\(appliedOverrides) appliedHidden=\(appliedHidden) insertedMissing=\(insertedMissing) skippedLegacyOverlay=\(skippedLegacyOverlay) skippedOlderRemote=\(skippedOlderRemote) totalAfter=\(local.modelEntries.count)")
 
         // 3. Merge modelGroups — same-id: remote wins. Same-name different-id:
         // collapse (both devices independently created a group with the same

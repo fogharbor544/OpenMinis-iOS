@@ -47,3 +47,8 @@ for table, expected in {
     assert expected <= {r[1] for r in provider_db.execute(f'PRAGMA table_info({table})')}, table
 assert 'ALTER TABLE' not in provider_setup
 print('PASS: complete provider schema, idempotent reopen, current columns and tables')
+
+provider_db.execute("INSERT INTO provider_model_groups(id,name,strategy,fallback_strategy,member_entry_ids_json,updated_at) VALUES('group','Restored','roundRobin','none','[]',1)")
+assert provider_db.execute("SELECT removed_members_json,added_members_json FROM provider_model_groups WHERE id='group'").fetchone() == ('{}', '{}')
+assert 'ensureGroupTombstoneColumns' not in provider
+print('PASS: fresh model-group read and no removed schema-helper reference')

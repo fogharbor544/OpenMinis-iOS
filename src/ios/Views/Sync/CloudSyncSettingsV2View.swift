@@ -222,7 +222,6 @@ struct CloudSyncSettingsV2View: View {
         case .skills:       return "puzzlepiece.fill"
         case .providers:    return "link"
         case .envVars:      return "rectangle.stack.fill"
-        case .memory:       return "brain.head.profile"
         }
     }
 
@@ -233,7 +232,6 @@ struct CloudSyncSettingsV2View: View {
         case .skills:       return .orange
         case .providers:    return .teal
         case .envVars:      return .green
-        case .memory:       return .pink
         }
     }
 

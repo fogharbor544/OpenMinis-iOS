@@ -59,6 +59,9 @@ struct SkillsManagementView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink("按 Bot 配置") { BotCapabilitySettingsView(skills: true) }
+            }
             if store.skills.isEmpty {
                 Section {
                     Text(AppLocalized("No skills installed. Tap + to import a SKILL.md from GitHub or paste one manually."))

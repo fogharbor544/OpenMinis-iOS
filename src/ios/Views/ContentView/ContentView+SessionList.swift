@@ -21,8 +21,11 @@ extension ContentView {
             if providerStore.modelGroups.isEmpty || isSelecting {
                 if useNavigationLinks { stackList } else { splitList }
             } else {
-                BotWorkspaceView(embedded: true, historicalSessions: sessions.filter { BotWorkspaceStore.shared.bot(forSession: $0.id) == nil },
-                                 sessionSnapshots: sessions, sessionMenuActions: menuActions,
+                BotWorkspaceView(embedded: true,
+                                 onOpenTerminal: { showTerminal = true },
+                                 onOpenRootfs: { activeToolSheet = .rootfsManagement },
+                                 onOpenBrowser: { activeToolSheet = .browser },
+                                 onBrowserSettings: { activeToolSheet = .browserManagement },
                                  onOpenSettings: { activeToolSheet = .settings },
                                  onOpenConversation: { switchToSession($0) })
             }
@@ -34,6 +37,7 @@ extension ContentView {
         .background {
             Button(action: focusSearch) { EmptyView() }
                 .keyboardShortcut("f", modifiers: .command)
+                .disabled(!providerStore.modelGroups.isEmpty && !isSelecting)
                 .opacity(0)
                 .accessibilityHidden(true)
         }

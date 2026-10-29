@@ -59,7 +59,7 @@ extension AIChatView {
             showUltrafast: activeModelSupportsUltrafast,
             keepAwakeEnabled: keepAwakeThisChat,
             screenSaverNowEnabled: screenSaverNowThisChat,
-            onNewChat: { requestNewChatFromMenu() },
+            onEditBot: { editingBot = vm.sessionId.flatMap { botWorkspace.bot(forSession: $0) } },
             // [T-chat-menu-compact-entry] Same effect as the /compact slash
             // command (AIChatViewModel+SlashCommands case "compact").
             onCompact: { vm.compactAll() },
@@ -69,8 +69,6 @@ extension AIChatView {
             onOpenTerminal: { showTerminal = true },
             onOpenBrowser: { showBrowserSheet = true },
             onBrowseFiles: { showFileBrowser = true },
-            onSkills: { showSessionSkills = true },
-            onMCPs: { showSessionMCPs = true },
             onMemories: { showSessionMemory = true },
             setSpeakEnabled: { enabled in
                 cached.vm.speakEnabled = enabled
@@ -169,32 +167,6 @@ extension AIChatView {
             initialSelection: ChatShareCells.roundSelection(unit: unit, in: startsFolded ? folded : cells),
             title: (title?.isEmpty == false ? title : nil) ?? AppLocalized("New Chat"),
             vm: vm)
-    }
-
-    // MARK: - New Chat (menu entry)
-
-    /// [T-new-chat-menu-entry] "New Chat" from the "…" menu. Streaming sessions
-    /// get a confirm first (stopping the task is destructive); idle sessions go
-    /// straight to the shared `.newChatRequested` path, which replaces the
-    /// current chat with a fresh draft. Drafts aren't persisted until the first
-    /// message, so leaving an empty/draft session this way leaves no residue,
-    /// and a double-tap just re-mints the draft instead of creating two rows.
-    private func requestNewChatFromMenu() {
-        if vm.isProcessing {
-            showNewChatStopConfirm = true
-        } else {
-            createNewConversationForCurrentBot()
-        }
-    }
-
-    func createNewConversationForCurrentBot() {
-        guard let sid = vm.sessionId, let bot = BotWorkspaceStore.shared.bot(forSession: sid) else { return }
-        Task {
-            do {
-                let id = try await BotWorkspaceStore.shared.session(botID: bot.id, newConversation: true)
-                NotificationCenter.default.post(name: .newChatRequested, object: nil, userInfo: ["sessionId": id])
-            } catch { vm.appendSystemInfo("创建会话失败：\(error.localizedDescription)", icon: "exclamationmark.triangle") }
-        }
     }
 
     // MARK: - Force Sync / Pull

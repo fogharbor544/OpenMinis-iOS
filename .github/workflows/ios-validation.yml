@@ -86,6 +86,11 @@ jobs:
         run: python3 src/ios/MinisTests/Standalone/run_browser_form_tests.py
       - name: Capability permission behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_capability_permission_tests.py
+      - name: Bot workspace search behavior tests
+        run: |
+          swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
+            src/ios/MinisTests/Standalone/BotWorkspaceSearchTests.swift -o "$RUNNER_TEMP/bot-search-tests"
+          "$RUNNER_TEMP/bot-search-tests"
       - name: Bot session binding behavior tests
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \

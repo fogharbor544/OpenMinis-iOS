@@ -272,7 +272,7 @@ private struct ChatTrailingMenu: View, Equatable {
     /// [T-always-on-now] "Use Screen Saver" is on for this chat.
     let screenSaverNowEnabled: Bool
 
-    let onNewChat: () -> Void
+    let onEditBot: () -> Void
     let onCompact: () -> Void
     let onClearChat: () -> Void
     let onForceSync: () -> Void
@@ -280,8 +280,6 @@ private struct ChatTrailingMenu: View, Equatable {
     let onOpenTerminal: () -> Void
     let onOpenBrowser: () -> Void
     let onBrowseFiles: () -> Void
-    let onSkills: () -> Void
-    let onMCPs: () -> Void
     let onMemories: () -> Void
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
@@ -316,8 +314,8 @@ private struct ChatTrailingMenu: View, Equatable {
         }()
         #endif
         return Menu {
-            Button { onNewChat() } label: {
-                Label(AppLocalized("New Chat"), systemImage: "square.and.pencil")
+            Button { onEditBot() } label: {
+                Label(AppLocalized("Edit Bot"), systemImage: "square.and.pencil")
             }
 
             Divider()
@@ -360,22 +358,14 @@ private struct ChatTrailingMenu: View, Equatable {
             }
 
             Button { onBrowseFiles() } label: {
-                Label(AppLocalized("Browse Chat Files"), systemImage: "folder")
+                Label(AppLocalized("Files"), systemImage: "folder")
             }
 
             Divider()
 
-            Button { onSkills() } label: {
-                Label(AppLocalized("Skills in Session"), systemImage: "puzzlepiece.extension")
-            }
-
-            Button { onMCPs() } label: {
-                Label(AppLocalized("MCPs in Session"), systemImage: "wrench.and.screwdriver")
-            }
-
             if memoryEnabled {
                 Button { onMemories() } label: {
-                    Label(AppLocalized("Memories in Session"), systemImage: "brain.head.profile")
+                    Label(AppLocalized("Memory"), systemImage: "brain.head.profile")
                 }
             }
 
@@ -516,7 +506,7 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
     /// [T-always-on-now] "Use Screen Saver" is on for this chat.
     let screenSaverNowEnabled: Bool
 
-    let onNewChat: () -> Void
+    let onEditBot: () -> Void
     let onCompact: () -> Void
     let onClearChat: () -> Void
     let onForceSync: () -> Void
@@ -524,8 +514,6 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
     let onOpenTerminal: () -> Void
     let onOpenBrowser: () -> Void
     let onBrowseFiles: () -> Void
-    let onSkills: () -> Void
-    let onMCPs: () -> Void
     let onMemories: () -> Void
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
@@ -642,8 +630,8 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
         var groups: [UIMenuElement] = []
 
         groups.append(UIMenu(options: .displayInline, children: [
-            UIAction(title: AppLocalized("New Chat"),
-                     image: UIImage(systemName: "square.and.pencil")) { _ in coordinator.parent.onNewChat() },
+            UIAction(title: AppLocalized("Edit Bot"),
+                     image: UIImage(systemName: "square.and.pencil")) { _ in coordinator.parent.onEditBot() },
             UIAction(title: AppLocalized("Share Chat…"),
                      image: UIImage(systemName: "square.and.arrow.up"),
                      attributes: key.messagesEmpty ? [.disabled] : []) { _ in coordinator.parent.onShare() },
@@ -684,18 +672,13 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
                      image: UIImage(systemName: "terminal")) { _ in coordinator.parent.onOpenTerminal() },
             UIAction(title: AppLocalized("Open Browser"),
                      image: UIImage(systemName: "globe")) { _ in coordinator.parent.onOpenBrowser() },
-            UIAction(title: AppLocalized("Browse Chat Files"),
+            UIAction(title: AppLocalized("Files"),
                      image: UIImage(systemName: "folder")) { _ in coordinator.parent.onBrowseFiles() },
         ]))
 
-        var sessionGroup: [UIMenuElement] = [
-            UIAction(title: AppLocalized("Skills in Session"),
-                     image: UIImage(systemName: "puzzlepiece.extension")) { _ in coordinator.parent.onSkills() },
-            UIAction(title: AppLocalized("MCPs in Session"),
-                     image: UIImage(systemName: "wrench.and.screwdriver")) { _ in coordinator.parent.onMCPs() },
-        ]
+        var sessionGroup: [UIMenuElement] = []
         if key.memoryEnabled {
-            sessionGroup.append(UIAction(title: AppLocalized("Memories in Session"),
+            sessionGroup.append(UIAction(title: AppLocalized("Memory"),
                                          image: UIImage(systemName: "brain.head.profile")) { _ in coordinator.parent.onMemories() })
         }
         sessionGroup.append(UIAction(title: AppLocalized("Speak Responses"),

@@ -36,6 +36,9 @@ struct MCPIntegrationsView: View {
     var body: some View {
         List {
             Section {
+                NavigationLink("按 Bot 配置") { BotCapabilitySettingsView(skills: false) }
+            }
+            Section {
                 NavigationLink {
                     BuiltinCapabilitiesView()
                 } label: {

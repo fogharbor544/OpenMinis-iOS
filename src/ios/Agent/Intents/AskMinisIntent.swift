@@ -65,7 +65,7 @@ struct AskMinisIntent: AppIntent {
             await vm.loadSession()
         } else {
             guard let bot else { throw BotWorkspaceError.botRequired }
-            let botSessionID = try await BotWorkspaceStore.shared.session(botID: bot.id, newConversation: true)
+            let botSessionID = try await BotWorkspaceStore.shared.session(botID: bot.id)
             let (cached, _) = ViewModelCache.shared.getOrCreate(for: botSessionID)
             vm = cached
             await vm.loadSession()

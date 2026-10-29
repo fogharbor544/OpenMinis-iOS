@@ -121,7 +121,7 @@ struct QuickTaskIntent: AppIntent {
         )
 
         guard let bot else { throw BotWorkspaceError.botRequired }
-        let botSessionID = try await BotWorkspaceStore.shared.session(botID: bot.id, newConversation: true)
+        let botSessionID = try await BotWorkspaceStore.shared.session(botID: bot.id)
         let (vm, _) = ViewModelCache.shared.getOrCreate(for: botSessionID)
         await vm.loadSession()
         vm.sessionSource = "shortcut"

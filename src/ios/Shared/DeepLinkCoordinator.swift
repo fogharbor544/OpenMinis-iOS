@@ -16,7 +16,6 @@ enum SettingsDeepLinkTarget: Equatable {
     /// name, icon, style, personality body). Reachable as
     /// `minis://settings/soul`, and used by the assistant identity row in the
     /// chat transcript.
-    case soul
     // [T-tools-master-switch] minis://settings/tools
     case tools
     case memory

@@ -1207,6 +1207,12 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     // MARK: - Session Overrides
 
     func isEnabledForSession(_ skillId: String, sessionId: String) -> Bool {
+        if let bot = BotWorkspaceStore.shared.bot(forSession: sessionId) {
+            if let choices = bot.skillOverrides { return choices[skillId] ?? (skills.first(where: { $0.id == skillId })?.isEnabled ?? false) }
+            // Read the former canonical Bot session only until its choices are saved on the Bot.
+            if let source = bot.sessionId, let value = dbSessionOverride(sessionId: source, skillId: skillId) { return value }
+            return skills.first(where: { $0.id == skillId })?.isEnabled ?? false
+        }
         if let override = dbSessionOverride(sessionId: sessionId, skillId: skillId) {
             return override
         }
@@ -1217,6 +1223,13 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     @Published private(set) var sessionOverrideVersion: Int = 0
 
     func setSessionOverride(skillId: String, sessionId: String, enabled: Bool) {
+        if var bot = BotWorkspaceStore.shared.bot(forSession: sessionId) {
+            var choices = bot.skillOverrides ?? Dictionary(uniqueKeysWithValues: skills.map { ($0.id, isEnabledForSession($0.id, sessionId: sessionId)) })
+            choices[skillId] = enabled
+            bot.skillOverrides = choices
+            if BotWorkspaceStore.shared.save(bot) { sessionOverrideVersion += 1 }
+            return
+        }
         let defaultEnabled = skills.first(where: { $0.id == skillId })?.isEnabled ?? true
         if enabled == defaultEnabled {
             dbDeleteSessionOverride(sessionId: sessionId, skillId: skillId)

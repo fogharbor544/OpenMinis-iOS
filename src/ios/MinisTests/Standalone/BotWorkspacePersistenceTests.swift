@@ -25,7 +25,23 @@ struct BotWorkspacePersistenceTests {
         precondition(reload.room(room.id)?.messages.first?.text == "Evidence")
         precondition(reload.bot(forSession: "group-session")?.id == researcher.id)
         precondition(reload.owner(forSession: "group-session")?.roomId == room.id)
+        precondition(reload.inheritOwner(for: "group-copy", from: "group-session"))
+        precondition(reload.owner(forSession: "group-copy")?.roomId == room.id)
+        precondition(!reload.inheritOwner(for: "unowned-copy", from: "missing"))
+        precondition(reload.setMemoryEnabled(false, forSession: "group-session"))
+        precondition(!reload.memoryEnabled(forSession: "group-copy"))
+        precondition(BotWorkspaceStore(fileURL: file).room(room.id)?.memoryEnabled == false)
+        var configured = reload.bot(researcher.id)!
+        configured.skillOverrides = ["skill": false]
+        configured.connectorOverrides = ["connector": false]
+        configured.memoryEnabled = true
+        precondition(reload.save(configured))
+        let settingsReload = BotWorkspaceStore(fileURL: file)
+        precondition(settingsReload.bot(forSession: "group-copy")?.skillOverrides?["skill"] == false)
+        precondition(settingsReload.bot(forSession: "group-session")?.connectorOverrides?["connector"] == false)
+        precondition(!settingsReload.memoryEnabled(forSession: "group-session"))
         reload.deleteBot(researcher.id)
+        precondition(!reload.inheritOwner(for: "deleted-bot-copy", from: "group-session"))
         precondition(BotWorkspaceStore(fileURL: file).owner(forSession: "group-session")?.botId == researcher.id)
         precondition(reload.room(room.id)?.members == [reviewer.id])
         precondition(reload.room(room.id)?.messages.first?.speaker == "Researcher")
@@ -41,6 +57,20 @@ struct BotWorkspacePersistenceTests {
         precondition(!broken.save(reviewer))
         let preserved = try String(contentsOf: corrupt, encoding: .utf8)
         precondition(preserved == "invalid-json")
+        let icons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"))
+        for index in BotProfile.builtinIcons.indices {
+            var bot = icons.newBot()
+            bot.name = "Bot \(index)"
+            precondition(!icons.data.bots.contains { $0.iconSymbol == bot.iconSymbol })
+            precondition(icons.save(bot))
+        }
+        var custom = icons.newBot()
+        custom.name = "Custom"
+        custom.iconImageData = Data([1, 2, 3])
+        precondition(icons.save(custom))
+        let restoredIcons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"))
+        precondition(restoredIcons.bot(custom.id)?.iconImageData == Data([1, 2, 3]))
+        precondition(Set(restoredIcons.data.bots.compactMap(\.iconSymbol)).count == BotProfile.builtinIcons.count)
         print("PASS: Bot/room persistence, order, session mapping, deletion preservation, interrupted rounds and corrupt-store protection")
     }
 }

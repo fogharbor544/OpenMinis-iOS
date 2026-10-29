@@ -101,6 +101,9 @@ extension AIChatViewModel {
             logger.warning("\(tag) REJECTED — read-only remote session")
             return .rejected(reason: "read_only_remote_session")
         }
+        guard helperConfig != nil || botMemoryAvailable else {
+            return .rejected(reason: "bot_required")
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // send() prunes non-ready attachments before its own guard, so a
         // pure-attachment prompt whose files never loaded would pass a naive

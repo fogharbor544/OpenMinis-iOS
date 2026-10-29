@@ -8,73 +8,26 @@
 import SwiftUI
 
 struct SessionSkillsView: View {
-    /// The real session id, or nil for a draft chat that hasn't sent its first
-    /// message yet. Never coerced to "" — an empty-string key would write the
-    /// override to a phantom session and accumulate stale state across drafts
-    /// (T-ios-session-skill-override-init-timing).
     let sessionId: String?
-    /// Materializes the draft into a real, persisted session and returns its id.
-    /// Called lazily on the first toggle so a pre-first-message override binds
-    /// to the session the chat will actually use. Mirrors SessionModelPicker.
-    var ensureSessionId: (() async -> String)?
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = SkillStore.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
     @State private var searchQuery = ""
-    /// The id reads/writes resolve against. Seeded from `sessionId`; once a
-    /// draft is materialized on first toggle it holds the real id so the rest
-    /// of the sheet stays consistent without re-creating the session.
-    @State private var resolvedSessionId: String?
 
-    init(sessionId: String?, ensureSessionId: (() async -> String)? = nil) {
-        self.sessionId = sessionId
-        self.ensureSessionId = ensureSessionId
-        _resolvedSessionId = State(initialValue: sessionId)
-    }
-
-    /// Whether `skill` is enabled for this session. With no resolved session
-    /// (draft, pre-first-message) this reads the skill's GLOBAL default so the
-    /// sheet shows the correct initial state.
     private func isEnabled(_ skill: Skill) -> Bool {
-        if let sid = resolvedSessionId {
+        if let sid = sessionId {
             return store.isEnabledForSession(skill.id, sessionId: sid)
         }
         return skill.isEnabled
     }
 
-    /// Apply a toggle: materialize the draft session if needed, then write the
-    /// override against the real id. Runs async because session creation is.
-    private func setOverride(_ skill: Skill, _ enabled: Bool) {
-        if let sid = resolvedSessionId {
-            store.setSessionOverride(skillId: skill.id, sessionId: sid, enabled: enabled)
-            return
-        }
-        Task {
-            guard let sid = await ensureSessionId?() else { return }
-            await MainActor.run {
-                resolvedSessionId = sid
-                store.setSessionOverride(skillId: skill.id, sessionId: sid, enabled: enabled)
-            }
-        }
+    private func setOverride(_ item: Skill, _ enabled: Bool) {
+        guard let sid = sessionId, workspace.bot(forSession: sid) != nil else { return }
+        store.setSessionOverride(skillId: item.id, sessionId: sid, enabled: enabled)
     }
 
-    /// Enable/Disable All: materialize the draft session ONCE (not per-skill, to
-    /// avoid racing N createSession calls), then write every override.
     private func applyToAll(_ scope: [Skill], enabled: Bool) {
-        if let sid = resolvedSessionId {
-            for skill in scope {
-                store.setSessionOverride(skillId: skill.id, sessionId: sid, enabled: enabled)
-            }
-            return
-        }
-        Task {
-            guard let sid = await ensureSessionId?() else { return }
-            await MainActor.run {
-                resolvedSessionId = sid
-                for skill in scope {
-                    store.setSessionOverride(skillId: skill.id, sessionId: sid, enabled: enabled)
-                }
-            }
-        }
+        for item in scope { setOverride(item, enabled) }
     }
 
     private var filteredSkills: [Skill] {
@@ -91,6 +44,9 @@ struct SessionSkillsView: View {
 
         NavigationStack {
             List {
+                Text("此处修改所属 Bot 的设置，对它的全部私聊和群聊生效。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if let error = workspace.errorMessage { Text(error).foregroundStyle(.red) }
                 if store.skills.isEmpty {
                     Section {
                         SessionOverrideEmptyCard(systemImage: "doc.text",
@@ -138,12 +94,13 @@ struct SessionSkillsView: View {
                         ) { applyToAll(scope, enabled: $0) }
                     } footer: {
                         SessionOverrideListFooter(
-                            note: Text("Toggles override the skill's default for this session only."),
+                            note: Text("修改所属 Bot 的技能设置，对它的全部会话生效。"),
                             searchQuery: searchQuery)
                     }
                 }
             }
-            .navigationTitle("Skills in Session")
+            .disabled(sessionId.flatMap { workspace.bot(forSession: $0) } == nil)
+            .navigationTitle("Bot 技能")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchQuery, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: Text(AppLocalized("Search skills")))

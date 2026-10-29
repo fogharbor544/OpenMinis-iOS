@@ -71,8 +71,6 @@ extension ContentView {
             // underneath the new chat.
             case .newChat:
                 if !fabDidDrag { switchToSession(Self.makeNewSessionId()) }
-            case .newChatInGroup(let groupId):
-                switchToSession(Self.makeNewSessionId(groupId: groupId))
             case .openSearch:
                 if !searchDidDrag {
                     withAnimation(.easeInOut(duration: 0.2)) { showSearchBar = true }
@@ -117,6 +115,8 @@ extension ContentView {
                     if let dup = await SessionForkManager.shared.duplicateSession(sessionId: sid) {
                         refreshSessionList()
                         selectedSessionId = dup.id
+                    } else if let error = BotWorkspaceStore.shared.errorMessage {
+                        forceSyncToast = error
                     }
                 }
             case .forceSync(let sid):

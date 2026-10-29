@@ -41,6 +41,8 @@ enum AgentJobTrigger: Equatable {
     /// Calendar time. iOS P2 keeps it in-process (best effort); the fields
     /// mirror Android's `ScheduledTask` so the CLI contract stays identical.
     case cron(hour: Int, minute: Int, days: Set<Int>, start: Date?, end: Date?)
+    /// Monthly or yearly local calendar recurrence. Missing month means every month.
+    case calendar(hour: Int, minute: Int, day: Int, month: Int?)
     /// When another job finishes.
     case onCompletion(ofJobId: String)
 
@@ -50,6 +52,7 @@ enum AgentJobTrigger: Equatable {
         case .once(let after): return "once(+\(Int(after))s)"
         case .loop(let interval, let count): return "loop(\(Int(interval))s×\(count.map(String.init) ?? "∞"))"
         case .cron(let h, let m, let days, _, _): return "cron(\(h):\(String(format: "%02d", m)) days=\(days.sorted()))"
+        case .calendar(let h, let m, let d, let month): return "calendar(\(h):\(String(format: "%02d", m)) day=\(d) month=\(month.map(String.init) ?? "*"))"
         case .onCompletion(let id): return "onCompletion(\(id.prefix(8)))"
         }
     }
@@ -510,6 +513,8 @@ final class AgentJobRegistry: ObservableObject {
                   days.isSubset(of: Set(1...7)),
                   ScheduledJobRunner.nextCronDate(hour: hour, minute: minute, days: days,
                                                  start: start, end: end, from: Date()) != nil else { return false }
+        case .calendar:
+            guard ScheduledJobRunner.nextCalendarFire(trigger: trigger, from: Date()) != nil else { return false }
         case .onCompletion(let dependency):
             guard dependency != job.id, jobs[dependency] != nil else { return false }
         case .immediate: return false
@@ -906,7 +911,7 @@ final class AgentJobRegistry: ObservableObject {
             return nil
         case .onCompletion(let upstreamId):
             guard let up = jobs[upstreamId], up.state == .pending || up.state == .running else { return nil }
-        case .once, .loop, .cron:
+        case .once, .loop, .cron, .calendar:
             break
         }
         return sid

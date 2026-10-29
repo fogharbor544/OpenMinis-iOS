@@ -81,9 +81,9 @@ enum ScheduledJobRunner {
                 }
             }
 
-        case .cron(let hour, let minute, let days, let start, let end):
+        case .cron, .calendar:
             guard let first = preclaimed ? Date() : (firstFireAt
-                    ?? nextCronDate(hour: hour, minute: minute, days: days, start: start, end: end, from: Date())) else {
+                    ?? nextCalendarFire(trigger: job.trigger, from: Date())) else {
                 logger.info("[Sched] cron has no future fire (window ended) — finishing \(job.id.prefix(8))")
                 AgentJobRegistry.shared.finish(job.id, state: .done, result: nil)
                 return
@@ -105,8 +105,7 @@ enum ScheduledJobRunner {
                     await fire(job, claimed: claimed)
                     claimed = false
                     if Task.isCancelled { return }
-                    guard let n = nextCronDate(hour: hour, minute: minute, days: days, start: start, end: end,
-                                               from: ScheduledFireClaim.cronSearchStart(now: Date(), consumedSlot: slot)) else {
+                    guard let n = nextCalendarFire(trigger: job.trigger, from: ScheduledFireClaim.cronSearchStart(now: Date(), consumedSlot: slot)) else {
                         AgentJobRegistry.shared.finish(job.id, state: .done, result: nil, keepIfChildRunning: true)
                         return
                     }
@@ -151,9 +150,8 @@ enum ScheduledJobRunner {
         let following: (Date) -> Date? = switch job.trigger {
         case .loop(let interval, _):
             { $0.addingTimeInterval(interval) }
-        case .cron(let hour, let minute, let days, let start, let end):
-            { nextCronDate(hour: hour, minute: minute, days: days, start: start, end: end,
-                           from: $0.addingTimeInterval(60)) }
+        case .cron, .calendar:
+            { nextCalendarFire(trigger: job.trigger, from: $0.addingTimeInterval(60)) }
         case .once, .onCompletion, .immediate:
             { _ in nil }
         }
@@ -183,7 +181,7 @@ enum ScheduledJobRunner {
         let kind: ScheduledFireClaim.Kind = switch job.trigger {
         case .once: .once
         case .loop: .loop
-        case .cron: .cron
+        case .cron, .calendar: .cron
         case .onCompletion: .onCompletion
         case .immediate: .immediate
         }
@@ -318,6 +316,12 @@ enum ScheduledJobRunner {
 
         switch job.target {
         case .new:
+            guard let creator = job.creatorSessionId,
+                  BotWorkspaceStore.shared.bot(forSession: creator) != nil else {
+                logger.warning("[Sched] new conversation requires a Bot-bound creator")
+                registry.recordFire(job.id, sessionId: nil, ok: false)
+                return nil
+            }
             guard let entry = resolveModel(for: job) else {
                 logger.warning("[Sched] fire \(job.id.prefix(8)): no model to run on")
                 registry.recordFire(job.id, sessionId: nil, ok: false)
@@ -326,6 +330,12 @@ enum ScheduledJobRunner {
             let session = await ChatStore.shared.createSession(modelId: entry.model.id,
                                                                title: job.label.map { "Scheduled · \($0)" },
                                                                source: sourceTag)
+            guard BotWorkspaceStore.shared.inheritOwner(for: session.id, from: creator) else {
+                await ChatStore.shared.deleteSession(session.id)
+                registry.recordFire(job.id, sessionId: nil, ok: false)
+                return nil
+            }
+            BotWorkspaceStore.shared.copyCapabilities(to: session.id, from: creator)
             if let override = job.modelEntryId, ProviderConfigStore.shared.entry(for: override) != nil {
                 ProviderConfigStore.shared.setBinding(
                     SessionModelBinding(sessionId: session.id, primarySource: .directEntry(modelEntryId: override)),
@@ -489,7 +499,7 @@ enum ScheduledJobRunner {
         var fireIndex: Int?
         var remaining: Int?
         switch job.trigger {
-        case .loop, .cron:
+        case .loop, .cron, .calendar:
             fireIndex = job.firedCount + 1
             remaining = job.remaining.map { max(0, $0 - 1) }
         default:
@@ -514,9 +524,8 @@ enum ScheduledJobRunner {
                 // firing, so the value here is what will be left afterwards.
                 if let r = job.remaining, r - 1 <= 0 { return nil }
                 return Date().addingTimeInterval(interval)
-            case .cron(let h, let m, let days, let start, let end):
-                return nextCronDate(hour: h, minute: m, days: days, start: start, end: end,
-                                    from: ScheduledFireClaim.cronSearchStart(now: Date(),
+            case .cron, .calendar:
+                return nextCalendarFire(trigger: job.trigger, from: ScheduledFireClaim.cronSearchStart(now: Date(),
                                                                              consumedSlot: job.firingSlot ?? Date()))
             case .once, .immediate, .onCompletion:
                 return nil
@@ -547,7 +556,7 @@ enum ScheduledJobRunner {
     static func roundPrefix(_ job: AgentJob) -> String {
         let name = job.label ?? job.title
         switch job.trigger {
-        case .loop, .cron:
+        case .loop, .cron, .calendar:
             let fire = job.firedCount + 1
             let remaining = job.remaining.map { " · remaining \($0 - 1 < 0 ? 0 : $0 - 1)" } ?? ""
             return "[Scheduled task \"\(name)\" · fire \(fire)\(remaining) · \(job.trigger.logLabel)]\n"
@@ -620,6 +629,21 @@ enum ScheduledJobRunner {
 
     /// Next occurrence of HH:MM on one of `days` (Calendar weekday numbers,
     /// 1 = Sunday), inside the optional [start, end] window.
+    nonisolated static func nextCalendarFire(trigger: AgentJobTrigger, from: Date) -> Date? {
+        switch trigger {
+        case .cron(let hour, let minute, let days, let start, let end):
+            return nextCronDate(hour: hour, minute: minute, days: days, start: start, end: end, from: from)
+        case .calendar(let hour, let minute, let day, let month):
+            guard (0...23).contains(hour), (0...59).contains(minute), (1...31).contains(day),
+                  month == nil || (1...12).contains(month!) else { return nil }
+            var parts = DateComponents()
+            parts.hour = hour; parts.minute = minute; parts.second = 0
+            parts.day = day; parts.month = month
+            return Calendar.current.nextDate(after: from, matching: parts, matchingPolicy: .strict)
+        default: return nil
+        }
+    }
+
     nonisolated static func nextCronDate(hour: Int, minute: Int, days: Set<Int>, start: Date?, end: Date?, from: Date) -> Date? {
         let cal = Calendar.current
         let allowed = days.isEmpty ? Set(1...7) : days

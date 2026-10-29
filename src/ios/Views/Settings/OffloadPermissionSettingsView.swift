@@ -25,8 +25,9 @@ struct OffloadPermissionSettingsView: View {
                 Text("When disabled, the agent cannot read or modify any settings via minis-config. The change history at Logs → Config Changes remains accessible. The agent will receive a permission_denied error and can guide you via deep links instead.")
             }
 
-            Section("Privacy") {
-                ForEach(settingsCommands, id: \.name) { cmd in
+            Section("系统应用") {
+                NavigationLink("系统授权与 Bot 使用许可") { BuiltinCapabilitiesView() }
+                ForEach(settingsCommands.filter { ["apple-location", "apple-clipboard"].contains($0.name) }, id: \.name) { cmd in
                     CommandPermissionRow(command: cmd)
                 }
             }
@@ -74,20 +75,6 @@ struct OffloadPermissionSettingsView: View {
         }
         .navigationTitle("Permissions")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Set All Bypass") {
-                    manager.setAllBypass()
-                    // The minis-config master switch is a separate
-                    // store from OffloadPermissionManager (different
-                    // subsystem) so its own setAllBypass doesn't touch
-                    // it. Flip it on here so "Set All Bypass" really
-                    // does enable everything the user can see on this
-                    // screen.
-                    configGate.enabled = true
-                }
-            }
-        }
     }
 
     private var settingsCommands: [OffloadCommandInfo] {

@@ -100,7 +100,6 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     var onRetryMessage: ((UUID) -> Void)?
     var onRetryLast: (() -> Void)?
     /// [T-ios-assistant-header-open-soul] Tap on the assistant identity row.
-    var onOpenSoulSettings: (() -> Void)?
     var onEdit: ((UUID) -> Void)?
     var onDeleteFrom: ((UUID) -> Void)?
     var onWithdraw: ((UUID) -> Void)?
@@ -156,7 +155,6 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         // the buttons stayed hidden at diff≈2700pt from the bottom).
         coord.rebindViewModelIfNeeded(vm)
         coord.onRetryMessage = onRetryMessage
-        coord.onOpenSoulSettings = onOpenSoulSettings
         coord.onRetryLast = onRetryLast
         coord.onEdit = onEdit
         coord.onDeleteFrom = onDeleteFrom

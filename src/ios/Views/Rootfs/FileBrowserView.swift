@@ -62,10 +62,10 @@ struct FileBrowserView: View {
     enum MoveOrCopyMode { case move, copy }
 
     init(rootPath: URL? = nil, initialPath: URL? = nil, rootLabel: String? = nil,
-         highlightFileName: String? = nil) {
+         highlightFileName: String? = nil, restrictToRoot: Bool = false) {
         let path = rootPath ?? RootfsManager.shared.rootfsPath
         self.highlightFileName = highlightFileName
-        _viewModel = StateObject(wrappedValue: FileBrowserViewModel(rootPath: path, initialPath: initialPath, rootLabel: rootLabel))
+        _viewModel = StateObject(wrappedValue: FileBrowserViewModel(rootPath: path, initialPath: initialPath, rootLabel: rootLabel, restrictToRoot: restrictToRoot))
     }
 
     var body: some View {
@@ -924,6 +924,7 @@ class FileBrowserViewModel: ObservableObject {
     private var rawItems: [FileItem] = []
 
     let rootPath: URL
+    let restrictToRoot: Bool
     let rootLabel: String
     private var currentPath: URL
     private var pathHistory: [URL] = []
@@ -932,7 +933,8 @@ class FileBrowserViewModel: ObservableObject {
         currentPath.path != rootPath.path
     }
 
-    init(rootPath: URL, initialPath: URL? = nil, rootLabel: String? = nil) {
+    init(rootPath: URL, initialPath: URL? = nil, rootLabel: String? = nil, restrictToRoot: Bool = false) {
+        self.restrictToRoot = restrictToRoot
         // Use standardized (not resolvingSymlinks) to normalize trailing slashes etc.
         self.rootPath = rootPath.standardized
         self.rootLabel = rootLabel ?? rootPath.lastPathComponent
@@ -956,6 +958,9 @@ class FileBrowserViewModel: ObservableObject {
                 // Resolve symlinks so contentsOfDirectory works on bind-mounted dirs
                 // (e.g. /var/minis/attachments -> Library/MinisChat/...)
                 let resolvedPath = self.currentPath.resolvingSymlinksInPath()
+                if self.restrictToRoot && !self.containsInRoot(resolvedPath) {
+                    throw CocoaError(.fileReadNoPermission)
+                }
                 // Note: we deliberately do NOT bulk-prefetch iCloud placeholder
                 // files here. A large iCloud folder could contain thousands of
                 // files, and kicking off that many simultaneous downloads just
@@ -974,6 +979,7 @@ class FileBrowserViewModel: ObservableObject {
 
                 let showHiddenLocal = self.showHidden
                 let fileItems = contents.compactMap { url -> FileItem? in
+                    if self.restrictToRoot && !self.containsInRoot(url) { return nil }
                     if !showHiddenLocal && url.lastPathComponent.hasPrefix(".") {
                         return nil
                     }
@@ -1353,8 +1359,14 @@ class FileBrowserViewModel: ObservableObject {
         return String(std.dropFirst(dataPrefix.count))
     }
 
+    private func containsInRoot(_ url: URL) -> Bool {
+        let root = rootPath.resolvingSymlinksInPath().standardizedFileURL.path
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return path == root || path.hasPrefix(root + "/")
+    }
+
     func navigateTo(_ item: FileItem) {
-        guard item.isDirectory else { return }
+        guard item.isDirectory, !restrictToRoot || containsInRoot(item.url) else { return }
         pathHistory.append(currentPath)
         // Use appendingPathComponent instead of item.url directly to preserve
         // the logical path within rootPath. Using item.url.standardizedFileURL

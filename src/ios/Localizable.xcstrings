@@ -1379,13 +1379,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bots use OpenMinis model groups, skills, MCP servers and device permissions. Existing conversations remain in History. Bot profiles and group transcripts are stored on this device."
+            "value": "Bots use OpenMinis model groups, skills, connectors and device permissions. Conversations belong to their Bot. Profiles and group transcripts are stored on this device."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bot 使用 OpenMinis 的模型组、技能、MCP 服务和设备权限。原有会话保留在历史记录中。Bot 配置和群聊记录存储在本机。"
+            "value": "Bot 使用 OpenMinis 的模型组、技能、连接器和设备权限。会话与 Bot 绑定，Bot 配置和群聊记录保存在本机。"
           }
         }
       }
@@ -1396,13 +1396,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open this Bot once to configure its conversation's skills and MCP servers."
+            "value": "Open this Bot once to configure its conversation's skills and connectors."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "先打开一次此 Bot，即可配置其会话使用的技能和 MCP 服务。"
+            "value": "先打开此 Bot，即可配置其会话的技能和连接器。"
           }
         }
       }
@@ -2042,13 +2042,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "External MCP Servers"
+            "value": "External Connectors"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "外部 MCP 服务"
+            "value": "外部连接器"
           }
         }
       }
@@ -9672,7 +9672,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add servers in Settings → MCP Integrations."
+            "value" : "Add connectors in Settings → Connectors."
           }
         },
         "es" : {
@@ -9762,7 +9762,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请在「设置 → MCP 集成」中添加服务器。"
+            "value" : "请在设置 → 连接器中添加。"
           }
         },
         "zh-Hant" : {
@@ -31464,7 +31464,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No MCP servers"
+            "value" : "No connectors"
           }
         },
         "es" : {
@@ -31554,7 +31554,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂无 MCP 服务器"
+            "value" : "暂无连接器"
           }
         },
         "zh-Hant" : {
@@ -55766,7 +55766,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Values are hidden because they can contain keys. View or edit them in Settings → MCP Integrations."
+            "value" : "Values are hidden because they can contain keys. View or edit them in Settings → Connectors."
           }
         },
         "es" : {
@@ -55856,7 +55856,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "值可能包含密钥，因此不显示。可在「设置 → MCP 集成」中查看或编辑。"
+            "value" : "这些值可能含密钥，已隐藏。可在设置 → 连接器中查看或修改。"
           }
         },
         "zh-Hant" : {
@@ -77745,7 +77745,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add an MCP server to give the Agent extra tools. Tap + to add one manually or import a JSON config."
+            "value" : "Add a connector to give the agent extra tools. Tap + to add one manually or import JSON."
           }
         },
         "es" : {
@@ -77835,7 +77835,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "添加 MCP 服务器，为 Agent 提供额外工具。点按 + 手动添加，或导入 JSON 配置。"
+            "value" : "添加连接器以扩展 Bot 的能力。点按 + 手动添加或导入 JSON 配置。"
           }
         },
         "zh-Hant" : {
@@ -169392,7 +169392,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MCP Integrations"
+            "value" : "Connectors"
           }
         },
         "es" : {
@@ -169482,7 +169482,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MCP 集成"
+            "value" : "连接器"
           }
         },
         "zh-Hant" : {
@@ -169589,7 +169589,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MCP 服务器"
+            "value" : "连接器"
           }
         },
         "zh-Hant" : {
@@ -169598,7 +169598,13 @@
             "value" : "MCP 伺服器"
           }
         }
-      }
+      , "en": {
+  "stringUnit": {
+    "state": "translated",
+    "value": "Connectors"
+  }
+}
+}
     },
     "MCPs in Session" : {
       "localizations" : {
@@ -169611,7 +169617,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "MCPs in Session"
+            "value" : "Conversation Connectors"
           }
         },
         "es" : {
@@ -169701,7 +169707,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "会话中的 MCP"
+            "value" : "会话连接器"
           }
         },
         "zh-Hant" : {
@@ -185234,7 +185240,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No MCP Servers"
+            "value" : "No Connectors"
           }
         },
         "es" : {
@@ -185324,7 +185330,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂无 MCP 服务器"
+            "value" : "暂无连接器"
           }
         },
         "zh-Hant" : {
@@ -185346,7 +185352,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No MCP servers configured. Add servers in Settings → MCP Integrations."
+            "value" : "No connectors configured. Add connectors in Settings → Connectors."
           }
         },
         "es" : {
@@ -185436,7 +185442,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "尚未配置 MCP 服务器。请在“设置 → MCP 集成”中添加。"
+            "value" : "尚未配置连接器，请在设置 → 连接器中添加。"
           }
         },
         "zh-Hant" : {
@@ -185459,7 +185465,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No MCP servers found in that JSON."
+            "value" : "No connectors found in that JSON."
           }
         },
         "es" : {
@@ -185549,7 +185555,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "该 JSON 中未找到 MCP 服务器。"
+            "value" : "该 JSON 中未找到连接器。"
           }
         },
         "zh-Hant" : {
@@ -185571,7 +185577,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No MCP servers match \"%@\"."
+            "value" : "No connectors match \"%@\"."
           }
         },
         "es" : {
@@ -185661,7 +185667,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有与“%@”匹配的 MCP 服务器。"
+            "value" : "没有与“%@”匹配的连接器。"
           }
         },
         "zh-Hant" : {
@@ -197581,7 +197587,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Paste MCP JSON"
+            "value" : "Paste Connector JSON"
           }
         },
         "es" : {
@@ -197671,7 +197677,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "粘贴 MCP JSON"
+            "value" : "粘贴连接器 JSON"
           }
         },
         "zh-Hant" : {
@@ -226697,7 +226703,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Search MCP servers"
+            "value" : "Search connectors"
           }
         },
         "es" : {
@@ -226787,7 +226793,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索 MCP 服务器"
+            "value" : "搜索连接器"
           }
         },
         "zh-Hant" : {
@@ -284807,6 +284813,159 @@
         }
       }
     }
-  },
+  , "Bot Icon": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Bot Icon"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Bot 图标"
+      }
+    }
+  }
+}
+, "Choose Bot": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Choose Bot"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "选择 Bot"
+      }
+    }
+  }
+}
+, "Choose Custom Image": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Choose Custom Image"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "选择自定义图片"
+      }
+    }
+  }
+}
+, "Choose a Bot before starting a conversation": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Choose a Bot before starting a conversation"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "先选择 Bot，再创建会话"
+      }
+    }
+  }
+}
+, "Create Bots and Groups": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Create Bots and Groups"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "创建 Bot 和群组"
+      }
+    }
+  }
+}
+, "Manage supported iOS apps and external connectors.": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Manage supported iOS apps and external connectors."
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "管理支持的 iOS 系统应用和外部连接器。"
+      }
+    }
+  }
+}
+, "Schedule": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Schedule"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "执行计划"
+      }
+    }
+  }
+}
+, "Scheduled Tasks": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Scheduled Tasks"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "定时任务"
+      }
+    }
+  }
+}
+, "Unable to read this image.": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Unable to read this image."
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "无法读取这张图片。"
+      }
+    }
+  }
+}
+},
   "version" : "1.0"
 }

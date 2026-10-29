@@ -282,7 +282,7 @@ check("run counter after the clock: smaller, lighter amber, monospaced, own widt
 check("counter data: fired + skipped runs, loop count as total, loop / cron repeat",
       page.contains("runsDone: job.firedCount + job.skippedCount,")
       && page.contains("case .loop(_, let count): (count, true)")
-      && page.contains("case .cron: (nil, true)")
+      && page.contains("case .cron, .calendar: (nil, true)")
       && runner.contains("job.remaining = remaining\n            job.skippedCount += 1")
       && registry.contains("var skippedCount = 0"))
 check("VoiceOver reads the counter as a sentence",

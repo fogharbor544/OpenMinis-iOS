@@ -46,6 +46,7 @@ enum ScheduledTriggerSpec: Equatable {
     case loop(interval: TimeInterval, count: Int?)
     case once(after: TimeInterval)
     case cron(hour: Int, minute: Int, days: [Int])
+    case calendar(hour: Int, minute: Int, day: Int, month: Int?)
     case immediate
     case onCompletion(jobPrefix: String)
     case raw(String)
@@ -81,6 +82,17 @@ enum ScheduledTriggerSpec: Equatable {
             }
             return .cron(hour: h, minute: m, days: days.sorted())
         }
+        if let body = inner("calendar") {
+            let parts = body.components(separatedBy: " ")
+            guard parts.count == 3 else { return .raw(s) }
+            let time = parts[0].split(separator: ":")
+            guard time.count == 2, let hour = Int(time[0]), let minute = Int(time[1]),
+                  parts[1].hasPrefix("day="), let day = Int(parts[1].dropFirst(4)),
+                  parts[2].hasPrefix("month=") else { return .raw(s) }
+            let month = String(parts[2].dropFirst(6))
+            guard month == "*" || Int(month) != nil else { return .raw(s) }
+            return .calendar(hour: hour, minute: minute, day: day, month: Int(month))
+        }
         if let body = inner("onCompletion") { return .onCompletion(jobPrefix: body) }
         return .raw(s)
     }
@@ -88,8 +100,8 @@ enum ScheduledTriggerSpec: Equatable {
     /// Fires more than once (loop / cron).
     var isRepeating: Bool {
         switch self {
-        case .loop, .cron: return true
-        case .raw(let s): return s.hasPrefix("loop") || s.hasPrefix("cron")
+        case .loop, .cron, .calendar: return true
+        case .raw(let s): return s.hasPrefix("loop") || s.hasPrefix("cron") || s.hasPrefix("calendar")
         default: return false
         }
     }
@@ -390,6 +402,7 @@ final class ScheduledTaskDetailStore: ObservableObject {
             case .loop(let i, let c): return .loop(interval: i, count: c)
             case .once(let a): return .once(after: a)
             case .cron(let h, let m, let d, _, _): return .cron(hour: h, minute: m, days: d.sorted())
+            case .calendar(let h, let m, let day, let month): return .calendar(hour: h, minute: m, day: day, month: month)
             case .immediate: return .immediate
             case .onCompletion(let id): return .onCompletion(jobPrefix: String(id.prefix(8)))
             }
@@ -859,6 +872,7 @@ struct ScheduledTaskDetailView: View {
 
     static func duration(_ seconds: TimeInterval) -> String {
         let f = DateComponentsFormatter()
+        f.calendar = scheduleCalendar
         f.unitsStyle = .short
         f.allowedUnits = seconds >= 86_400 ? [.day, .hour] : seconds >= 3600 ? [.hour, .minute] : seconds >= 60 ? [.minute, .second] : [.second]
         f.maximumUnitCount = 2
@@ -879,9 +893,13 @@ struct ScheduledTaskDetailView: View {
             if days.isEmpty || days.count == 7 {
                 return String(format: AppLocalized("Every day at %@"), time)
             }
-            let symbols = Calendar.current.shortWeekdaySymbols
+            let symbols = scheduleCalendar.shortWeekdaySymbols
             let names = days.compactMap { (1...7).contains($0) ? symbols[$0 - 1] : nil }
             return String(format: AppLocalized("Every %@ at %@"), names.joined(separator: ", "), time)
+        case .calendar(let hour, let minute, let day, let month):
+            let time = String(format: "%02d:%02d", hour, minute)
+            if let month { return "每年 \(month) 月 \(day) 日 \(time)" }
+            return "每月 \(day) 日 \(time)"
         case .immediate:
             return AppLocalized("Run once, right away")
         case .onCompletion(let id):
@@ -889,6 +907,13 @@ struct ScheduledTaskDetailView: View {
         case .raw(let s):
             return s
         }
+    }
+
+    static var scheduleCalendar: Calendar {
+        var calendar = Calendar.current
+        let language = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
+        calendar.locale = language.isEmpty ? .current : Locale(identifier: language)
+        return calendar
     }
 
     private var deliveryText: String? {
@@ -1430,7 +1455,7 @@ extension AgentJobRegistry {
             }()
             let (total, repeats): (Int?, Bool) = switch job.trigger {
             case .loop(_, let count): (count, true)
-            case .cron: (nil, true)
+            case .cron, .calendar: (nil, true)
             case .once, .onCompletion, .immediate: (nil, false)
             }
             return ScheduledBannerJob(id: job.id, title: job.label ?? job.title,
@@ -1472,13 +1497,16 @@ extension ScheduledBannerModel {
 
 // Global entry shares the registry and detail view used by conversation task cards.
 struct ScheduledTasksManagementView: View {
+    var botID: String? = nil
     @ObservedObject private var registry = AgentJobRegistry.shared
     @State private var selected: AgentJob?
     @State private var editing: AgentJob?
     @State private var deleting: AgentJob?
 
     private var schedules: [AgentJob] {
-        registry.list().filter { $0.trigger != .immediate }
+        registry.list().filter { job in
+            job.trigger != .immediate && (botID == nil || job.creatorSessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.id } == botID)
+        }
     }
 
     var body: some View {
@@ -1496,8 +1524,8 @@ struct ScheduledTasksManagementView: View {
                     Button { selected = job } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(job.label ?? job.title).foregroundStyle(.primary)
-                            Text(job.trigger.logLabel).font(.caption).foregroundStyle(.secondary)
-                            Text(job.state.rawValue).font(.caption).foregroundStyle(.secondary)
+                            Text(ScheduledTaskDetailView.triggerText(ScheduledTriggerSpec.parse(label: job.trigger.logLabel))).font(.caption).foregroundStyle(.secondary)
+                            Text(ScheduledTaskDetailView.statusLabel(ScheduledTaskDetailModel.status(live: .init(state: job.state.rawValue, isEnabled: job.isEnabled, isProcessingNow: job.fireInFlight), envelopeRemaining: nil, trigger: ScheduledTriggerSpec.parse(label: job.trigger.logLabel))).0).font(.caption).foregroundStyle(.secondary)
                             if let next = job.nextFireAt {
                                 Text(next, style: .date) + Text(" ") + Text(next, style: .time)
                             }
@@ -1543,93 +1571,108 @@ private struct ScheduledTaskEditor: View {
     let job: AgentJob
     @Environment(\.dismiss) private var dismiss
     @State private var prompt: String
-    @State private var seconds: String
-    @State private var count: String
-    @State private var hour: Int
-    @State private var minute: Int
-    @State private var days: Set<Int>
+    @State private var mode: String
+    @State private var date: Date
+    @State private var interval = 1
+    @State private var unit = 3600
+    @State private var count = ""
+    @State private var days: Set<Int> = []
     @State private var error: String?
 
     init(job: AgentJob) {
         self.job = job
         _prompt = State(initialValue: job.prompt ?? "")
-        var seconds = ""
-        var count = ""
-        var hour = 9
-        var minute = 0
-        var days = Set<Int>()
+        var mode = "once"
+        var date = job.nextFireAt ?? Date().addingTimeInterval(3600)
         switch job.trigger {
-        case .once(let delay): seconds = String(Int(delay))
-        case .loop(let interval, let total):
-            seconds = String(Int(interval)); count = total.map(String.init) ?? ""
-        case .cron(let h, let m, let d, _, _): hour = h; minute = m; days = d
+        case .loop(let seconds, let total):
+            mode = "interval"
+            let unit = seconds.truncatingRemainder(dividingBy: 86400) == 0 ? 86400 : seconds.truncatingRemainder(dividingBy: 3600) == 0 ? 3600 : seconds.truncatingRemainder(dividingBy: 60) == 0 ? 60 : 1
+            _unit = State(initialValue: unit)
+            _interval = State(initialValue: max(1, Int(seconds) / unit))
+            _count = State(initialValue: total.map(String.init) ?? "")
+        case .cron(let h, let m, let d, _, _):
+            mode = d.isEmpty ? "daily" : "weekly"
+            _days = State(initialValue: d)
+            date = Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: date) ?? date
+        case .calendar(_, _, _, let month):
+            mode = month == nil ? "monthly" : "yearly"
+            date = ScheduledJobRunner.nextCalendarFire(trigger: job.trigger, from: Date()) ?? date
+        case .onCompletion: mode = "dependency"
         default: break
         }
-        _seconds = State(initialValue: seconds)
-        _count = State(initialValue: count)
-        _hour = State(initialValue: hour)
-        _minute = State(initialValue: minute)
-        _days = State(initialValue: days)
+        _mode = State(initialValue: mode)
+        _date = State(initialValue: date)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Schedule") {
-                    switch job.trigger {
-                    case .once:
-                        TextField("Delay from save (seconds)", text: $seconds).keyboardType(.numberPad)
-                    case .loop:
-                        TextField("Interval (seconds, minimum 60)", text: $seconds).keyboardType(.numberPad)
-                        TextField("Total runs (empty for unlimited)", text: $count).keyboardType(.numberPad)
-                        Text("The total includes completed and skipped runs.").font(.footnote)
-                    case .cron:
-                        Stepper("Hour: \(hour)", value: $hour, in: 0...23)
-                        Stepper("Minute: \(minute)", value: $minute, in: 0...59)
-                        ForEach(1...7, id: \.self) { day in
-                            Toggle(Calendar.current.weekdaySymbols[day - 1], isOn: Binding(
-                                get: { days.contains(day) },
-                                set: { if $0 { days.insert(day) } else { days.remove(day) } }
-                            ))
-                        }
-                        Text("No days selected means every day. Existing start and end dates are preserved.").font(.footnote)
-                    case .onCompletion:
-                        Text(job.trigger.logLabel)
-                    case .immediate: EmptyView()
+                Section("执行时间") {
+                    Picker("执行方式", selection: $mode) {
+                        Text("指定日期一次执行").tag("once")
+                        Text("按间隔重复").tag("interval")
+                        Text("每天").tag("daily")
+                        Text("每周").tag("weekly")
+                        Text("每月").tag("monthly")
+                        Text("每年").tag("yearly")
+                        if case .onCompletion = job.trigger { Text("前置任务完成后").tag("dependency") }
                     }
+                    if mode == "interval" {
+                        Stepper("间隔：\(interval)", value: $interval, in: 1...315360000)
+                        Picker("单位", selection: $unit) {
+                            Text("秒").tag(1); Text("分钟").tag(60); Text("小时").tag(3600); Text("天").tag(86400)
+                        }
+                        TextField("总次数，留空为不限", text: $count).keyboardType(.numberPad)
+                        Text("总次数包含已执行和已跳过的次数。")
+                    } else if mode != "dependency" {
+                        DatePicker("执行时间", selection: $date, displayedComponents: mode == "daily" || mode == "weekly" ? [.hourAndMinute] : [.date, .hourAndMinute])
+                            .environment(\.locale, Locale(identifier: "zh_CN"))
+                        if mode == "weekly" {
+                            ForEach(1...7, id: \.self) { day in
+                                Toggle(ScheduledTaskDetailView.scheduleCalendar.weekdaySymbols[day - 1], isOn: Binding(get: { days.contains(day) }, set: { if $0 { days.insert(day) } else { days.remove(day) } }))
+                            }
+                        }
+                        if mode == "monthly" || mode == "yearly" { Text("按所选日期的日／月和时间重复；没有该日期的月份会跳过。") }
+                    }
+                    Text("使用设备本地时区。iOS 后台执行为尽力而为，应用退出后无法保证准时运行。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
-                if job.prompt != nil {
-                    Section("Prompt") { TextEditor(text: $prompt).frame(minHeight: 120) }
-                }
+                if job.prompt != nil { Section("任务内容") { TextEditor(text: $prompt).frame(minHeight: 120) } }
                 if let error { Text(error).foregroundStyle(.red) }
             }
-            .navigationTitle("Edit Scheduled Task")
+            .navigationTitle("编辑定时任务")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save) }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("保存", action: save) }
             }
         }
     }
 
     private func save() {
+        let parts = Calendar.current.dateComponents([.hour, .minute, .day, .month], from: date)
         let trigger: AgentJobTrigger
-        switch job.trigger {
-        case .once:
-            guard let delay = TimeInterval(seconds) else { invalid(); return }
-            trigger = .once(after: delay)
-        case .loop:
-            guard let interval = TimeInterval(seconds), count.isEmpty || Int(count) != nil else { invalid(); return }
-            trigger = .loop(interval: interval, count: Int(count))
-        case .cron(_, _, _, let start, let end):
-            trigger = .cron(hour: hour, minute: minute, days: days, start: start, end: end)
+        switch mode {
+        case "once":
+            let minuteDate = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)) ?? date
+            trigger = .once(after: minuteDate.timeIntervalSinceNow)
+        case "interval":
+            guard count.isEmpty || Int(count) != nil else { invalid(); return }
+            trigger = .loop(interval: Double(interval * unit), count: Int(count))
+        case "daily", "weekly":
+            guard mode != "weekly" || !days.isEmpty else { invalid(); return }
+            if case .cron(_, _, _, let start, let end) = job.trigger {
+                trigger = .cron(hour: parts.hour!, minute: parts.minute!, days: mode == "weekly" ? days : [], start: start, end: end)
+            } else {
+                trigger = .cron(hour: parts.hour!, minute: parts.minute!, days: mode == "weekly" ? days : [], start: nil, end: nil)
+            }
+        case "monthly", "yearly":
+            trigger = .calendar(hour: parts.hour!, minute: parts.minute!, day: parts.day!, month: mode == "yearly" ? parts.month : nil)
         default: trigger = job.trigger
         }
-        if AgentJobRegistry.shared.updateSchedule(jobId: job.id, trigger: trigger, prompt: prompt) {
-            dismiss()
-        } else { invalid() }
+        if AgentJobRegistry.shared.updateSchedule(jobId: job.id, trigger: trigger, prompt: prompt) { dismiss() }
+        else { invalid() }
     }
 
-    private func invalid() {
-        error = String(localized: "Check the schedule and prompt. A running or finished task cannot be edited.")
-    }
+    private func invalid() { error = "请检查时间、重复次数和任务内容；过去的时间、运行中或已结束的任务不能保存。" }
 }

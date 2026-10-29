@@ -1293,13 +1293,6 @@ private struct ThinkingBodyHeightKey: PreferenceKey {
 
 struct TypingIndicator: View {
     @State private var dotOffsets: [Bool] = [false, false, false]
-    /// Live Soul name so the indicator reads "<custom name> is thinking…" when
-    /// the user has renamed the assistant in Soul settings. Updates via
-    /// `.soulMdChanged` Notification — same wiring used by `AssistantSoulName`.
-    @State private var soulName: String = {
-        let n = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return n.isEmpty ? "Minis" : n
-    }()
 
     var body: some View {
         // The thinking-level badge that used to trail this indicator was
@@ -1308,15 +1301,11 @@ struct TypingIndicator: View {
         // duplicate here was redundant. ThinkingLevelSheetView is unchanged;
         // it's still presented from the nav-bar badge.
         HStack(spacing: 0) {
-            Text("\(soulName) is thinking")
+            Text("正在思考")
             ForEach(0..<3, id: \.self) { i in
                 Text(".")
                     .offset(y: dotOffsets[i] ? -3 : 1)
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            let n = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            soulName = n.isEmpty ? "Minis" : n
         }
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(ChatColors.tertiaryText)

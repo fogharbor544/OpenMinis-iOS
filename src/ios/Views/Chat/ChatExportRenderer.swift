@@ -269,6 +269,7 @@ private struct ChatExportGroupView: View {
 }
 
 private struct ChatExportHeaderView: View {
+    var bot: BotProfile? = nil
     let title: String
     /// The parts of the line under the title (model, date), joined with " · ".
     let subtitle: [String]
@@ -280,31 +281,10 @@ private struct ChatExportHeaderView: View {
 
     private static let avatarSize: CGFloat = 28
 
-    /// The assistant's avatar as the chat header resolves it — the user's SOUL icon
-    /// (image or emoji), else the default gradient sparkle — drawn as a ringed circle:
-    /// an image fills it, a glyph sits centred on a light disc.
     @ViewBuilder
     private var avatar: some View {
-        let icon = SoulStore.cachedMetadata.icon
-        let size = Self.avatarSize
-        let isImage = SoulIconImage.decode(icon) != nil
-        ZStack {
-            Circle().fill(Color(uiColor: .secondarySystemBackground))
-            SoulIconView(
-                icon: icon,
-                size: isImage ? size : size * 0.55,
-                sparkleGradient: LinearGradient(
-                    colors: [Color(red: 0.72, green: 0.69, blue: 0.59),
-                             Color(red: 0.6, green: 0.6, blue: 0.55)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                cornerRadius: isImage ? size / 2 : nil
-            )
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(Circle().stroke(Color(uiColor: .separator), lineWidth: 0.5))
+        if let bot { BotAvatar(profile: bot, size: Self.avatarSize) }
+        else { Image(systemName: "sparkles").frame(width: Self.avatarSize, height: Self.avatarSize) }
     }
 
     /// "model · date" on one line when it fits; otherwise one part per line, so a
@@ -580,7 +560,7 @@ final class ChatExportRenderer {
         // [T-share-hide-title] Hidden: no header, and no title anywhere in the file
         // (an empty title names it "Chat <date>").
         let header = options.hideHeader ? nil
-            : ChatExportHeaderView(title: title, subtitle: Self.subtitle(for: covered, model: vm.resolveCurrentEntry()?.model.displayName),
+            : ChatExportHeaderView(bot: vm.sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0) }, title: title, subtitle: Self.subtitle(for: covered, model: vm.resolveCurrentEntry()?.model.displayName),
                                    width: canvas)
         let fileTitle = options.hideHeader ? "" : title
         logger.info("[ChatExport] start format=\(options.format.rawValue) groups=\(groups.count) cells=\(groups.joined().count) canvas=\(Int(canvas)) wide=\(options.wideLayout) dark=\(options.dark) adaptiveTables=\(options.adaptiveTables) splitBlocks=\(chunks.count) header=\(!options.hideHeader)")

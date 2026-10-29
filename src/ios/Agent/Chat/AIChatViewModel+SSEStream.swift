@@ -352,6 +352,8 @@ extension AIChatViewModel {
         provider: any AgentProvider
     ) async throws -> StreamResult {
         var result = StreamResult()
+        var rawAssistantText = ""
+        let savedPasswords = await MainActor.run { BrowserCredentialStore.passwordsForRedaction() }
         var currentTextBlockIdx: Int? = nil
         var currentThinkingBlockIdx: Int? = nil
         let speakEnabled = await MainActor.run { self.speakEnabled }
@@ -636,7 +638,8 @@ extension AIChatViewModel {
 
             case .textDelta(let text):
                 if let blockIdx = currentTextBlockIdx {
-                    result.assistantText += text
+                    rawAssistantText += text
+                    result.assistantText = PasswordReplyRedactor.redact(rawAssistantText, passwords: savedPasswords, streaming: true)
 
                     // Streaming TTS: speak completed sentences as they arrive. Don't
                     // gate on the start-time `speakEnabled` snapshot — read it live
@@ -852,6 +855,7 @@ extension AIChatViewModel {
                 }
 
             case .toolCallComplete(let rawId, let name, let args, let metadata):
+                result.assistantText = PasswordReplyRedactor.redact(rawAssistantText, passwords: savedPasswords, streaming: false)
                 // [T-dedupe-toolcallid] Mirror the rewrite applied at
                 // contentBlockStart so the block-by-toolUseId lookup
                 // below finds the renamed block (the FIRST tool keeps
@@ -1002,6 +1006,7 @@ extension AIChatViewModel {
                 // Reset text block tracking for potential next text block after tool use
                 currentTextBlockIdx = nil
                 result.assistantText = ""
+                rawAssistantText = ""
                 result.spokenTextOffset = 0
 
             case .thinkingDelta(let text):
@@ -1136,6 +1141,7 @@ extension AIChatViewModel {
             _streamError = error
         }
         if let err = _streamError { throw err }
+        result.assistantText = PasswordReplyRedactor.redact(rawAssistantText, passwords: savedPasswords, streaming: false)
         // Stream ended cleanly. First drain any un-extracted tail past
         // spokenTextOffset: the streaming look-ahead in extractSentencesStatic
         // intentionally STOPS on a digit-trailing `.`/`,` at the buffer end

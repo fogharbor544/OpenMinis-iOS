@@ -17,13 +17,14 @@ extension ContentView {
     @ViewBuilder
     func sessionList(useNavigationLinks: Bool) -> some View {
         Group {
-            if homeShowsBots {
-                BotWorkspaceView(embedded: true, onShowHistory: { homeShowsBots = false },
-                                 onOpenSettings: { activeToolSheet = .settings })
-            } else if useNavigationLinks {
-                stackList
+            // Reuse the existing selection rows and bulk-action toolbar while selecting.
+            if providerStore.modelGroups.isEmpty || isSelecting {
+                if useNavigationLinks { stackList } else { splitList }
             } else {
-                splitList
+                BotWorkspaceView(embedded: true, historicalSessions: sessions.filter { BotWorkspaceStore.shared.bot(forSession: $0.id) == nil },
+                                 sessionSnapshots: sessions, sessionMenuActions: menuActions,
+                                 onOpenSettings: { activeToolSheet = .settings },
+                                 onOpenConversation: { switchToSession($0) })
             }
         }
         // Hardware ⌘F → focus search, available while the session list is on
@@ -62,10 +63,6 @@ extension ContentView {
         // same reason as the migration timer above: this Group's identity is stable
         // across the sidebar's life, so the sink is never torn down mid-transaction
         // and can't drop a .soulMdChanged notification arriving during reconstruction.
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            let n = SoulStore.cachedMetadata.name
-            soulName = n.isEmpty ? "Minis" : n
-        }
     }
 
     /// Plain List with NavigationLink for stack (iPhone) layout.
@@ -212,9 +209,11 @@ extension ContentView {
     private func stackListBody(scrollProxy: ScrollViewProxy) -> AnyView {
         AnyView(
         List {
-            Section("Bots & Groups") {
-                Button { homeShowsBots = true } label: {
-                    Label("Open Bots & Groups", systemImage: "person.2.fill")
+            if !isSelecting {
+                Section("Bots & Groups") {
+                    Button { homeShowsBots = true } label: {
+                        Label("Open Bots & Groups", systemImage: "person.2.fill")
+                    }
                 }
             }
             // [T-ios-session-list-equatable-jank] id-list projection — see splitList.
@@ -317,9 +316,11 @@ extension ContentView {
     private var splitList: some View {
         ScrollViewReader { scrollProxy in
         List(selection: $selectedSessionId) {
-            Section("Bots & Groups") {
-                Button { homeShowsBots = true } label: {
-                    Label("Open Bots & Groups", systemImage: "person.2.fill")
+            if !isSelecting {
+                Section("Bots & Groups") {
+                    Button { homeShowsBots = true } label: {
+                        Label("Open Bots & Groups", systemImage: "person.2.fill")
+                    }
                 }
             }
             // [T-ios-session-list-equatable-jank] Diff a (label, ids) projection

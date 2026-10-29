@@ -112,8 +112,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 let message = messages[msgIdx]
                 cell.backgroundColor = .clear
                 let config = UIHostingConfiguration {
-                    BridgedAssistantHeaderV3(message: message, maxWidth: width,
-                                            onOpenSoulSettings: onOpenSoulSettings)
+                    BridgedAssistantHeaderV3(message: message, maxWidth: width)
                         .transaction { $0.disablesAnimations = true }
                         .environmentObject(vm)
                 }.minSize(width: 0, height: 0).margins(.all, 0)

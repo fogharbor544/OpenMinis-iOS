@@ -25,8 +25,19 @@ struct AskMinisIntent: AppIntent {
     @Parameter(title: "Session", description: "Existing session to continue. Leave empty to start a new session.")
     var session: SessionEntity?
 
+    @Parameter(title: "Bot", description: "Choose a Bot before starting a conversation")
+    var bot: BotEntity?
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Send \(\.$prompt) to Minis") {
+            \.$bot
+            \.$session
+        }
+    }
+
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard session != nil || bot != nil else { throw BotWorkspaceError.botRequired }
         // Same eager keep-alive discipline as SendPromptIntent: arm before any
         // await so an intent-woken process isn't suspended before the send path
         // flips isActive. No-op unless enhancedBackgroundEffective is on.
@@ -53,7 +64,11 @@ struct AskMinisIntent: AppIntent {
             vm = cached
             await vm.loadSession()
         } else {
-            vm = ViewModelCache.shared.createDraft()
+            guard let bot else { throw BotWorkspaceError.botRequired }
+            let botSessionID = try await BotWorkspaceStore.shared.session(botID: bot.id, newConversation: true)
+            let (cached, _) = ViewModelCache.shared.getOrCreate(for: botSessionID)
+            vm = cached
+            await vm.loadSession()
             vm.sessionSource = "siri"
             await vm.ensureSessionReturningId()
             if let placeholder = placeholderSid, let realSid = vm.sessionId {

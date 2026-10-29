@@ -312,10 +312,10 @@ private let logger = AppLogger(category: "SessionsOffload")
                 if fresh { await vm.loadSession() }
                 isNew = false
             } else {
-                vm = ViewModelCache.shared.createDraft()
-                vm.sessionSource = source.isEmpty ? "cli" : source
-                _ = await vm.ensureSessionReturningId()
-                isNew = true
+                output = ["ok": false, "error": "bot_required",
+                          "message": "Choose a Bot and create a conversation in OpenMinis, then pass its session ID."]
+                sem.signal()
+                return
             }
 
             guard let sid = vm.sessionId else {

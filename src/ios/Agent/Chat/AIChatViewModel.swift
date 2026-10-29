@@ -348,7 +348,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// foreground (after having been backgrounded) gets the suspension hint.
     static let bgHintBrowserThreshold: TimeInterval = 5 * 60
 
+    private var botSettingsObservation: AnyCancellable?
+
     init() {
+        botSettingsObservation = BotWorkspaceStore.shared.objectWillChange.sink { [weak self] in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
         logger.info("🔄SESSION [vm=\(self.vmInstanceId)] init — new AIChatViewModel created")
 
         fontChangeObserver = NotificationCenter.default.addObserver(
@@ -1308,7 +1313,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// When true, skip the needsCompactBeforeSend check (used after compactAndSend to avoid loop).
     var skipCompactCheck = false
     /// When false, memory_write tool calls are skipped (returns "Memory disabled") in this session.
-    @Published var memoryEnabled = true
+    var memoryEnabled: Bool {
+        get {
+            guard helperConfig == nil, let sessionId else { return false }
+            return BotWorkspaceStore.shared.memoryEnabled(forSession: sessionId)
+        }
+        set {
+            guard helperConfig == nil, let sessionId else { return }
+            _ = BotWorkspaceStore.shared.setMemoryEnabled(newValue, forSession: sessionId)
+        }
+    }
 
     // MARK: - Session Stats
     /// Accumulated streaming duration (seconds) for output token speed calculation.

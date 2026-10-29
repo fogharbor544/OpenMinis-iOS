@@ -9,67 +9,26 @@
 import SwiftUI
 
 struct SessionMCPsView: View {
-    /// The real session id, or nil for a draft chat that hasn't sent its first
-    /// message yet. Never coerced to "" (T-ios-session-skill-override-init-timing).
     let sessionId: String?
-    /// Materializes the draft into a real session and returns its id; called
-    /// lazily on first toggle. Mirrors SessionModelPicker / SessionSkillsView.
-    var ensureSessionId: (() async -> String)?
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = MCPStore.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
     @State private var searchQuery = ""
-    /// Id reads/writes resolve against; seeded from `sessionId`, upgraded to the
-    /// real id once a draft is materialized on first toggle.
-    @State private var resolvedSessionId: String?
 
-    init(sessionId: String?, ensureSessionId: (() async -> String)? = nil) {
-        self.sessionId = sessionId
-        self.ensureSessionId = ensureSessionId
-        _resolvedSessionId = State(initialValue: sessionId)
-    }
-
-    /// Whether `server` is enabled for this session. With no resolved session
-    /// (draft) reads the server's GLOBAL default so the sheet shows correct state.
     private func isEnabled(_ server: MCPServerConfig) -> Bool {
-        if let sid = resolvedSessionId {
+        if let sid = sessionId {
             return store.isEnabledForSession(server.id, sessionId: sid)
         }
         return server.enabled
     }
 
-    /// Apply a toggle: materialize the draft session if needed, then write the
-    /// override against the real id.
-    private func setOverride(_ server: MCPServerConfig, _ enabled: Bool) {
-        if let sid = resolvedSessionId {
-            store.setSessionOverride(serverId: server.id, sessionId: sid, enabled: enabled)
-            return
-        }
-        Task {
-            guard let sid = await ensureSessionId?() else { return }
-            await MainActor.run {
-                resolvedSessionId = sid
-                store.setSessionOverride(serverId: server.id, sessionId: sid, enabled: enabled)
-            }
-        }
+    private func setOverride(_ item: MCPServerConfig, _ enabled: Bool) {
+        guard let sid = sessionId, workspace.bot(forSession: sid) != nil else { return }
+        store.setSessionOverride(serverId: item.id, sessionId: sid, enabled: enabled)
     }
 
-    /// Enable/Disable All: materialize the draft session ONCE, then write each.
     private func applyToAll(_ scope: [MCPServerConfig], enabled: Bool) {
-        if let sid = resolvedSessionId {
-            for server in scope {
-                store.setSessionOverride(serverId: server.id, sessionId: sid, enabled: enabled)
-            }
-            return
-        }
-        Task {
-            guard let sid = await ensureSessionId?() else { return }
-            await MainActor.run {
-                resolvedSessionId = sid
-                for server in scope {
-                    store.setSessionOverride(serverId: server.id, sessionId: sid, enabled: enabled)
-                }
-            }
-        }
+        for item in scope { setOverride(item, enabled) }
     }
 
     private var filteredServers: [MCPServerConfig] {
@@ -86,6 +45,9 @@ struct SessionMCPsView: View {
 
         NavigationStack {
             List {
+                Text("此处修改所属 Bot 的设置，对它的全部私聊和群聊生效。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if let error = workspace.errorMessage { Text(error).foregroundStyle(.red) }
                 if store.servers.isEmpty {
                     Section {
                         SessionOverrideEmptyCard(systemImage: "square.stack.3d.up",
@@ -132,12 +94,13 @@ struct SessionMCPsView: View {
                         ) { applyToAll(scope, enabled: $0) }
                     } footer: {
                         SessionOverrideListFooter(
-                            note: Text("Toggles override the server's default for this session only."),
+                            note: Text("修改所属 Bot 的连接器设置，对它的全部会话生效。"),
                             searchQuery: searchQuery)
                     }
                 }
             }
-            .navigationTitle("MCPs in Session")
+            .disabled(sessionId.flatMap { workspace.bot(forSession: $0) } == nil)
+            .navigationTitle("Bot 连接器")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchQuery, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: Text(AppLocalized("Search MCP servers")))

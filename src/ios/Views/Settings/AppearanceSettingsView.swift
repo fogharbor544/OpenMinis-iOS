@@ -193,7 +193,7 @@ struct AppearanceSettingsView: View {
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
     @AppStorage("appIconMode") private var appIconMode: Int = 0
     @AppStorage("appLanguage") private var appLanguage: String = ""
-    @AppStorage("launchScreen") private var launchScreen: Int = 0  // 0=Auto, 1=Last Session, 2=New Chat, 3=Home
+    @AppStorage("launch.destination") private var launchScreen: Int = 0
     @AppStorage("toolPreviewEnabled") private var toolPreviewEnabled: Bool = true
     /// 0 = Return inserts a newline (default), 1 = Return sends the message.
     @AppStorage("returnKeyBehavior") private var returnKeyBehavior: Int = 0
@@ -272,15 +272,13 @@ struct AppearanceSettingsView: View {
 
             Section {
                 Picker("Launch Session", selection: $launchScreen) {
-                    Text("Auto").tag(0)
                     Text("Last Session").tag(1)
-                    Text("New Chat").tag(2)
-                    Text("Home").tag(3)
+                    Text("Bots & Groups").tag(0)
                 }
             } header: {
                 Text("Launch Session")
             } footer: {
-                Text("Choose what to show when the app starts. \"Auto\" opens a new chat if the last session is older than 15 minutes.")
+                Text("选择启动时显示 Bot 与群组，或恢复上次会话。")
             }
 
             // Auto-grouping default is OFF on principle: it costs nothing

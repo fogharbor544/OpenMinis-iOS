@@ -72,8 +72,12 @@ struct QuickTaskIntent: AppIntent {
     @Parameter(title: "Send Notifications", description: "When enabled, posts a system notification when the task starts and again when it finishes. Turn this off for automations that run silently. The app's global task-notification setting still applies.", default: true)
     var sendCompletionNotification: Bool
 
+    @Parameter(title: "Bot", description: "Choose a Bot before starting a conversation")
+    var bot: BotEntity?
+
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<SendPromptResult> & ProvidesDialog {
+        guard bot != nil else { throw BotWorkspaceError.botRequired }
         BackgroundKeepAliveManager.shared.setup()
 
         // [T-shortcuts-eager-keepalive] Arm keep-alive BEFORE the ensureSession
@@ -116,7 +120,10 @@ struct QuickTaskIntent: AppIntent {
             eagerKeepAliveSkippedReason: eagerResult.skipReason
         )
 
-        let vm = ViewModelCache.shared.createDraft()
+        guard let bot else { throw BotWorkspaceError.botRequired }
+        let botSessionID = try await BotWorkspaceStore.shared.session(botID: bot.id, newConversation: true)
+        let (vm, _) = ViewModelCache.shared.getOrCreate(for: botSessionID)
+        await vm.loadSession()
         vm.sessionSource = "shortcut"
         // [T-shortcut-duplicate-completion-notification] See SendPromptIntent.
         vm.suppressGeneralCompletionNotification = true
@@ -285,6 +292,7 @@ struct QuickTaskIntent: AppIntent {
     // rest are optional refinements under "Show More".
     static var parameterSummary: some ParameterSummary {
         Summary("Run \(\.$task) in Minis") {
+            \.$bot
             \.$files
             \.$model
             \.$waitForResult

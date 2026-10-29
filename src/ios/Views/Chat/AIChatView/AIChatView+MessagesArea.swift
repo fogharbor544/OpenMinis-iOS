@@ -39,15 +39,6 @@ extension AIChatView {
                 inputFocused: inputFocused,
                 onRetryMessage: { vm.retryFromMessage($0); vm.forceScrollToBottom.send() },
                 onRetryLast: { vm.retry(); vm.forceScrollToBottom.send() },
-                // [T-ios-assistant-header-open-soul] Routed through the same
-                // handler every `minis://` link in the transcript uses, so the
-                // identity row and an agent-authored
-                // `[Soul](minis://settings/soul)` link land identically —
-                // no second navigation path to keep in sync.
-                onOpenSoulSettings: {
-                    guard let url = URL(string: "minis://settings/soul") else { return }
-                    _ = handleMinisURLTap(url)
-                },
                 onEdit: { [self] msgId in
                     vm.editMessage(msgId)
                     inputFocused = true

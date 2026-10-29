@@ -35,6 +35,10 @@ extension AIChatViewModel {
         settlePendingStop(before: "send")  // [T-stop-cleanup-before-new-turn]
         // Read-only mode — cannot send messages
         guard remoteDeviceId == nil else { return }
+        guard helperConfig != nil || botMemoryAvailable else {
+            errorMessage = String(localized: "Choose a Bot before starting a conversation")
+            return
+        }
         // Every `inputText = ""` below is guarded by this: the composer is
         // emptied only when the composer is what was sent.
         let usingComposer = overrideText == nil

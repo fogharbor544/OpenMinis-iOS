@@ -519,6 +519,12 @@ final class MCPStore: ObservableObject {
     // MARK: - Session overrides (mirror SkillStore)
 
     func isEnabledForSession(_ serverId: String, sessionId: String) -> Bool {
+        if let bot = BotWorkspaceStore.shared.bot(forSession: sessionId) {
+            if let choices = bot.connectorOverrides { return choices[serverId] ?? (servers.first(where: { $0.id == serverId })?.enabled ?? false) }
+            // Read the former canonical Bot session only until its choices are saved on the Bot.
+            if let source = bot.sessionId, let value = dbSessionOverride(sessionId: source, serverId: serverId) { return value }
+            return servers.first(where: { $0.id == serverId })?.enabled ?? false
+        }
         if let override = dbSessionOverride(sessionId: sessionId, serverId: serverId) {
             return override
         }
@@ -526,6 +532,13 @@ final class MCPStore: ObservableObject {
     }
 
     func setSessionOverride(serverId: String, sessionId: String, enabled: Bool) {
+        if var bot = BotWorkspaceStore.shared.bot(forSession: sessionId) {
+            var choices = bot.connectorOverrides ?? Dictionary(uniqueKeysWithValues: servers.map { ($0.id, isEnabledForSession($0.id, sessionId: sessionId)) })
+            choices[serverId] = enabled
+            bot.connectorOverrides = choices
+            if BotWorkspaceStore.shared.save(bot) { sessionOverrideVersion += 1 }
+            return
+        }
         let defaultEnabled = servers.first(where: { $0.id == serverId })?.enabled ?? true
         if enabled == defaultEnabled {
             dbDeleteSessionOverride(sessionId: sessionId, serverId: serverId)

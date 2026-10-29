@@ -46,7 +46,7 @@ struct SessionModelPicker: View {
 
     var body: some View {
         UnifiedModelPicker(config: .init(
-            title: "Choose Model",
+            title: "当前会话模型",
             mode: .single,
             groupScope: .all,
             dismissOnSelect: false,
@@ -56,6 +56,10 @@ struct SessionModelPicker: View {
             onSelectGroup: { group in handleGroupTap(group) },
             onSelectInGroup: { entry, group in handleEntryTap(entry, inGroup: group) }
         ))
+        .safeAreaInset(edge: .bottom) {
+            Text("仅更改当前会话的模型，不影响 Bot 默认设置或其它会话。")
+                .font(.footnote).foregroundStyle(.secondary).padding().background(.regularMaterial)
+        }
         .alert(
             AppLocalized("This model may not work as an Agent"),
             isPresented: Binding(

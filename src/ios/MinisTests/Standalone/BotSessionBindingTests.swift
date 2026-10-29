@@ -12,6 +12,7 @@ actor ChatStore {
     }
     func remove(_ id: String) { sessions[id] = nil }
     func count() -> Int { sessions.count }
+    func getMemoryEnabled(sessionId: String) -> Bool { false }
 }
 struct TestModel { let id = "model" }
 struct TestEntry { let model = TestModel() }
@@ -67,20 +68,19 @@ struct TestCapability { let id: String }
         precondition(store.save(room))
         let groupID = try await store.session(botID: bot.id, roomID: room.id)
         precondition(groupID != privateID)
-        precondition(!SkillStore.shared.isEnabledForSession("skill", sessionId: groupID))
-        precondition(!MCPStore.shared.isEnabledForSession("server", sessionId: groupID))
+        precondition(store.bot(bot.id)?.skillOverrides != nil)
+        precondition(store.bot(bot.id)?.connectorOverrides != nil)
         SkillStore.shared.setSessionOverride(skillId: "skill", sessionId: privateID, enabled: true)
         let sameGroup = try await store.session(botID: bot.id, roomID: room.id)
-        precondition(sameGroup == groupID && !SkillStore.shared.isEnabledForSession("skill", sessionId: groupID))
+        precondition(sameGroup == groupID)
         var edited = store.bot(bot.id)!
         edited.modelGroupId = "alternate"
         precondition(store.save(edited))
-        store.applyModel(for: edited)
         for id in [privateID, groupID] {
             guard case .group(let group, let entry) = ProviderConfigStore.shared.bindings[id]?.primarySource else {
                 fatalError("Missing binding")
             }
-            precondition(group == "alternate" && entry == "alternate-entry")
+            precondition(group == "default" && entry == "default-entry")
         }
         await ChatStore.shared.remove(privateID)
         let replacement = try await store.session(botID: bot.id)

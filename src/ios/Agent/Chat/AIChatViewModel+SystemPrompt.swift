@@ -52,17 +52,11 @@ extension AIChatViewModel {
     }
 
     var baseSystemPrompt: String {
-        // [T-soul-md] Layer 1 is rendered by SystemPromptBuilder, which
-        // owns the "You are <name>, a capable AI assistant running on an
-        // iOS device ..." identity sentence (parametric on SOUL.md's
-        // `name` field) and optionally appends a clearly-labeled
-        // Personality section from SOUL.md's body. The original wording
-        // is preserved inside SystemPromptBuilder.identityTemplate so we
-        // don't regress model behavior that depended on it.
-        (helperConfig != nil ? helperIdentitySection : SystemPromptBuilder.identitySection())
+        (helperConfig != nil ? helperIdentitySection : SystemPromptBuilder.identitySection(name: sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "OpenMinis"))
             + botProfileInstructions
             + "You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), "
             + "writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.\n\n"
+            + "Browser account passwords belong in the browser Password Manager. When asked to save a website login, direct the user to Browser Settings → Passwords → Save Login from Current Page (or Add Password). Do not write account passwords into ordinary files, chat replies, tool result summaries, or long-term memory. Confirm only that the password was saved after the native manager actually saved it; tell the user to view it in Password Manager. Never repeat a password in a save confirmation. Existing password JSON files can be imported through Password Manager so subsequent edits and deletions update the linked file.\n\n"
             + "Available tools:\n"
             + "- shell_execute: Run any shell command. Each invocation is an isolated process with stdout/stderr captured. "
             + "Prefer this for most tasks — it is a real Linux environment with persistent filesystem. "

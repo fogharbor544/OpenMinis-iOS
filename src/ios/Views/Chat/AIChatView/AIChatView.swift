@@ -489,10 +489,9 @@ struct AIChatView: View {
     @State var titlePillSession: ChatSession?
     /// Session being edited via the title-pill tap. Drives the SessionEditSheet.
     @State var titlePillEditSession: ChatSession?
-    /// Default chat title for sessions without a generated title. Sourced
-    /// from SOUL.md (`name`), falls back to "Minis". Refreshed on .soulMdChanged.
-    @State var soulName: String = SoulStore.cachedMetadata.name.isEmpty
-        ? "Minis" : SoulStore.cachedMetadata.name
+    var soulName: String {
+        vm.sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "OpenMinis"
+    }
 
     /// True when any sheet or fullScreenCover is presented (suppress auto-focus to avoid keyboard bugs).
     var hasOverlayPresented: Bool {
@@ -927,7 +926,7 @@ struct AIChatView: View {
         .alert(AppLocalized("Task Running"), isPresented: $showNewChatStopConfirm) {
             Button(AppLocalized("Stop & New Chat"), role: .destructive) {
                 vm.stopByUser()
-                NotificationCenter.default.post(name: .newChatRequested, object: nil)
+                createNewConversationForCurrentBot()
             }
             Button(AppLocalized("Cancel"), role: .cancel) {}
         } message: {
@@ -1098,8 +1097,10 @@ struct AIChatView: View {
         }
         .sheet(isPresented: $showFileBrowser) {
             NavigationStack {
-                let base = RootfsManager.shared.dataPath
-                FileBrowserView(rootPath: base, initialPath: base.appendingPathComponent("var/minis"), rootLabel: "/")
+                if let sid = vm.sessionId, BotWorkspaceStore.shared.bot(forSession: sid) != nil {
+                    let path = AIChatViewModel.minisPersistentBase.appendingPathComponent(sid, isDirectory: true)
+                    FileBrowserView(rootPath: path, initialPath: path, rootLabel: "对话文件", restrictToRoot: true)
+                } else { Text("请先选择 Bot 会话。") }
             }
         }
         .sheet(isPresented: $showBrowserSheet) {
@@ -1134,14 +1135,10 @@ struct AIChatView: View {
             // so a pre-first-message toggle binds its override to the session
             // the chat will actually persist under, instead of the "" phantom
             // key (T-ios-session-skill-override-init-timing).
-            SessionSkillsView(sessionId: vm.sessionId) {
-                await vm.ensureSessionReturningId()
-            }
+            SessionSkillsView(sessionId: vm.sessionId)
         }
         .sheet(isPresented: $showSessionMCPs) {
-            SessionMCPsView(sessionId: vm.sessionId) {
-                await vm.ensureSessionReturningId()
-            }
+            SessionMCPsView(sessionId: vm.sessionId)
         }
         .sheet(isPresented: $showSessionMemory) {
             SessionMemoryView(vm: cached.vm)

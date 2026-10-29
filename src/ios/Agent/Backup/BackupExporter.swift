@@ -323,9 +323,6 @@ actor BackupExporter {
         try await run(.skills, AppLocalized("Exporting skills…")) {
             try await exportSkills(dataDir: dataDir, trees: trees)
         }
-        try await run(.soul, AppLocalized("Exporting persona…")) {
-            try exportSoul(dataDir: dataDir)
-        }
         try await run(.providers, AppLocalized("Exporting providers…")) {
             try await exportProviders(dataDir: dataDir, staging: staging,
                                       includeCredentials: options.includeCredentials)

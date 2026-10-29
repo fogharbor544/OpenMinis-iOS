@@ -34,7 +34,6 @@ extension CollectionViewMessageListV3 {
     final class Coordinator: NSObject, UICollectionViewDelegate, UIScrollViewDelegate, UICollectionViewDataSourcePrefetching {
         // Callbacks
         var onRetryMessage: ((UUID) -> Void)?
-        var onOpenSoulSettings: (() -> Void)?
         var onRetryLast: (() -> Void)?
         var onEdit: ((UUID) -> Void)?
         var onDeleteFrom: ((UUID) -> Void)?

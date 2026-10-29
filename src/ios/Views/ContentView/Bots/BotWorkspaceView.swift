@@ -25,6 +25,7 @@ struct BotWorkspaceView: View {
     @FocusState private var searchFocused: Bool
     @State private var savedNewBot: BotProfile?
     @State private var opening = false
+    @State private var failedBot: BotProfile?
     @State private var deletingBot: BotProfile?
     @State private var deletingRoom: BotRoom?
     @State private var memoryTarget: BotMemoryTarget?
@@ -41,6 +42,9 @@ struct BotWorkspaceView: View {
             List {
                 if let error = store.errorMessage { Text(error).foregroundStyle(.red) }
                 if opening { ProgressView("正在打开 Bot…") }
+                if let failedBot {
+                    Button("Retry") { open(failedBot) }.disabled(opening)
+                }
                 Section("Bots") {
                     ForEach(store.data.bots.filter { query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || botSnippets[$0.id] != nil }) { bot in
                         Button { open(bot) } label: {
@@ -219,6 +223,7 @@ struct BotWorkspaceView: View {
 
 
     private func open(_ bot: BotProfile) {
+        failedBot = nil
         opening = true
         Task { @MainActor in
             defer { opening = false }
@@ -227,7 +232,7 @@ struct BotWorkspaceView: View {
                 if let onOpenConversation { onOpenConversation(id) }
                 else { chat = BotChatTarget(id: id) }
             }
-            catch { store.errorMessage = error.localizedDescription }
+            catch { failedBot = bot; store.errorMessage = error.localizedDescription }
         }
     }
 }
@@ -250,7 +255,7 @@ struct BotProfileEditor: View {
                         BotAvatar(profile: profile)
                         PhotosPicker("Choose Custom Image", selection: $selectedPhoto, matching: .images)
                     }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 44))]) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 12)], spacing: 12) {
                         ForEach(SessionCategory.all, id: \.key) { category in
                             let symbol = category.icon
                             Button {
@@ -258,9 +263,17 @@ struct BotProfileEditor: View {
                                 profile.iconImageData = nil
                                 profile.iconSymbol = symbol
                             } label: {
-                                Image(systemName: symbol).foregroundStyle(category.color).frame(width: 44, height: 44)
-                                    .background(profile.iconImageData == nil && profile.iconSymbol == symbol ? category.color.opacity(0.2) : Color.clear)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                let selected = profile.iconImageData == nil && profile.iconSymbol == symbol
+                                VStack(spacing: 6) {
+                                    Image(systemName: symbol)
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(selected ? .white : category.color)
+                                        .frame(width: 44, height: 44)
+                                        .background(Circle().fill(selected ? category.color : category.color.opacity(0.12)))
+                                    Text(LocalizedStringKey(category.label))
+                                        .font(.caption2)
+                                        .foregroundStyle(selected ? category.color : .secondary)
+                                }
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(Text(LocalizedStringKey(category.label)))
@@ -489,6 +502,7 @@ struct BotAvatar: View {
 }
 
 struct BotConversationPicker: View {
+    var excludedSessionID: String? = nil
     var onSelect: (String) -> Void
     @ObservedObject private var store = BotWorkspaceStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -501,7 +515,7 @@ struct BotConversationPicker: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(store.data.bots) { bot in
+                    ForEach(store.data.bots.filter { excludedSessionID == nil || $0.sessionId != excludedSessionID }) { bot in
                         Button {
                             opening = true
                             Task { @MainActor in
@@ -574,7 +588,7 @@ struct BotCapabilitySettingsView: View {
             }
             if let error = workspace.errorMessage { Text(error).foregroundStyle(.red) }
         }
-        .navigationTitle(skills ? "Bot 技能配置" : "Bot 连接器配置")
+        .navigationTitle(skills ? LocalizedStringKey("Bot 技能配置") : LocalizedStringKey("Bot 连接器配置"))
     }
 
     private func update(_ botID: String, capability: String, enabled: Bool) {

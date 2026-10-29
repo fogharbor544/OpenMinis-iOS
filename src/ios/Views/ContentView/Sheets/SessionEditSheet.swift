@@ -21,24 +21,6 @@ struct SessionEditSheet: View {
     @State private var editCategory: String = ""
     @State private var isRegenerating = false
 
-    private static let categories: [(key: String, label: String, icon: String, color: Color)] = [
-        ("code",         "Code",         "terminal.fill",               .orange),
-        ("writing",      "Writing",      "doc.text.fill",               .blue),
-        ("research",     "Research",     "globe.americas.fill",         .teal),
-        ("analysis",     "Analysis",     "chart.pie.fill",              .indigo),
-        ("creative",     "Creative",     "paintbrush.pointed.fill",     .pink),
-        ("chat",         "Chat",         "bubble.left.fill",            .green),
-        ("math",         "Math",         "number.circle.fill",          .purple),
-        ("translation",  "Translation",  "character.bubble",            .cyan),
-        ("health",       "Health",       "heart.fill",                  .red),
-        ("finance",      "Finance",      "banknote.fill",               .mint),
-        ("travel",       "Travel",       "map.fill",                    .orange),
-        ("education",    "Education",    "book.closed.fill",            .blue),
-        ("design",       "Design",       "paintpalette.fill",           .pink),
-        ("productivity", "Productivity", "calendar.badge.checkmark",    .yellow),
-        ("support",      "Support",      "gearshape.fill",              .brown),
-        ("other",        "Other",        "square.grid.2x2.fill",       .gray),
-    ]
 
     var body: some View {
         NavigationStack {
@@ -49,7 +31,7 @@ struct SessionEditSheet: View {
 
                 Section("Category") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 12)], spacing: 12) {
-                        ForEach(Self.categories, id: \.key) { cat in
+                        ForEach(SessionCategory.all, id: \.key) { cat in
                             Button {
                                 editCategory = cat.key
                             } label: {

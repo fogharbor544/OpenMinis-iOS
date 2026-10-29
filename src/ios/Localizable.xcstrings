@@ -1,6 +1,246 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "搜索 Bot、群聊及消息": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Search Bots, groups and messages"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "搜索 Bot、群聊及消息"
+        }
+      }
+    }
+  },
+  "关闭搜索": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Close search"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "关闭搜索"
+        }
+      }
+    }
+  },
+  "没有找到匹配的 Bot、群聊或消息": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "No matching Bots, groups or messages"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "没有找到匹配的 Bot、群聊或消息"
+        }
+      }
+    }
+  },
+  "正在打开 Bot…": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Opening Bot…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在打开 Bot…"
+        }
+      }
+    }
+  },
+  "工具": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tools"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "工具"
+        }
+      }
+    }
+  },
+  "按 Bot 配置": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Configure by Bot"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "按 Bot 配置"
+        }
+      }
+    }
+  },
+  "恢复全局默认": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Use global defaults"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "恢复全局默认"
+        }
+      }
+    }
+  },
+  "Bot 技能配置": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bot skills"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bot 技能配置"
+        }
+      }
+    }
+  },
+  "Bot 连接器配置": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bot connectors"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bot 连接器配置"
+        }
+      }
+    }
+  },
+  "请先创建 Bot": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Create a Bot first"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "请先创建 Bot"
+        }
+      }
+    }
+  },
+  "点击 Bot 开始对话。技能和连接器在应用设置中管理，Bot 资料和群聊记录保存在此设备。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tap a Bot to chat. Manage skills and connectors in Settings. Bot profiles and group transcripts are stored on this device."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "点击 Bot 开始对话。技能和连接器在应用设置中管理，Bot 资料和群聊记录保存在此设备。"
+        }
+      }
+    }
+  },
+  "技能和连接器请在应用设置中管理。模型组作为首次打开 Bot 的默认值。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Manage skills and connectors in Settings. The model group is used when first opening this Bot."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "技能和连接器请在应用设置中管理。模型组作为首次打开 Bot 的默认值。"
+        }
+      }
+    }
+  },
+  "The conversation context has reached its limit. Compact messages or clear the chat to continue.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The conversation context has reached its limit. Compact messages or clear the chat to continue."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "对话上下文已达上限，请压缩消息或清空对话后继续。"
+        }
+      }
+    }
+  },
+  "Delete Bot and its memories? Shared access to its memories will be removed. Chat data is retained.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Delete Bot and its memories? Shared access to its memories will be removed. Chat data is retained."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除 Bot 及其记忆？其他 Bot 将无法再访问它共享的记忆。聊天数据会保留。"
+        }
+      }
+    }
+  },
+  "Delete this group, its memories and shared transcript? Member chat data is retained.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Delete this group, its memories and shared transcript? Member chat data is retained."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除此群聊、记忆及群聊记录？成员聊天数据会保留。"
+        }
+      }
+    }
+  },
   "Exporting persona…": {
     "localizations": {
       "en": {

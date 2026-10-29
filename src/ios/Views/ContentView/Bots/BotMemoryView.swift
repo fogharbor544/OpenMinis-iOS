@@ -161,38 +161,3 @@ private struct BotMemorySharingView: View {
         Binding(get: { grants.contains(key) }, set: { if $0 { grants.insert(key) } else { grants.remove(key) } })
     }
 }
-
-struct BotConversationsView: View {
-    let botID: String
-    var onOpen: (String) -> Void
-    @ObservedObject private var store = BotWorkspaceStore.shared
-    @Environment(\.dismiss) private var dismiss
-    @State private var titles: [String: String] = [:]
-    @State private var ids: [String] = []
-    var body: some View {
-        NavigationStack {
-            List(Array(ids.reversed().enumerated()), id: \.element) { index, id in
-                Button(titles[id] ?? "Conversation \(ids.count - index)") {
-                    Task {
-                        if await store.selectConversation(id, botID: botID) { dismiss(); onOpen(id) }
-                        else { ids.removeAll { $0 == id } }
-                    }
-                }
-            }
-            .navigationTitle("Conversations")
-            .toolbar { Button("Done") { dismiss() } }
-            .task {
-                var available: [String] = []
-                var loadedTitles: [String: String] = [:]
-                for id in store.bot(botID)?.conversationIds ?? [] {
-                    if let session = await ChatStore.shared.getSession(id) {
-                        available.append(id)
-                        loadedTitles[id] = session.title
-                    }
-                }
-                titles = loadedTitles
-                ids = available
-            }
-        }
-    }
-}

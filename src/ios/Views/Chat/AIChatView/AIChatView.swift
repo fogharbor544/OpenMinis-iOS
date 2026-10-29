@@ -351,7 +351,6 @@ struct AIChatView: View {
     /// [T-new-chat-menu-entry] Confirmation gate for "New Chat" from the "…"
     /// menu while the current session is still streaming: stopping the task is
     /// destructive enough to warrant an explicit confirm.
-    @State var showNewChatStopConfirm = false
     @State var showForcePullConfirm = false
     // [inline-voice] Inline voice input mode: the composer's text area becomes a
     // VAD waveform + live transcript when active. Backed by a shared in-memory
@@ -398,8 +397,6 @@ struct AIChatView: View {
     @State var hasInjectedShareContent = false
     @State var showModelPicker = false
     @State var showThinkingLevelSheet = false
-    @State var showSessionSkills = false
-    @State var showSessionMCPs = false
     @State var showSessionMemory = false
     @State var showEnhancedCacheAlert = false
     @State var showTokenUsage = false
@@ -489,6 +486,8 @@ struct AIChatView: View {
     @State var titlePillSession: ChatSession?
     /// Session being edited via the title-pill tap. Drives the SessionEditSheet.
     @State var titlePillEditSession: ChatSession?
+    @State var editingBot: BotProfile?
+    @ObservedObject var botWorkspace = BotWorkspaceStore.shared
     var soulName: String {
         vm.sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "OpenMinis"
     }
@@ -919,18 +918,7 @@ struct AIChatView: View {
                 vm.cancelCompactBeforeSend()
             }
         } message: {
-            Text(AppLocalized("The conversation context has reached its limit. Start a new session or clear the chat to continue."))
-        }
-        // [T-new-chat-menu-entry] Streaming guard for the "…" menu's New Chat:
-        // confirm → stop the running task, then create; cancel → stay put.
-        .alert(AppLocalized("Task Running"), isPresented: $showNewChatStopConfirm) {
-            Button(AppLocalized("Stop & New Chat"), role: .destructive) {
-                vm.stopByUser()
-                createNewConversationForCurrentBot()
-            }
-            Button(AppLocalized("Cancel"), role: .cancel) {}
-        } message: {
-            Text(AppLocalized("A task is running in this chat. Starting a new chat will stop it."))
+            Text(AppLocalized("The conversation context has reached its limit. Compact messages or clear the chat to continue."))
         }
         .alert(AppLocalized("Clear Chat"), isPresented: $showClearChatConfirm) {
             Button(AppLocalized("Clear"), role: .destructive) { vm.clearChat() }
@@ -1130,16 +1118,7 @@ struct AIChatView: View {
                   target.sessionId == vm.sessionId else { return }
             openSharePicker(selecting: target.messageId)
         }
-        .sheet(isPresented: $showSessionSkills) {
-            // Pass the real id (nil for a draft) plus an ensure-session closure
-            // so a pre-first-message toggle binds its override to the session
-            // the chat will actually persist under, instead of the "" phantom
-            // key (T-ios-session-skill-override-init-timing).
-            SessionSkillsView(sessionId: vm.sessionId)
-        }
-        .sheet(isPresented: $showSessionMCPs) {
-            SessionMCPsView(sessionId: vm.sessionId)
-        }
+        .sheet(item: $editingBot) { BotProfileEditor(profile: $0) }
         .sheet(isPresented: $showSessionMemory) {
             SessionMemoryView(vm: cached.vm)
         }

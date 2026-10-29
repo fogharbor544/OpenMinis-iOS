@@ -30,17 +30,17 @@ extension BotWorkspaceStore {
         }
     }
 
-    func selectConversation(_ id: String, botID: String) async -> Bool {
-        guard await ChatStore.shared.getSession(id) != nil else { return false }
-        guard owner(forSession: id)?.botId == botID, owner(forSession: id)?.roomId == nil,
-              let index = data.bots.firstIndex(where: { $0.id == botID }) else { return false }
-        var next = data
-        next.bots[index].sessionId = id
-        return persist(next)
+    /// Creates only a normal ChatStore session; model/tools/streaming remain owned by the existing runtime.
+    func session(botID: String, roomID: String? = nil) async throws -> String {
+        let key = roomID.map { "room:\($0):\(botID)" } ?? "bot:\(botID)"
+        if let pending = pendingSessions[key] { return try await pending.value }
+        let task = Task { @MainActor in try await self.prepareSession(botID: botID, roomID: roomID) }
+        pendingSessions[key] = task
+        defer { pendingSessions[key] = nil }
+        return try await task.value
     }
 
-    /// Creates only a normal ChatStore session; model/tools/streaming remain owned by the existing runtime.
-    func session(botID: String, roomID: String? = nil, newConversation: Bool = false) async throws -> String {
+    private func prepareSession(botID: String, roomID: String?) async throws -> String {
         guard let profile = bot(botID) else { throw BotWorkspaceError.missingBot }
         if profile.skillOverrides == nil || profile.connectorOverrides == nil {
             var updated = profile
@@ -54,7 +54,7 @@ extension BotWorkspaceStore {
             guard save(updated) else { throw BotWorkspaceError.storage }
         }
         let saved = roomID.flatMap { room($0)?.sessions[botID] } ?? (roomID == nil ? profile.sessionId : nil)
-        if !newConversation, let saved, await ChatStore.shared.getSession(saved) != nil { return saved }
+        if let saved, await ChatStore.shared.getSession(saved) != nil { return saved }
         let providers = ProviderConfigStore.shared
         guard let groupID = profile.modelGroupId ?? providers.defaultPrimaryGroupId,
               let group = providers.group(for: groupID),

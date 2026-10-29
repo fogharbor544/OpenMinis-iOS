@@ -1,5 +1,28 @@
 import SwiftUI
 
+enum SessionCategory {
+    static let all: [(key: String, label: String, icon: String, color: Color)] = [
+        ("code",         "Code",         "terminal.fill",               .orange),
+        ("writing",      "Writing",      "doc.text.fill",               .blue),
+        ("research",     "Research",     "globe.americas.fill",         .teal),
+        ("analysis",     "Analysis",     "chart.pie.fill",              .indigo),
+        ("creative",     "Creative",     "paintbrush.pointed.fill",     .pink),
+        ("chat",         "Chat",         "bubble.left.fill",            .green),
+        ("math",         "Math",         "number.circle.fill",          .purple),
+        ("translation",  "Translation",  "character.bubble",            .cyan),
+        ("health",       "Health",       "heart.fill",                  .red),
+        ("finance",      "Finance",      "banknote.fill",               .mint),
+        ("travel",       "Travel",       "map.fill",                    .orange),
+        ("education",    "Education",    "book.closed.fill",            .blue),
+        ("design",       "Design",       "paintpalette.fill",           .pink),
+        ("productivity", "Productivity", "calendar.badge.checkmark",    .yellow),
+        ("support",      "Support",      "gearshape.fill",              .brown),
+        ("other",        "Other",        "square.grid.2x2.fill",       .gray),
+    ]
+
+}
+
+
 struct BotProfile: Identifiable, Codable {
     var id = UUID().uuidString
     var name: String
@@ -13,10 +36,7 @@ struct BotProfile: Identifiable, Codable {
     var connectorOverrides: [String: Bool]?
     var memoryEnabled: Bool?
 
-    static let builtinIcons = ["sparkles", "brain", "book.closed", "pencil.and.outline",
-                               "terminal", "globe", "leaf", "lightbulb", "paintpalette",
-                               "music.note", "graduationcap", "bolt", "heart", "star",
-                               "camera", "paperplane"]
+    static let builtinIcons = SessionCategory.all.map(\.icon)
 }
 
 struct BotSessionOwner: Codable {
@@ -55,6 +75,7 @@ final class BotWorkspaceStore: ObservableObject {
     static let shared = BotWorkspaceStore()
     @Published private(set) var data = BotWorkspaceData()
     @Published var errorMessage: String?
+    var pendingSessions: [String: Task<String, Error>] = [:]
     private let fileURL: URL
     private var unreadable = false
 
@@ -194,5 +215,41 @@ enum BotWorkspaceError: LocalizedError {
         case .busy: return String(localized: "This Bot is already working. Wait or stop its current turn.")
         case .rejected(let reason): return reason
         }
+    }
+}
+
+
+/// Search results belong to Bots or groups, never to the hidden runtime sessions.
+enum BotWorkspaceSearch {
+    struct Hit { let sessionID: String; let snippet: String }
+
+    static func matches(data: BotWorkspaceData, terms: [String], hits: [Hit]) -> (bots: [String: String], rooms: [String: String]) {
+        guard !terms.isEmpty else { return ([:], [:]) }
+        func contains(_ text: String) -> Bool {
+            terms.contains { text.localizedCaseInsensitiveContains($0) }
+        }
+        var bots: [String: String] = [:]
+        var rooms: [String: String] = [:]
+        for bot in data.bots where contains(bot.name) { bots[bot.id] = "" }
+        for room in data.rooms {
+            if contains(room.name) { rooms[room.id] = "" }
+            if let message = room.messages.last(where: { contains($0.text) }) {
+                // Keep the matched term visible even in a long group message.
+                let range = terms.compactMap { message.text.range(of: $0, options: .caseInsensitive) }.first
+                let start = range.map { message.text.index($0.lowerBound, offsetBy: -18, limitedBy: message.text.startIndex) ?? message.text.startIndex } ?? message.text.startIndex
+                rooms[room.id] = String(message.text[start...].prefix(120))
+            }
+        }
+        for hit in hits {
+            guard let owner = data.sessionOwners[hit.sessionID] else { continue }
+            if let roomID = owner.roomId {
+                guard data.rooms.contains(where: { $0.id == roomID }) else { continue }
+                if rooms[roomID] == nil || rooms[roomID] == "" { rooms[roomID] = hit.snippet }
+            } else {
+                guard data.bots.contains(where: { $0.id == owner.botId && $0.sessionId == hit.sessionID }) else { continue }
+                if bots[owner.botId] == nil || bots[owner.botId] == "" { bots[owner.botId] = hit.snippet }
+            }
+        }
+        return (bots, rooms)
     }
 }

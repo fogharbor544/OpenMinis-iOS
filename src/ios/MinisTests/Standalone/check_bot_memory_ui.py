@@ -30,7 +30,17 @@ struct TestCapability: Identifiable {
 ''')
 stubs = stubs.replace('struct TestGroup { let id: String }', 'struct TestGroup: Identifiable { let id: String; var name: String { id } }')
 stubs = stubs.replace('final class ProviderConfigStore {', 'final class ProviderConfigStore: ObservableObject {\n    var modelGroups: [TestGroup] = []')
+stubs = stubs.replace('final class SkillStore {', 'final class SkillStore: ObservableObject {')
+stubs = stubs.replace('final class MCPStore {', 'final class MCPStore: ObservableObject {')
 stubs += '''
+enum SearchKeywords {
+    static func terms(_ query: String) -> [String] { query.split(separator: " ").map(String.init) }
+}
+extension ChatStore {
+    struct SearchResult { let session: ChatSession; let matchSnippet: String? }
+    func searchSessions(query: String) -> [SearchResult] { [] }
+}
+
 func AppLocalized(_ value: String) -> String { value }
 @MainActor final class SessionMenuActionChannel: ObservableObject {}
 struct MenuKey {

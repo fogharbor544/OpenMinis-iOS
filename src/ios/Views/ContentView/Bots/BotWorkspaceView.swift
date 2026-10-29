@@ -6,12 +6,11 @@ private struct BotMemoryTarget: Identifiable { var id: String; var title: String
 
 struct BotWorkspaceView: View {
     var embedded = false
-    var historicalSessions: [ChatSession] = []
-    var sessionSnapshots: [ChatSession]? = nil
-    var sessionMenuActions: SessionMenuActionChannel? = nil
-    var onShowHistory: (() -> Void)?
+    var onOpenTerminal: (() -> Void)?
+    var onOpenRootfs: (() -> Void)?
+    var onOpenBrowser: (() -> Void)?
+    var onBrowserSettings: (() -> Void)?
     var onOpenSettings: (() -> Void)?
-    var onNewConversation: (() -> Void)?
     var onOpenConversation: ((String) -> Void)?
     @ObservedObject private var store = BotWorkspaceStore.shared
     @ObservedObject private var runner = BotRoomRunner.shared
@@ -19,13 +18,16 @@ struct BotWorkspaceView: View {
     @State private var editingBot: BotProfile?
     @State private var editingRoom: BotRoom?
     @State private var chat: BotChatTarget?
-    @State private var expandedBots: Set<String> = []
+    @State private var showSearch = false
+    @State private var query = ""
+    @State private var botSnippets: [String: String] = [:]
+    @State private var roomSnippets: [String: String] = [:]
+    @FocusState private var searchFocused: Bool
+    @State private var savedNewBot: BotProfile?
     @State private var opening = false
     @State private var deletingBot: BotProfile?
     @State private var deletingRoom: BotRoom?
     @State private var memoryTarget: BotMemoryTarget?
-    @State private var conversationsBot: BotProfile?
-    @State private var selectedConversation: String?
     @ObservedObject private var memory = BotMemoryStore.shared
 
     var body: some View {
@@ -38,24 +40,24 @@ struct BotWorkspaceView: View {
     private var workspaceContent: some View {
             List {
                 if let error = store.errorMessage { Text(error).foregroundStyle(.red) }
+                if opening { ProgressView("正在打开 Bot…") }
                 Section("Bots") {
-                    ForEach(store.data.bots) { bot in
-                        Button {
-                            if expandedBots.contains(bot.id) { expandedBots.remove(bot.id) }
-                            else { expandedBots.insert(bot.id) }
-                        } label: {
+                    ForEach(store.data.bots.filter { query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || botSnippets[$0.id] != nil }) { bot in
+                        Button { open(bot) } label: {
                             HStack {
                                 BotAvatar(profile: bot)
-                                Text(bot.name).foregroundStyle(.primary)
+                                VStack(alignment: .leading) {
+                                    Text(bot.name).foregroundStyle(.primary)
+                                    if let snippet = botSnippets[bot.id], !snippet.isEmpty {
+                                        Text(snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                }
                                 Spacer()
-                                Image(systemName: expandedBots.contains(bot.id) ? "chevron.down" : "chevron.right").foregroundStyle(.secondary)
                             }.frame(minHeight: 44)
                         }
-                        .accessibilityLabel("\(bot.name)，\(expandedBots.contains(bot.id) ? "收起会话" : "展开会话")")
+                        .accessibilityLabel(bot.name)
                         .disabled(opening)
                         .contextMenu {
-                            Button("New Conversation") { open(bot, newConversation: true) }
-                            Button("Conversations") { conversationsBot = bot }
                             Button("Memory") { memoryTarget = BotMemoryTarget(id: "bot:\(bot.id)", title: bot.name) }
                             Button("Edit") { editingBot = bot }
                                 .disabled(!runner.activeRooms.isEmpty)
@@ -64,19 +66,18 @@ struct BotWorkspaceView: View {
                         }
                         .swipeActions(edge: .leading) { Button("Edit") { editingBot = bot }.disabled(!runner.activeRooms.isEmpty) }
                         .swipeActions { Button("Delete", role: .destructive) { deletingBot = bot }.disabled(!runner.activeRooms.isEmpty) }
-                        if expandedBots.contains(bot.id) {
-                            BotConversationRows(bot: bot, menuActions: sessionMenuActions, snapshots: sessionSnapshots, onOpen: { id in
-                                if let onOpenConversation { onOpenConversation(id) }
-                                else { chat = BotChatTarget(id: id) }
-                            }, onCreate: { open(bot, newConversation: true) })
-                        }
                     }
                 }
                 Section("Groups") {
-                    ForEach(store.data.rooms) { room in
+                    ForEach(store.data.rooms.filter { query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || roomSnippets[$0.id] != nil }) { room in
                         NavigationLink { BotRoomView(roomID: room.id) } label: {
                             HStack {
-                                Label(room.name, systemImage: "person.2")
+                                VStack(alignment: .leading) {
+                                    Label(room.name, systemImage: "person.2")
+                                    if let snippet = roomSnippets[room.id], !snippet.isEmpty {
+                                        Text(snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                }
                                 Spacer()
                                 if runner.activeRooms.contains(room.id) { ProgressView() }
                             }
@@ -87,30 +88,31 @@ struct BotWorkspaceView: View {
                         }
                     }
                 }
-                if !historicalSessions.isEmpty {
-                    Section("历史会话") {
-                        ForEach(historicalSessions) { session in
-                            Button {
-                                if let onOpenConversation { onOpenConversation(session.id) }
-                                else { chat = BotChatTarget(id: session.id) }
-                            } label: { SessionRow(session: session).equatable() }
-                            .contextMenu {
-                                if let sessionMenuActions {
-                                    SessionContextMenu(key: MenuKey(sid: session.id, pinned: session.isPinned, title: session.title, filed: session.isFiled), actions: sessionMenuActions)
-                                }
-                            }
-                        }
-                    }
+                if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && botSnippets.isEmpty && roomSnippets.isEmpty {
+                    Text("没有找到匹配的 Bot、群聊或消息").foregroundStyle(.secondary)
                 }
                 Section {
                     NavigationLink("Shared Materials") { BotMemoryView(owner: "shared", title: "Shared Materials") }
-                    Text("Bots use OpenMinis model groups, skills, MCP servers and device permissions. Expand a Bot to see its conversations. Bot profiles and group transcripts are stored on this device.")
+                    Text("点击 Bot 开始对话。技能和连接器在应用设置中管理，Bot 资料和群聊记录保存在此设备。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Bots & Groups")
             .safeAreaInset(edge: .bottom) {
-                HStack {
+                HStack(spacing: 12) {
+                    if showSearch {
+                        HStack {
+                            TextField("搜索 Bot、群聊及消息", text: $query)
+                                .focused($searchFocused).autocorrectionDisabled()
+                            Button { query = ""; showSearch = false } label: { Image(systemName: "xmark.circle.fill") }
+                                .accessibilityLabel("关闭搜索").frame(width: 44, height: 44)
+                        }.padding(.leading, 12).background(.regularMaterial, in: Capsule())
+                    } else {
+                        Button { showSearch = true; searchFocused = true } label: {
+                            Image(systemName: "magnifyingglass").font(.title2).frame(width: 56, height: 56)
+                        }.accessibilityLabel("搜索 Bot、群聊及消息")
+                        Spacer()
+                    }
                     Menu {
                         Button("创建 Bot") { editingBot = store.newBot() }
                         Button("创建群聊") { editingRoom = BotRoom(name: "", members: []) }
@@ -120,7 +122,6 @@ struct BotWorkspaceView: View {
                     }
                     .buttonStyle(.borderedProminent).clipShape(Circle())
                     .accessibilityLabel("创建 Bot 或群聊")
-                    Spacer()
                 }.padding()
             }
             .toolbar {
@@ -128,22 +129,31 @@ struct BotWorkspaceView: View {
                     if let onOpenSettings { Button(action: onOpenSettings) { Image(systemName: "gear") }.accessibilityLabel("Settings") }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !embedded { Button("Done") { dismiss() } }
+                    Menu {
+                        Button { onOpenTerminal?() } label: { Label("Shell Terminal", systemImage: "terminal") }
+                        Button { onOpenRootfs?() } label: { Label("Rootfs Management", systemImage: "externaldrive") }
+                        Divider()
+                        Button { onOpenBrowser?() } label: { Label("Open Browser", systemImage: "globe") }
+                        Button { onBrowserSettings?() } label: { Label("Browser Settings", systemImage: "globe.badge.chevron.backward") }
+                    } label: { Image(systemName: "terminal") }
+                    .accessibilityLabel("工具")
                 }
             }
-            .sheet(item: $editingBot) { BotProfileEditor(profile: $0) }
+            .background {
+                Button { showSearch = true; searchFocused = true } label: { EmptyView() }
+                    .keyboardShortcut("f", modifiers: .command).hidden()
+            }
+            .task(id: query) { await search() }
+            .sheet(item: $editingBot, onDismiss: {
+                if let bot = savedNewBot { savedNewBot = nil; open(bot) }
+            }) { profile in
+                BotProfileEditor(profile: profile) { saved in
+                    if profile.sessionId == nil { savedNewBot = saved }
+                }
+            }
             .sheet(item: $editingRoom) { BotRoomEditor(room: $0) }
             .sheet(item: $memoryTarget) { target in
                 NavigationStack { BotMemoryView(owner: target.id, title: target.title).toolbar { Button("Done") { memoryTarget = nil } } }
-            }
-            .sheet(item: $conversationsBot, onDismiss: {
-                if let id = selectedConversation {
-                    selectedConversation = nil
-                    if let onOpenConversation { onOpenConversation(id) }
-                    else { chat = BotChatTarget(id: id) }
-                }
-            }) { bot in
-                BotConversationsView(botID: bot.id) { id in selectedConversation = id }
             }
             .sheet(item: $chat) { target in
                 NavigationStack {
@@ -154,9 +164,6 @@ struct BotWorkspaceView: View {
                             ToolbarItem(placement: .topBarTrailing) {
                                 if let bot = store.bot(forSession: target.id) {
                                     HStack {
-                                        Button { open(bot, newConversation: true) } label: { Image(systemName: "square.and.pencil") }
-                                            .accessibilityLabel("New Conversation")
-                                            .disabled(opening)
                                         NavigationLink { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }
                                         label: { Image(systemName: "brain") }
                                         .accessibilityLabel("Memory")
@@ -177,7 +184,7 @@ struct BotWorkspaceView: View {
                         }
                 }
             }
-            .confirmationDialog("Delete Bot and its memories? Shared access to its memories will be removed. Conversations remain in History.", isPresented: Binding(get: { deletingBot != nil }, set: { if !$0 { deletingBot = nil } })) {
+            .confirmationDialog("Delete Bot and its memories? Shared access to its memories will be removed. Chat data is retained.", isPresented: Binding(get: { deletingBot != nil }, set: { if !$0 { deletingBot = nil } })) {
                 Button("Delete", role: .destructive) {
                     if let deletingBot {
                         do { try memory.forgetOwner("bot:\(deletingBot.id)"); store.deleteBot(deletingBot.id) }
@@ -186,7 +193,7 @@ struct BotWorkspaceView: View {
                     deletingBot = nil
                 }
             }
-            .confirmationDialog("Delete this group, its memories and shared transcript? Member conversations remain in History.", isPresented: Binding(get: { deletingRoom != nil }, set: { if !$0 { deletingRoom = nil } })) {
+            .confirmationDialog("Delete this group, its memories and shared transcript? Member chat data is retained.", isPresented: Binding(get: { deletingRoom != nil }, set: { if !$0 { deletingRoom = nil } })) {
                 Button("Delete", role: .destructive) {
                     if let deletingRoom {
                         do { try memory.forgetOwner("room:\(deletingRoom.id)"); store.deleteRoom(deletingRoom.id) }
@@ -197,12 +204,26 @@ struct BotWorkspaceView: View {
             }
     }
 
-    private func open(_ bot: BotProfile, newConversation: Bool = false) {
+    private func search() async {
+        let terms = SearchKeywords.terms(query)
+        guard !terms.isEmpty else { botSnippets = [:]; roomSnippets = [:]; return }
+        let results = await ChatStore.shared.searchSessions(query: query)
+        guard !Task.isCancelled else { return }
+        let matches = BotWorkspaceSearch.matches(data: store.data, terms: terms,
+            hits: results.compactMap { result in
+                result.matchSnippet.map { BotWorkspaceSearch.Hit(sessionID: result.session.id, snippet: $0) }
+            })
+        botSnippets = matches.bots
+        roomSnippets = matches.rooms
+    }
+
+
+    private func open(_ bot: BotProfile) {
         opening = true
         Task { @MainActor in
             defer { opening = false }
             do {
-                let id = try await store.session(botID: bot.id, newConversation: newConversation)
+                let id = try await store.session(botID: bot.id)
                 if let onOpenConversation { onOpenConversation(id) }
                 else { chat = BotChatTarget(id: id) }
             }
@@ -211,8 +232,9 @@ struct BotWorkspaceView: View {
     }
 }
 
-private struct BotProfileEditor: View {
+struct BotProfileEditor: View {
     @State var profile: BotProfile
+    var onSave: ((BotProfile) -> Void)? = nil
     @ObservedObject private var store = BotWorkspaceStore.shared
     @ObservedObject private var providers = ProviderConfigStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -229,18 +251,19 @@ private struct BotProfileEditor: View {
                         PhotosPicker("Choose Custom Image", selection: $selectedPhoto, matching: .images)
                     }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 44))]) {
-                        ForEach(BotProfile.builtinIcons, id: \.self) { symbol in
+                        ForEach(SessionCategory.all, id: \.key) { category in
+                            let symbol = category.icon
                             Button {
                                 selectedPhoto = nil
                                 profile.iconImageData = nil
                                 profile.iconSymbol = symbol
                             } label: {
-                                Image(systemName: symbol).frame(width: 44, height: 44)
-                                    .background(profile.iconImageData == nil && profile.iconSymbol == symbol ? Color.accentColor.opacity(0.2) : Color.clear)
+                                Image(systemName: symbol).foregroundStyle(category.color).frame(width: 44, height: 44)
+                                    .background(profile.iconImageData == nil && profile.iconSymbol == symbol ? category.color.opacity(0.2) : Color.clear)
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(symbol)
+                            .accessibilityLabel(Text(LocalizedStringKey(category.label)))
                             .accessibilityAddTraits(profile.iconImageData == nil && profile.iconSymbol == symbol ? .isSelected : [])
                         }
                     }
@@ -252,16 +275,6 @@ private struct BotProfileEditor: View {
                     ForEach(providers.modelGroups) { group in Text(group.name).tag(group.id) }
                 }
                 Toggle("启用此 Bot 的长期记忆", isOn: Binding(get: { profile.memoryEnabled ?? true }, set: { profile.memoryEnabled = $0 }))
-                Section("Skills") {
-                    ForEach(SkillStore.shared.skills) { skill in
-                        Toggle(skill.name, isOn: Binding(get: { profile.skillOverrides?[skill.id] ?? skill.isEnabled }, set: { profile.skillOverrides = (profile.skillOverrides ?? [:]).merging([skill.id: $0]) { _, new in new } }))
-                    }
-                }
-                Section("连接器") {
-                    ForEach(MCPStore.shared.servers) { server in
-                        Toggle(server.id, isOn: Binding(get: { profile.connectorOverrides?[server.id] ?? server.enabled }, set: { profile.connectorOverrides = (profile.connectorOverrides ?? [:]).merging([server.id: $0]) { _, new in new } }))
-                    }
-                }
                 Section("Agent 运行时") {
                     NavigationLink("Agent 工具") { ToolsSettingsView() }
                     NavigationLink("子代理") { HelperSettingsView() }
@@ -271,7 +284,7 @@ private struct BotProfileEditor: View {
                     Text("工具、子代理和环境变量沿用应用共享配置；记忆与定时任务仅显示此 Bot 的内容。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Text("技能和连接器设置适用于此 Bot 的全部私聊和群聊。模型选择作为新会话的默认值，已有会话的临时覆盖不会被改写。")
+                Text("技能和连接器请在应用设置中管理。模型组作为首次打开 Bot 的默认值。")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let error = store.errorMessage { Text(error).foregroundStyle(.red) }
             }
@@ -312,7 +325,7 @@ private struct BotProfileEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { if store.save(profile) { dismiss() } }
+                    Button("Save") { if store.save(profile) { onSave?(profile); dismiss() } }
                         .disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -455,12 +468,18 @@ private struct BotRoomView: View {
 struct BotAvatar: View {
     let profile: BotProfile
     var size: CGFloat = 32
+    private var iconColor: Color {
+        SessionCategory.all.first { $0.icon == profile.iconSymbol }?.color ?? .green
+    }
     var body: some View {
         Group {
             if let data = profile.iconImageData, let image = UIImage(data: data) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                Image(systemName: profile.iconSymbol ?? "sparkles").resizable().scaledToFit().padding(5)
+                Image(systemName: profile.iconSymbol ?? "bubble.left.fill")
+                    .resizable().scaledToFit().padding(7)
+                    .foregroundStyle(iconColor)
+                    .background(iconColor.opacity(0.12), in: Circle())
             }
         }
         .frame(width: size, height: size)
@@ -474,6 +493,7 @@ struct BotConversationPicker: View {
     @ObservedObject private var store = BotWorkspaceStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var newBot: BotProfile?
+    @State private var savedBot: BotProfile?
     @State private var opening = false
     @State private var error: String?
 
@@ -487,7 +507,7 @@ struct BotConversationPicker: View {
                             Task { @MainActor in
                                 defer { opening = false }
                                 do {
-                                    let id = try await store.session(botID: bot.id, newConversation: true)
+                                    let id = try await store.session(botID: bot.id)
                                     onSelect(id)
                                 } catch { self.error = error.localizedDescription }
                             }
@@ -502,52 +522,72 @@ struct BotConversationPicker: View {
             }
             .navigationTitle("Choose Bot")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(opening) } }
-            .sheet(item: $newBot) { BotProfileEditor(profile: $0) }
+            .sheet(item: $newBot, onDismiss: {
+                guard let bot = savedBot else { return }
+                savedBot = nil
+                opening = true
+                Task { @MainActor in
+                    defer { opening = false }
+                    do { onSelect(try await store.session(botID: bot.id)) }
+                    catch { self.error = error.localizedDescription }
+                }
+            }) { BotProfileEditor(profile: $0, onSave: { savedBot = $0 }) }
             .interactiveDismissDisabled(opening)
         }
     }
 }
 
-private struct BotConversationRows: View {
-    let bot: BotProfile
-    var menuActions: SessionMenuActionChannel?
-    var snapshots: [ChatSession]?
-    var onOpen: (String) -> Void
-    var onCreate: () -> Void
-    @State private var conversations: [ChatSession] = []
-    @State private var loading = true
-    private var visibleConversations: [ChatSession] {
-        let ids = Set(bot.conversationIds + [bot.sessionId].compactMap { $0 })
-        return (snapshots ?? conversations).filter { ids.contains($0.id) }
-            .sorted { $0.isPinned != $1.isPinned ? $0.isPinned : $0.updatedAt > $1.updatedAt }
-    }
+
+struct BotCapabilitySettingsView: View {
+    let skills: Bool
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
+    @ObservedObject private var skillStore = SkillStore.shared
+    @ObservedObject private var connectorStore = MCPStore.shared
+
     var body: some View {
-        Group {
-            if loading && snapshots == nil { ProgressView().padding(.leading, 40) }
-            else if visibleConversations.isEmpty {
-                Button(action: onCreate) { Label("创建新会话", systemImage: "plus.bubble") }.padding(.leading, 40)
-            } else {
-                ForEach(visibleConversations) { session in
-                    Button { onOpen(session.id) } label: {
-                        SessionRow(session: session).equatable()
-                    }.padding(.leading, 40)
-                    .contextMenu {
-                        if let menuActions {
-                            SessionContextMenu(key: MenuKey(sid: session.id, pinned: session.isPinned, title: session.title, filed: session.isFiled), actions: menuActions)
+        List {
+            if workspace.data.bots.isEmpty { Text("请先创建 Bot") }
+            ForEach(workspace.data.bots) { bot in
+                Section(bot.name) {
+                    if skills {
+                        ForEach(skillStore.skills) { skill in
+                            Toggle(skill.name, isOn: Binding(
+                                get: { bot.skillOverrides?[skill.id] ?? skill.isEnabled },
+                                set: { value in update(bot.id, capability: skill.id, enabled: value) }
+                            ))
                         }
+                    } else {
+                        ForEach(connectorStore.servers) { server in
+                            Toggle(server.id, isOn: Binding(
+                                get: { bot.connectorOverrides?[server.id] ?? server.enabled },
+                                set: { value in update(bot.id, capability: server.id, enabled: value) }
+                            ))
+                        }
+                    }
+                    Button("恢复全局默认") {
+                        guard var current = workspace.bot(bot.id) else { return }
+                        if skills { current.skillOverrides = [:] }
+                        else { current.connectorOverrides = [:] }
+                        _ = workspace.save(current)
                     }
                 }
             }
+            if let error = workspace.errorMessage { Text(error).foregroundStyle(.red) }
         }
-        .task(id: bot.conversationIds) {
-            guard snapshots == nil else { return }
-            var loaded: [ChatSession] = []
-            for id in Set(bot.conversationIds + [bot.sessionId].compactMap { $0 }) {
-                if let session = await ChatStore.shared.getSession(id) { loaded.append(session) }
-            }
-            guard !Task.isCancelled else { return }
-            conversations = loaded.sorted { $0.isPinned != $1.isPinned ? $0.isPinned : $0.updatedAt > $1.updatedAt }
-            loading = false
+        .navigationTitle(skills ? "Bot 技能配置" : "Bot 连接器配置")
+    }
+
+    private func update(_ botID: String, capability: String, enabled: Bool) {
+        guard var bot = workspace.bot(botID) else { return }
+        if skills {
+            var overrides = bot.skillOverrides ?? [:]
+            overrides[capability] = enabled
+            bot.skillOverrides = overrides
+        } else {
+            var overrides = bot.connectorOverrides ?? [:]
+            overrides[capability] = enabled
+            bot.connectorOverrides = overrides
         }
+        _ = workspace.save(bot)
     }
 }

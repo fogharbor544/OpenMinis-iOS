@@ -151,7 +151,7 @@ extension AIChatView {
         #endif
         let display = SessionModelDisplay(store: configStore, draftGroupId: vm.initialGroupId)
         let resolved = display.resolvedDetail(for: vm.sessionId)
-        let sessionTitle: String? = (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
+        let sessionTitle: String? = vm.sessionId.flatMap { botWorkspace.bot(forSession: $0)?.name } ?? (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 }
         return NavTitleKey(
             sessionTitle: sessionTitle,
@@ -198,7 +198,7 @@ extension AIChatView {
         // rename / re-categorize without leaving the chat. Falls back to
         // the SOUL.md `name` (or "Minis") for draft sessions or before a
         // title has been generated.
-        let sessionTitle: String? = (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
+        let sessionTitle: String? = vm.sessionId.flatMap { botWorkspace.bot(forSession: $0)?.name } ?? (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 }
         let canEditTitle = titlePillSession != nil
 
@@ -241,7 +241,8 @@ extension AIChatView {
         // unchanged and the top-clip fix does not regress.
         return VStack(spacing: legacyLayout ? -3 : -2) {
             Button {
-                if let s = titlePillSession { titlePillEditSession = s }
+                if let sid = vm.sessionId, let bot = botWorkspace.bot(forSession: sid) { editingBot = bot }
+                else if let s = titlePillSession { titlePillEditSession = s }
             } label: {
                 // [T-navbar-title-size 2026-05-18] iOS 18 and below render
                 // the principal toolbar in a tighter band than iOS 26's

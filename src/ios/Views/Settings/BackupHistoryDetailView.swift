@@ -376,16 +376,7 @@ struct BackupHistoryDetailView: View {
     }
 
     private func displayName(_ raw: String) -> String {
-        guard let c = BackupCategory(rawValue: raw) else { return raw }
-        switch c {
-        case .chats: return AppLocalized("Chats")
-        case .sharedFiles: return AppLocalized("Shared Files")
-        case .skills: return AppLocalized("Skills")
-        case .providers: return AppLocalized("Providers")
-        case .mcpServers: return AppLocalized("MCP Servers")
-        case .voiceCorrections: return AppLocalized("Voice Corrections")
-        case .environmentVariables: return AppLocalized("Environment Variables")
-        }
+        BackupCategory(rawValue: raw)?.localizedName ?? raw
     }
 }
 

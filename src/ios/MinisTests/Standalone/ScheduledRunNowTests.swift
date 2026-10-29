@@ -144,13 +144,19 @@ out("cron.early", ScheduledFireClaim.cronSearchStart(now: slot.addingTimeInterva
         return true
     }
 }
-@MainActor func settle(_ ms: UInt64 = 40) async { try? await Task.sleep(nanoseconds: ms * 1_000_000) }
+// Observe completed work, not a fixed 40 ms scheduling window on a shared runner.
+@MainActor func settle(_ job: Job, executions: Int = 1, finished: Bool = false) async {
+    let deadline = Date().addingTimeInterval(5)
+    while Date() < deadline && (job.executions < executions || job.fireInFlight || (finished && !job.finished)) {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
 
 @MainActor func scenarios() async {
     // (a) pending -> manual fire succeeds once.
     do {
         let j = Job(interval: 3600, count: nil); Runner.arm(j, first: 3600)
-        let ok = Runner.runNow(j); await settle()
+        let ok = Runner.runNow(j); await settle(j, finished: true)
         out("a", "\(ok),\(j.executions),\(j.fireInFlight)")
         j.task?.cancel()
     }
@@ -162,7 +168,7 @@ out("cron.early", ScheduledFireClaim.cronSearchStart(now: slot.addingTimeInterva
             try? await Task.sleep(nanoseconds: 200_000)
             if j.fireInFlight { refusedWhileFiring = !Runner.runNow(j); break }
         }
-        await settle()
+        await settle(j)
         out("b", "\(refusedWhileFiring),\(j.executions)")
         j.task?.cancel()
     }
@@ -176,7 +182,7 @@ out("cron.early", ScheduledFireClaim.cronSearchStart(now: slot.addingTimeInterva
         for _ in 0..<k { await Task.yield() }
         try? await Task.sleep(nanoseconds: UInt64(k) * 400_000)
         _ = Runner.runNow(j)
-        await settle()
+        await settle(j)
         raceExecs.append(j.executions)
         j.task?.cancel()
     }
@@ -187,7 +193,7 @@ out("cron.early", ScheduledFireClaim.cronSearchStart(now: slot.addingTimeInterva
         let t1 = Runner.runNow(j), t2 = Runner.runNow(j)
         await Task.yield()
         let t3 = Runner.runNow(j)
-        await settle()
+        await settle(j)
         out("d", "\(t1),\(t2),\(t3),\(j.executions)")
         j.task?.cancel()
     }
@@ -195,7 +201,7 @@ out("cron.early", ScheduledFireClaim.cronSearchStart(now: slot.addingTimeInterva
     do {
         let j = Job(interval: 0.01, count: 3); Runner.arm(j, first: 3600)
         Runner.runNow(j); Runner.runNow(j)
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        await settle(j, executions: 3, finished: true)
         out("e.loop", "\(j.executions),\(j.remaining ?? -1),\(j.finished)")
         j.task?.cancel()
     }
@@ -204,18 +210,18 @@ out("cron.early", ScheduledFireClaim.cronSearchStart(now: slot.addingTimeInterva
     do {
         let j = Job(interval: 3600, count: nil); Runner.arm(j, first: 0.003)
         let shownRun = j.runsDone
-        try? await Task.sleep(nanoseconds: 40_000_000)
+        await settle(j)
         j.running = false                                // the run already ended
         let stale = Runner.runNow(j, expectedRun: shownRun)
         let fresh = Runner.runNow(j, expectedRun: j.runsDone)
-        await settle()
+        await settle(j, executions: 2)
         out("c2", "\(stale),\(fresh),\(j.executions)")
         j.task?.cancel()
     }
     // (e) one-shot (count 1): run now consumes it and the job ends.
     do {
         let j = Job(interval: 3600, count: 1); Runner.arm(j, first: 3600)
-        Runner.runNow(j); await settle()
+        Runner.runNow(j); await settle(j, finished: true)
         out("e.once", "\(j.executions),\(j.finished),\(Runner.runNow(j))")
         j.task?.cancel()
     }

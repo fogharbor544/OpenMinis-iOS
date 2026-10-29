@@ -68,14 +68,6 @@ final class BotWorkspaceStore: ObservableObject {
         data.sessionOwners[id]
     }
 
-    func selectConversation(_ id: String, botID: String) -> Bool {
-        guard owner(forSession: id)?.botId == botID, owner(forSession: id)?.roomId == nil,
-              let index = data.bots.firstIndex(where: { $0.id == botID }) else { return false }
-        var next = data
-        next.bots[index].sessionId = id
-        return persist(next)
-    }
-
     @discardableResult
     func save(_ profile: BotProfile) -> Bool {
         var profile = profile

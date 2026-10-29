@@ -76,6 +76,10 @@ jobs:
         run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
       - name: Schedule editing behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_schedule_edit_tests.py
+      - name: Completion wait lifecycle regression tests
+        run: python3 src/ios/MinisTests/Standalone/run_schedule_completion_tests.py
+      - name: Backup model restore regression tests
+        run: python3 src/ios/MinisTests/Standalone/run_backup_model_restore_tests.py
       - name: Bot room orchestration behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_bot_room_tests.py
       - name: Browser form WebKit tests
@@ -123,6 +127,23 @@ jobs:
           xcodebuild -project src/ios/Minis.xcodeproj -scheme Minis \
             -configuration Debug -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-ios.log
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="build/DerivedData/Build/Products/Debug-iphoneos/Minis.app"
+          test -d "$app_path"
+          mkdir -p build/package/Payload
+          ditto "$app_path" build/package/Payload/Minis.app
+          cd build/package
+          zip -qry ../OpenMinis-unsigned.ipa Payload
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenMinis-unsigned-ipa
+          path: build/OpenMinis-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:

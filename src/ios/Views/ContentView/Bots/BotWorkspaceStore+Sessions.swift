@@ -1,6 +1,15 @@
 import Foundation
 
 extension BotWorkspaceStore {
+    func selectConversation(_ id: String, botID: String) async -> Bool {
+        guard await ChatStore.shared.getSession(id) != nil else { return false }
+        guard owner(forSession: id)?.botId == botID, owner(forSession: id)?.roomId == nil,
+              let index = data.bots.firstIndex(where: { $0.id == botID }) else { return false }
+        var next = data
+        next.bots[index].sessionId = id
+        return persist(next)
+    }
+
     /// Creates only a normal ChatStore session; model/tools/streaming remain owned by the existing runtime.
     func session(botID: String, roomID: String? = nil, newConversation: Bool = false) async throws -> String {
         guard let profile = bot(botID) else { throw BotWorkspaceError.missingBot }

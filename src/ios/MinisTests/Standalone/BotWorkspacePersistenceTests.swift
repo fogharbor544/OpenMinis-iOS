@@ -15,13 +15,18 @@ struct BotWorkspacePersistenceTests {
         var room = BotRoom(name: "Team", members: [researcher.id, reviewer.id])
         room.sessions[researcher.id] = "group-session"
         precondition(store.save(room))
+        var owned = store.data
+        owned.sessionOwners["group-session"] = BotSessionOwner(botId: researcher.id, roomId: room.id)
+        precondition(store.persist(owned))
         precondition(store.append(BotRoomMessage(speaker: "Researcher", botId: researcher.id, text: "Evidence", sessionId: "group-session"), to: room.id))
         let reload = BotWorkspaceStore(fileURL: file)
         precondition(reload.data.bots.count == 2)
         precondition(reload.room(room.id)?.members == [researcher.id, reviewer.id])
         precondition(reload.room(room.id)?.messages.first?.text == "Evidence")
         precondition(reload.bot(forSession: "group-session")?.id == researcher.id)
+        precondition(reload.owner(forSession: "group-session")?.roomId == room.id)
         reload.deleteBot(researcher.id)
+        precondition(BotWorkspaceStore(fileURL: file).owner(forSession: "group-session")?.botId == researcher.id)
         precondition(reload.room(room.id)?.members == [reviewer.id])
         precondition(reload.room(room.id)?.messages.first?.speaker == "Researcher")
         precondition(reload.room(room.id)?.sessions[researcher.id] == "group-session")

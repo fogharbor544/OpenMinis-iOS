@@ -168,20 +168,30 @@ struct BotConversationsView: View {
     @ObservedObject private var store = BotWorkspaceStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var titles: [String: String] = [:]
-    private var ids: [String] { store.bot(botID)?.conversationIds ?? [] }
+    @State private var ids: [String] = []
     var body: some View {
         NavigationStack {
             List(Array(ids.reversed().enumerated()), id: \.element) { index, id in
                 Button(titles[id] ?? "Conversation \(ids.count - index)") {
-                    if store.selectConversation(id, botID: botID) { dismiss(); onOpen(id) }
+                    Task {
+                        if await store.selectConversation(id, botID: botID) { dismiss(); onOpen(id) }
+                        else { ids.removeAll { $0 == id } }
+                    }
                 }
             }
             .navigationTitle("Conversations")
             .toolbar { Button("Done") { dismiss() } }
             .task {
-                for id in ids {
-                    if let session = await ChatStore.shared.getSession(id) { titles[id] = session.title }
+                var available: [String] = []
+                var loadedTitles: [String: String] = [:]
+                for id in store.bot(botID)?.conversationIds ?? [] {
+                    if let session = await ChatStore.shared.getSession(id) {
+                        available.append(id)
+                        loadedTitles[id] = session.title
+                    }
                 }
+                titles = loadedTitles
+                ids = available
             }
         }
     }

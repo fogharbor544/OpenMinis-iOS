@@ -21,9 +21,12 @@ extension AIChatViewModel {
         }
         guard programmaticTurnOrigin == nil,
               let message = messages.last(where: { $0.role == .user && !$0.isQueued && !$0.isCompactedHistory }) else { return nil }
-        // UI message UUIDs are regenerated on reload. A content-derived source key is
-        // stable across reloads, so forgotten evidence cannot be re-extracted later.
-        return ("source:" + BotMemoryStore.fingerprint(message.content), message.content)
+        // The UI anchor links to the same persisted row on live sends and reloads.
+        // Identical text sent again has a different row; an unpersisted bubble is
+        // not yet durable evidence and must not fall back to a content fingerprint.
+        guard let anchor = message.historyAnchorId,
+              let sourceID = agentHistory.first(where: { $0.anchorId == anchor })?.dbMessageId else { return nil }
+        return (sourceID, message.content)
     }
 
     var botMemoryPolicy: String {

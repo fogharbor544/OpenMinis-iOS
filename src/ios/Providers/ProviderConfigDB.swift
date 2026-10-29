@@ -295,7 +295,6 @@ actor ProviderConfigDB {
 
     func loadAllGroupRows() -> [[String: Any]] {
         guard let db else { return [] }
-        Self.ensureGroupTombstoneColumns(db: db)
 
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }

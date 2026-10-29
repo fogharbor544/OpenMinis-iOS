@@ -6,10 +6,18 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
     struct Message {
         enum Role { case user, assistant }
         var id = UUID()
+        var historyAnchorId: UUID?
         var role: Role = .user
         var content: String
         var isQueued = false
         var isCompactedHistory = false
+    }
+    struct History { var anchorId: UUID; var dbMessageId: String? }
+    var agentHistory: [History] = []
+    func loadUser(_ text: String, rowID: String = UUID().uuidString) {
+        let anchor = UUID()
+        messages = [.init(historyAnchorId: anchor, content: text)]
+        agentHistory = [.init(anchorId: anchor, dbMessageId: rowID)]
     }
     var sessionId: String?
     var memoryEnabled = true
@@ -39,7 +47,7 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         precondition(!temporaryChat.executeBotMemoryGet("{}").success)
         let vm = AIChatViewModel(); vm.sessionId = "private-a"
         let words = "I always prefer concise answers"
-        vm.messages = [.init(content: words)]
+        vm.loadUser(words, rowID: "original-row")
         let args: [String: String] = ["action": "save", "content": "An unsupported inference", "evidence": words,
             "intent": "automatic", "category": "preference", "scope": "writing"]
         let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
@@ -55,15 +63,27 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         group.programmaticTurnOrigin = .job(jobId: "unrelated-schedule")
         precondition(group.botMemorySource == nil)
         group.programmaticTurnOrigin = nil
-        group.messages = [.init(content: "I usually use clear charts")]
+        group.loadUser("I usually use clear charts")
         precondition(group.botMemorySource?.text == "I usually use clear charts")
         precondition(!group.executeBotMemoryGet("{}").output.contains(words))
         try BotMemoryStore.shared.setGrants(id: saved[0].id, owner: saved[0].owner, grants: ["room:\(room.id)"])
         precondition(group.executeBotMemoryGet("{}").output.contains(words))
         try BotMemoryStore.shared.forget(id: saved[0].id, owner: saved[0].owner)
         precondition(!group.executeBotMemoryGet("{}").output.contains(words))
-        vm.messages = [.init(content: words)] // New UI UUID, same persisted source text.
+        vm.loadUser(words, rowID: "original-row") // New UI anchor, same persisted row.
         precondition(!vm.executeBotMemoryWrite(json).success)
+        let explicitWords = "Remember I always prefer concise answers"
+        let explicitArgs = "{\"action\":\"save\",\"content\":\"I always prefer concise answers\",\"evidence\":\"I always prefer concise answers\",\"intent\":\"explicit\",\"category\":\"preference\",\"scope\":\"writing\"}"
+        vm.loadUser(explicitWords, rowID: "explicit-original")
+        precondition(vm.executeBotMemoryWrite(explicitArgs).success)
+        let explicitSaved = try BotMemoryStore.shared.visible(to: "bot:\(a.id)").first!
+        try BotMemoryStore.shared.forget(id: explicitSaved.id, owner: explicitSaved.owner)
+        vm.loadUser(explicitWords, rowID: "explicit-original")
+        precondition(!vm.executeBotMemoryWrite(explicitArgs).success)
+        vm.loadUser(explicitWords, rowID: "explicit-new")
+        precondition(vm.executeBotMemoryWrite(explicitArgs).success)
+        vm.messages = [.init(content: explicitWords)] // No durable identity yet.
+        precondition(vm.botMemorySource == nil)
         vm.programmaticTurnOrigin = .job(jobId: "scheduled-job")
         precondition(vm.botMemorySource == nil && !vm.executeBotMemoryWrite(json).success)
         vm.programmaticTurnOrigin = nil

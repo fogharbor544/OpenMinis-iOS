@@ -1182,15 +1182,7 @@ struct BackupSettingsView: View {
     // MARK: - Display
 
     private func displayName(_ c: BackupCategory) -> String {
-        switch c {
-        case .chats: return AppLocalized("Chats")
-        case .sharedFiles: return AppLocalized("Shared Files")
-        case .skills: return AppLocalized("Skills")
-        case .providers: return AppLocalized("Providers")
-        case .mcpServers: return AppLocalized("MCP Servers")
-        case .voiceCorrections: return AppLocalized("Voice Corrections")
-        case .environmentVariables: return AppLocalized("Environment Variables")
-        }
+        c.localizedName
     }
 
     /// Glyph + colour per category, matching the iCloud Sync list's visual

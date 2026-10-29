@@ -55,6 +55,7 @@ struct BackupCategoryIcon: View {
         case .chats: return "bubble.left.and.bubble.right.fill"
         case .sharedFiles: return "doc.fill"
         case .skills: return "puzzlepiece.fill"
+        case .soul: return "person.crop.circle.fill"
         case .providers: return "link"
         case .mcpServers: return "square.stack.3d.up.fill"
         case .voiceCorrections: return "waveform"
@@ -67,6 +68,7 @@ struct BackupCategoryIcon: View {
         case .chats: return .blue
         case .sharedFiles: return .indigo
         case .skills: return .orange
+        case .soul: return .pink
         case .providers: return .teal
         case .mcpServers: return .cyan
         case .voiceCorrections: return .purple

@@ -44,3 +44,12 @@
 当前状态：实现与本地可运行检查已推进，Xcode 与真机验收未完成；不得据此宣称所有验收通过。
 
 本轮最终本地核对：安全填充与清理生产脚本共 55 项 Node 断言通过；40 个修改后的 Swift 文件与 HEAD 的语法解析比较无新增错误。浏览器 WebKit／存储与权限测试生成器已检查实际生成源码及语法，Swift 子进程被拦截，因此未运行其 Swift 行为测试。手动网页加载增加 30 秒超时；与安全输入重叠的浏览器返回结果／错误会被丢弃。完整验收仍等待 macOS 与真机。
+
+## 云构建交付（2026-10-31，覆盖本页先前的待构建状态）
+
+- 应用源码提交：`d4453fbf1caa88195d2dd3de759a41a131b778e1`，已推送 `codex/bot-single-chat`。
+- GitHub Actions 运行 `41131029760`：`source-checks` 与 `device-build` 均成功。包括当前新增契约／生产填充脚本、Swift 检查、Bot 持久化／会话／归档、记忆、群组、定时任务、浏览器存储与实际 macOS WebKit 表单测试、权限与备份回归。未执行的 XCTest 或真机项目不因工作流成功被视为通过。
+- Xcode Debug、generic iOS、arm64 完整构建与未签名 IPA 打包／上传成功；artifact `13013232661`。
+- 本机包：`build/cloud/41131029760/OpenMinis-unsigned.ipa`，100860230 bytes。ZIP CRC 和 Mach-O arm64 检查通过。
+- SHA-256：`7a42da073c28875023e6d2cd684402bac8e4ad46afb40fc458116c5a7644f838`。详细结果：同目录 `verification.json` 和 `result.json`。
+- 包未签名，用户需自行签名安装；iOS Keychain／原生安全卡片、干净安装恢复和聊天布局真机验收仍待用户执行。

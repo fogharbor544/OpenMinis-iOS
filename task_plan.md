@@ -251,3 +251,6 @@ Phases 1-4 implemented and locally integrated. Phase 5 locally available checks 
 
 ## Authorized repair cloud delivery (2026-10-31)
 User authorizes commit, push, cloud validation/build and IPA delivery on codex/bot-single-chat. Include the reviewed iOS changes and new repair checks in the existing workflow. Follow actual macOS failures until tests/build pass; download and verify the unsigned arm64 IPA for user signing and device acceptance. No device results claimed.
+
+### 2026-10-31 authorized delivery outcome
+Commit/push complete at d4453fb. Full run41131029760 passed source-checks and device-build. Unsigned IPA downloaded and CRC/arm64 verified at build/cloud/41131029760/OpenMinis-unsigned.ipa; evidence verification.json/result.json. Requested cloud build/package delivery complete. Signing and device acceptance remain user-owned and unverified. Earlier Windows-only validation notes are superseded for checks actually executed in the cloud workflow; unexecuted native XCTest/device cases remain pending.

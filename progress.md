@@ -247,3 +247,9 @@ Read RTK and prior plan. Initial working tree clean. No Swift/Xcode installed. N
 
 ## 2026-10-31 cloud delivery authorized
 Astra medium read-only review found no confirmed defects. User now explicitly requests commit/push/cloud build and IPA. Added new Bot/chat/security checks to existing cloud source job. GitHub CLI keyring works outside sandbox; sandbox invalid-token report was an access limitation. Packaging uses existing unsigned Debug device build.
+
+### 2026-10-31 cloud delivery complete
+- Committed/pushed d4453fb on codex/bot-single-chat; full workflow41131029760 SUCCESS, both source-checks and device-build passed without retry.
+- New repair checks plus existing Swift behavior, Bot archive/session/group, browser storage/macOS WebKit, schedule and backup tests succeeded in cloud; full Xcode unsigned Debug arm64 build/package/upload succeeded.
+- Downloaded build/cloud/41131029760/OpenMinis-unsigned.ipa (100860230 bytes), artifact13013232661. ZIP CRC/Mach-O arm64 passed; SHA256 7a42da073c28875023e6d2cd684402bac8e4ad46afb40fc458116c5a7644f838. Evidence verification.json/result.json beside IPA.
+- User signing/install/device testing pending. No real-device results claimed. Final documentation-only delivery record does not change compiled app source.

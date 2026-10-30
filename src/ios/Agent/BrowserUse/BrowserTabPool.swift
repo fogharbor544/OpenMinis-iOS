@@ -81,6 +81,7 @@ final class BrowserTabPoolRegistry {
         for (id, weak) in pools where id != requesterId {
             guard let pool = weak.pool else { continue }
             for tab in pool.tabs {
+                guard !tab.manager.isSecureInputActive else { continue }
                 let idle = now.timeIntervalSince(tab.lastActivityDate)
                 if !tab.inUse {
                     if idleVictim == nil || idle > idleVictim!.idle {
@@ -143,8 +144,8 @@ final class BrowserTabPoolRegistry {
                 result.append(TabSnapshot(
                     sessionId: sid,
                     tabId: tab.id,
-                    url: String(tab.manager.currentURL.prefix(100)),
-                    title: String(tab.manager.pageTitle.prefix(100)),
+                    url: tab.manager.isSecureInputActive ? "[安全输入中]" : String(tab.manager.currentURL.prefix(100)),
+                    title: tab.manager.isSecureInputActive ? "[安全输入中]" : String(tab.manager.pageTitle.prefix(100)),
                     isLoading: tab.manager.isLoading,
                     inUse: tab.inUse,
                     lastActivityAgo: now.timeIntervalSince(tab.lastActivityDate)
@@ -388,6 +389,7 @@ final class BrowserTabPool: ObservableObject {
     /// Timer that periodically evicts idle tabs.
     private var idleTimer: Timer?
     private var loadingObservation: AnyCancellable?
+    private var managerObservation: AnyCancellable?
 
     /// Whether the active tab's webview is currently loading a page.
     @Published var isBrowserLoading: Bool = false
@@ -447,10 +449,14 @@ final class BrowserTabPool: ObservableObject {
     /// Re-subscribe to the active manager's `isLoading` so `isBrowserLoading` stays in sync.
     private func rebindLoadingObservation() {
         loadingObservation?.cancel()
+        managerObservation?.cancel()
         guard let mgr = activeManager else {
             isBrowserLoading = false
             return
         }
+        managerObservation = mgr.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
         isBrowserLoading = mgr.isLoading
         loadingObservation = mgr.$isLoading
             .receive(on: DispatchQueue.main)
@@ -486,7 +492,11 @@ final class BrowserTabPool: ObservableObject {
 
     /// Ensure tab 0 exists for UI display without marking it as agent-busy.
     func ensureTabForUI() {
-        if !tabs.contains(where: { $0.id == 0 }) {
+        if let first = tabs.first {
+            if activeManager == nil { selectedTabId = first.id }
+            return
+        }
+        if tabs.isEmpty {
             // Pure UI prefetch — if we're at the global cap and can't evict
             // anyone, skip the prefetch. The user can still tap to create
             // it via acquireTab/newTab, which prioritise creation.
@@ -495,11 +505,12 @@ final class BrowserTabPool: ObservableObject {
                 return
             }
             let manager = makeManager()
-            let tab = Tab(id: 0, manager: manager, inUse: false)
+            let restoredId = savedURLs[selectedTabId] != nil ? selectedTabId : (savedURLs.keys.sorted().first ?? 0)
+            let tab = Tab(id: restoredId, manager: manager, inUse: false)
             tabs.append(tab)
-            selectedTabId = 0
-            restoreSavedURL(for: 0, manager: manager)
-            logger.info("Created tab 0 for UI")
+            selectedTabId = restoredId
+            restoreSavedURL(for: restoredId, manager: manager)
+            logger.info("Prepared tab \(restoredId) for UI")
         }
     }
 
@@ -610,6 +621,7 @@ final class BrowserTabPool: ObservableObject {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else {
             return .error("No tab with id \(id)")
         }
+        tabs[idx].manager.secureInputSession?.finish("cancelled")
         // Don't save URL on explicit close — user intentionally closed it
         savedURLs.removeValue(forKey: id)
         tabs.remove(at: idx)
@@ -788,18 +800,29 @@ final class BrowserTabPool: ObservableObject {
     /// `return`s plus a `throw` path, and a wrapper cannot be escaped by a
     /// future one — whereas an in-body flag would silently mis-report the day
     /// someone adds another `return`.
+    var hasSecureInput: Bool { BrowserUseManager.secureInteractionManager != nil || tabs.contains { $0.manager.isSecureInputActive } }
+
     func execute(
         action input: BrowserActionInput,
         singleTab: Bool = false,
         owner: String? = nil
     ) async throws -> BrowserActionResult {
+        guard !hasSecureInput else {
+            return .error("安全输入或页面清理正在进行，请在原生界面完成或重试后再使用浏览器。")
+        }
         let diagId = BrowserResourceMonitor.shared.actionWillStart(
             action: input.action.rawValue,
             url: input.url,
             tabId: input.tabId
         )
+        let secureGeneration = BrowserUseManager.secureInteractionGeneration
         do {
-            let result = try await executeInner(action: input, singleTab: singleTab, owner: owner)
+            var result = try await executeInner(action: input, singleTab: singleTab, owner: owner)
+            // An already-running read can finish after a native login starts.
+            if input.action != .secureInput,
+               secureGeneration != BrowserUseManager.secureInteractionGeneration {
+                result = .error("此操作与安全输入重叠，结果已丢弃，请在安全输入完成后重试。")
+            }
             BrowserResourceMonitor.shared.actionDidFinish(
                 diagId,
                 success: result.success,
@@ -810,6 +833,10 @@ final class BrowserTabPool: ObservableObject {
             )
             return result
         } catch {
+            if secureGeneration != BrowserUseManager.secureInteractionGeneration {
+                BrowserResourceMonitor.shared.actionDidFinish(diagId, success: false, error: "安全输入期间操作已取消。")
+                return .error("安全输入期间操作已取消，请稍后重试。")
+            }
             BrowserResourceMonitor.shared.actionDidFinish(
                 diagId,
                 success: false,
@@ -1052,6 +1079,14 @@ final class BrowserTabPool: ObservableObject {
         // Capture the manager reference before await — the tabs array may mutate
         // (e.g. closeTab / idle reclaim / registry preempt) while we're suspended.
         let manager = tabs[liveIdx].manager
+        guard !hasSecureInput else { return .error("安全输入正在进行，请稍后重试。") }
+        let hostName = sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "当前会话"
+        manager.secureInputRequester = isPrivileged(owner) ? hostName : hostName + "（通用子代理）"
+        if input.action == .secureInput {
+            // Native interaction has its own cancel/timeout lifecycle, never dead-tab rebuilding.
+            let result = try await manager.execute(action: input)
+            return Self.stampTabId(result, targetId: targetId)
+        }
 
         // set_user_agent switches THIS tab and nothing else. Done here, inside
         // the tab's serial slot, so the WebView is not swapped under another
@@ -1303,6 +1338,9 @@ final class BrowserTabPool: ObservableObject {
     /// working page.
     @discardableResult
     func abortAndRebuildTab(tabId: Int) -> Bool {
+        if let session = tabs.first(where: { $0.id == tabId })?.manager.secureInputSession {
+            session.finish("cancelled"); return true
+        }
         guard let entry = inFlightAborts[tabId] else {
             logger.info("[DeadTimeout] abortAndRebuildTab tab=\(tabId): no action in flight — tab left as is")
             return false
@@ -1409,7 +1447,7 @@ final class BrowserTabPool: ObservableObject {
         let now = Date()
         var evicted = 0
         tabs.removeAll { tab in
-            guard !tab.inUse else { return false }
+            guard !tab.inUse, !tab.manager.isSecureInputActive else { return false }
             let idle = now.timeIntervalSince(tab.lastActivityDate)
             if idle >= Self.idleTimeout {
                 // Save URL for restoration
@@ -1441,7 +1479,7 @@ final class BrowserTabPool: ObservableObject {
     func evictTabForRegistry(id: Int) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[idx]
-        guard !tab.inUse else { return } // safety net
+        guard !tab.inUse, !tab.manager.isSecureInputActive else { return } // safety net
         let url = tab.manager.currentURL
         if !url.isEmpty {
             savedURLs[id] = url
@@ -1464,6 +1502,7 @@ final class BrowserTabPool: ObservableObject {
     func preemptTabForRegistry(id: Int) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[idx]
+        guard !tab.manager.isSecureInputActive else { return }
         let url = tab.manager.currentURL
         if !url.isEmpty {
             savedURLs[id] = url
@@ -1483,7 +1522,7 @@ final class BrowserTabPool: ObservableObject {
     func evictAllIdleForMemoryWarning() -> Int {
         var evicted = 0
         tabs.removeAll { tab in
-            guard !tab.inUse else { return false }
+            guard !tab.inUse, !tab.manager.isSecureInputActive else { return false }
             let url = tab.manager.currentURL
             if !url.isEmpty {
                 savedURLs[tab.id] = url
@@ -1721,7 +1760,7 @@ final class BrowserTabPool: ObservableObject {
 
     /// Collect all known URLs (live tabs + savedURLs) and write to disk.
     private func persistURLs() {
-        guard let sessionId else { return }
+        guard !hasSecureInput, let sessionId else { return }
         persistPreviewIfChanged(sessionId: sessionId)
         var allURLs = savedURLs
         for tab in tabs {
@@ -1819,6 +1858,7 @@ final class BrowserTabPool: ObservableObject {
 
     /// Writes the active tab's latest screenshot, downscaled, when it changed.
     func persistPreviewIfChanged(sessionId: String) {
+        guard !hasSecureInput else { return }
         guard let image = activeManager?.lastScreenshot ?? tabs.lazy.compactMap({ $0.manager.lastScreenshot }).first else { return }
         let identity = ObjectIdentifier(image)
         guard Self.persistedPreviewIDs[sessionId] != identity else { return }

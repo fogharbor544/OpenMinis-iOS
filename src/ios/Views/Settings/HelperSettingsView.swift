@@ -49,6 +49,7 @@ struct HelperSettingsView: View {
                         }
                     }
                 } footer: {
+                    Text("短小、结果明确的任务优先直接完成；只有独立且值得并行的任务才使用子代理，避免额外等待和用量。")
                     Text(AppLocalized("Delegate self-contained sub-tasks to a sub agent that works in its own hidden session and reports back. The same tool also lets the assistant check on or stop what it started. Several agents can run at once, so a large fan-out uses correspondingly more of your quota. On by default; when off, it is not offered to the model at all."))
                 }
             }

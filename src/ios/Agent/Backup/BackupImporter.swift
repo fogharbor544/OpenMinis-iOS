@@ -93,7 +93,7 @@ actor BackupImporter {
             case .missingManifest: return "Package has no manifest.json"
             case .incompatibleFormat(let f, let s):
                 // §2.2 rule 1: refuse rather than best-effort parse.
-                return "This backup was written in format \(f); this app supports \(s). Please update the app."
+                return "不支持此备份格式：\(f)。此版本仅支持 \(s)，不会转换旧版备份。"
             case .integrityFailed(let paths):
                 return "Integrity check failed for \(paths.count) file(s): \(paths.prefix(3).joined(separator: ", "))"
             case .insufficientDiskSpace(let need, let have):
@@ -305,7 +305,9 @@ actor BackupImporter {
             .appendingPathComponent("minisbak-peek-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: work) }
         let root = try unpack(packageURL, to: work)
-        return try readManifest(at: root)
+        let manifest = try readManifest(at: root)
+        try checkFormat(manifest)
+        return manifest
     }
 
     // MARK: - Package opening
@@ -404,10 +406,11 @@ actor BackupImporter {
     /// drift away from it and stop catching regressions.
     static func isFormatSupported(_ format: String) -> Bool {
         func parse(_ s: String) -> (prefix: String, major: Int)? {
-            let parts = s.split(separator: "/", maxSplits: 1)
-            guard parts.count == 2 else { return nil }
-            let majorText = parts[1].split(separator: ".").first.map(String.init) ?? ""
-            guard let major = Int(majorText) else { return nil }
+            let parts = s.split(separator: "/", omittingEmptySubsequences: false)
+            guard parts.count == 2, parts[0] == "minisbak" else { return nil }
+            let numbers = parts[1].split(separator: ".", omittingEmptySubsequences: false)
+            guard numbers.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0 >= "0" && $0 <= "9" } }),
+                  let first = numbers.first, let major = Int(first) else { return nil }
             return (String(parts[0]), major)
         }
         guard let found = parse(format), let supported = parse(BackupFormat.current),

@@ -45,6 +45,20 @@ struct SettingsSheet: View {
     @State private var navPath = NavigationPath()
     @State private var showFeedbackDialog = false
 
+    private func runtimeLabel(_ title: String, icon: String, color: Color) -> some View {
+        Label {
+            Text(AppLocalized(String.LocalizationValue(title)))
+        } icon: {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 30, height: 30)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
+        }
+        .frame(minHeight: 44)
+    }
+
     var body: some View {
         NavigationStack(path: $navPath) {
             List {
@@ -93,11 +107,11 @@ struct SettingsSheet: View {
                 }
 
                 Section("Agent Runtime") {
-                    NavigationLink("Agent 工具") { ToolsSettingsView() }
-                    NavigationLink("子代理") { HelperSettingsView() }
-                    NavigationLink("环境变量") { EnvironmentVariablesView() }
-                    NavigationLink { SkillsManagementView() } label: { Label("Skills", systemImage: "puzzlepiece.extension") }
-                    NavigationLink { MCPIntegrationsView() } label: { Label("MCP Integrations", systemImage: "square.stack.3d.up") }
+                    NavigationLink { ToolsSettingsView() } label: { runtimeLabel("Agent 工具", icon: "wrench.and.screwdriver", color: .orange) }
+                    NavigationLink { HelperSettingsView() } label: { runtimeLabel("子代理", icon: "person.2", color: .blue) }
+                    NavigationLink { EnvironmentVariablesView() } label: { runtimeLabel("环境变量", icon: "terminal", color: .teal) }
+                    NavigationLink { SkillsManagementView() } label: { runtimeLabel("Skills", icon: "puzzlepiece.extension", color: .purple) }
+                    NavigationLink { MCPIntegrationsView() } label: { runtimeLabel("连接器", icon: "square.stack.3d.up", color: .indigo) }
                 }
 
                 Section("Storage") {

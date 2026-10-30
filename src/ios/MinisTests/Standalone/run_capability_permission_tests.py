@@ -10,6 +10,7 @@ source = (root / 'Agent/Offload/OffloadPermissionManager.swift').read_text(encod
 source = source.replace('private let defaults = UserDefaults.standard',
                         'private let defaults = UserDefaults(suiteName: CommandLine.arguments[1])!')
 tests = '''import Foundation
+func AppLocalized(_ key: String) -> String { key }
 import Combine
 struct AppLogger {
     init(category: String) {}

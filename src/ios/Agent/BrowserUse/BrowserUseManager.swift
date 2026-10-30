@@ -24,6 +24,16 @@ final class BrowserUseManager: NSObject, ObservableObject {
     @Published var canGoBack: Bool = false
     @Published var canGoForward: Bool = false
     @Published var lastScreenshot: UIImage?
+    static weak var secureInteractionManager: BrowserUseManager?
+    static var secureInteractionGeneration = UUID()
+    @Published var secureInputProtected = false
+    @Published var secureInputSession: BrowserSecureInputSession?
+    var secureInputRequester: String?
+    var isSecureInputActive: Bool { secureInputProtected || secureInputSession != nil }
+    private var secureCleanupNavigation: WKNavigation?
+    private var secureCleanupTimeout: Task<Void, Never>?
+    private var manualNavigationTimeout: Task<Void, Never>?
+
 
     // MARK: - Internal
 
@@ -274,6 +284,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
     /// Present the iOS system print dialog for the current page contents.
     private func presentPrintDialog() {
+        guard !isSecureInputActive else { return }
         let printController = UIPrintInteractionController.shared
         let printInfo = UIPrintInfo.printInfo()
         printInfo.outputType = .general
@@ -298,12 +309,16 @@ final class BrowserUseManager: NSObject, ObservableObject {
     ]
 
     func execute(action input: BrowserActionInput) async throws -> BrowserActionResult {
+        guard Self.secureInteractionManager == nil, !isSecureInputActive else {
+            return .error("Native secure input is active or its page is refreshing. Wait for the user to finish; retry after the page is ready.")
+        }
         let mgrStart = CFAbsoluteTimeGetCurrent()
         logger.info("[MgrTiming] enter action=\(input.action.rawValue)")
         // Backup + re-inject cookies (throttled to once per 60s) so login
         // cookies survive WebKit ITP's site-data wipes. Runs before the
         // action so a restored cookie is already in place for a navigate.
         await CookieBackupStore.shared.syncIfNeeded()
+        guard Self.secureInteractionManager == nil, !isSecureInputActive else { return .error("安全输入正在进行，请稍后重试。") }
         var result: BrowserActionResult
         switch input.action {
         case .navigate:
@@ -314,6 +329,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
             result = try await click(selector: input.selector, x: input.coordinateX, y: input.coordinateY)
         case .type:
             result = try await type(selector: input.selector, text: input.text)
+        case .secureInput:
+            return await requestSecureInput(input)
         case .getText:
             return try await getText(selector: input.selector)
         case .scroll:
@@ -370,6 +387,78 @@ final class BrowserUseManager: NSObject, ObservableObject {
         logger.info("[MgrTiming] total elapsed=\(totalMs)ms action=\(input.action.rawValue)")
         return result
     }
+
+    private func requestSecureInput(_ input: BrowserActionInput) async -> BrowserActionResult {
+        guard !isLoading, input.text == nil, input.script == nil,
+              let origin = BrowserCredentialStore.origin(for: webView.url?.absoluteString ?? ""),
+              let selector = input.selector, !selector.isEmpty,
+              let kind = BrowserSecureInputSession.Kind(rawValue: input.secretKind ?? ""),
+              let purpose = input.purpose, !purpose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .error("secure_input requires an HTTPS page, selector, secret_kind and purpose; do not supply text or script.")
+        }
+        guard UIApplication.shared.applicationState == .active,
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
+              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            return .error("请打开应用后通过原生卡片提供安全输入。")
+        }
+        var presenter = root
+        while let presented = presenter.presentedViewController { presenter = presented }
+        guard !presenter.isBeingDismissed else { return .error("请等待当前界面关闭后再请求安全输入。") }
+        let sid = sessionIdProvider?()
+        let requester = secureInputRequester ?? sid.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "当前 Bot"
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: .error("Secure input cancelled.")); return
+                }
+                let session = BrowserSecureInputSession(manager: self, origin: origin, requester: requester,
+                    purpose: String(purpose.prefix(240)), selector: selector, kind: kind) { status in
+                    continuation.resume(returning: BrowserActionResult(text: "安全输入状态：\(status)。未返回任何秘密值。",
+                        success: !status.contains("cancelled") && !status.contains("expired")))
+                }
+                Self.secureInteractionManager = self
+                Self.secureInteractionGeneration = UUID()
+                self.secureInputProtected = true
+                self.secureInputSession = session
+                self.lastScreenshot = nil
+                session.present(from: presenter)
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in self?.secureInputSession?.finish("cancelled") }
+        })
+    }
+
+    /// Clear fields before navigating the SAME WebView; preserve its cookie store.
+    func finishSecureInput() {
+        pendingDialogEvents.removeAll(); droppedDialogEvents = 0
+        guard secureInputProtected else {
+            if Self.secureInteractionManager === self { Self.secureInteractionManager = nil }
+            return
+        }
+        secureCleanupTimeout?.cancel()
+        loadError = nil
+        isLoading = true
+        secureCleanupTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled, let self, self.secureInputProtected else { return }
+            self.webView.stopLoading(); self.isLoading = false
+            self.loadError = WebLoadError(error: URLError(.timedOut), failedURL: nil)
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.evaluateJavaScriptBounded(Self.clearSecureFieldsScript, timeout: 5)
+                guard self.secureInputSession == nil, self.secureInputProtected,
+                      let url = self.webView.url else { throw URLError(.badURL) }
+                self.secureCleanupNavigation = self.webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30))
+            } catch {
+                self.isLoading = false
+                self.loadError = WebLoadError(error: URLError(.cannotLoadFromNetwork), failedURL: nil)
+            }
+        }
+    }
+
+    private static let clearSecureFieldsScript = "document.querySelectorAll('input').forEach(e => { if (e.type === 'password' || e.autocomplete === 'one-time-code') e.value = ''; });"
 
     /// Wait for DOM mutations to settle after a visual-change action, then append a
     /// concise change summary to the result text and take a snapshot for UI preview.
@@ -1988,6 +2077,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     }
 
     func stopLoading() {
+        manualNavigationTimeout?.cancel()
         webView.stopLoading()
         isLoading = false
     }
@@ -2007,6 +2097,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
     /// [T-ios-webview-error-ui] Retry the last requested URL after a failure.
     func retryFailedLoad() {
+        if secureInputProtected && secureInputSession == nil { finishSecureInput(); return }
         loadError = nil
         if let url = lastRequestedURL {
             let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
@@ -2346,8 +2437,41 @@ final class BrowserUseManager: NSObject, ObservableObject {
 // MARK: - WKNavigationDelegate
 
 extension BrowserUseManager: WKNavigationDelegate {
+    nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        Task { @MainActor in
+            self.manualNavigationTimeout?.cancel()
+            self.isLoading = true
+            self.loadError = nil
+            // Tool navigation and secure cleanup already own their deadlines.
+            guard self.navigationContinuation == nil, !self.isSecureInputActive else { return }
+            self.manualNavigationTimeout = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard !Task.isCancelled, let self, self.isLoading else { return }
+                self.webView.stopLoading()
+                self.isLoading = false
+                self.loadError = WebLoadError(error: URLError(.timedOut), failedURL: self.webView.url)
+            }
+        }
+    }
+
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
+            self.manualNavigationTimeout?.cancel()
+            if self.secureInputProtected && self.secureInputSession == nil {
+                guard navigation === self.secureCleanupNavigation else { return }
+                // Clear restored form values before making model reads available again.
+                do {
+                    _ = try await self.evaluateJavaScriptBounded(Self.clearSecureFieldsScript, timeout: 5)
+                    self.secureCleanupNavigation = nil
+                    self.secureCleanupTimeout?.cancel(); self.secureCleanupTimeout = nil
+                    self.secureInputProtected = false
+                    if Self.secureInteractionManager === self { Self.secureInteractionManager = nil }
+                } catch {
+                    self.isLoading = false
+                    self.loadError = WebLoadError(error: URLError(.cannotLoadFromNetwork), failedURL: nil)
+                    return
+                }
+            }
             self.isLoading = false
             self.loadError = nil  // [T-ios-webview-error-ui]
             self.currentURL = webView.url?.absoluteString ?? self.currentURL
@@ -2355,8 +2479,10 @@ extension BrowserUseManager: WKNavigationDelegate {
             self.canGoBack = webView.canGoBack
             self.canGoForward = webView.canGoForward
 
-            // Record in browsing history
-            BrowserHistoryStore.shared.record(url: self.currentURL, title: self.pageTitle)
+            // Native credential pages are not recorded while input is in flight.
+            if self.secureInputSession == nil && !self.secureInputProtected {
+                BrowserHistoryStore.shared.record(url: self.currentURL, title: self.pageTitle)
+            }
 
             if let cont = self.navigationContinuation {
                 self.navigationContinuation = nil
@@ -2367,11 +2493,12 @@ extension BrowserUseManager: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            self.manualNavigationTimeout?.cancel()
             self.isLoading = false
             // [T-ios-webview-error-ui] Show a Safari-style overlay in the
             // browser sheet instead of a blank page. Still thrown to the agent.
             self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
-            logger.error("Navigation failed: \(error.localizedDescription)")
+            if !self.isSecureInputActive { logger.error("Navigation failed: \(error.localizedDescription)") }
 
             if let cont = self.navigationContinuation {
                 self.navigationContinuation = nil
@@ -2382,10 +2509,11 @@ extension BrowserUseManager: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            self.manualNavigationTimeout?.cancel()
             self.isLoading = false
             // [T-ios-webview-error-ui] see didFail above.
             self.loadError = WebLoadError(error: error, failedURL: self.lastRequestedURL)
-            logger.error("Provisional navigation failed: \(error.localizedDescription)")
+            if !self.isSecureInputActive { logger.error("Provisional navigation failed: \(error.localizedDescription)") }
 
             if let cont = self.navigationContinuation {
                 self.navigationContinuation = nil
@@ -2404,6 +2532,9 @@ extension BrowserUseManager: WKNavigationDelegate {
 
         // <a download> anchors (including blob: URLs) mark the action as a
         // download — route it through WKDownload instead of navigating.
+        if navigationAction.shouldPerformDownload && MainActor.assumeIsolated({ self.isSecureInputActive }) {
+            decisionHandler(.cancel, preferences); return
+        }
         if navigationAction.shouldPerformDownload {
             decisionHandler(.download, preferences)
             return
@@ -2452,11 +2583,15 @@ extension BrowserUseManager: WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
+        if MainActor.assumeIsolated({ self.isSecureInputActive }) && !navigationResponse.canShowMIMEType {
+            decisionHandler(.cancel); return
+        }
         // Server-driven downloads: Content-Disposition: attachment, or a MIME
         // type WebKit can't render inline (zip, octet-stream, …).
         if let http = navigationResponse.response as? HTTPURLResponse,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition")?.lowercased(),
            disposition.contains("attachment") {
+            if MainActor.assumeIsolated({ self.isSecureInputActive }) { decisionHandler(.cancel); return }
             decisionHandler(.download)
             return
         }
@@ -2481,6 +2616,7 @@ extension BrowserUseManager: WKNavigationDelegate {
     /// Adopt a WKDownload: become its delegate, keep it alive, and unblock any
     /// pending navigate() continuation (the "navigation" turned into a download).
     private func attachDownload(_ download: WKDownload) {
+        guard !isSecureInputActive else { download.cancel { _ in }; return }
         download.delegate = self
         inflightDownloads[ObjectIdentifier(download)] = download
         isLoading = false
@@ -2502,7 +2638,7 @@ extension BrowserUseManager: WKNavigationDelegate {
     /// of hanging until the agent's own timeout — or never. [BrowserToolDiag]
     nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         MainActor.assumeIsolated {
-            let url = self.currentURL.isEmpty ? nil : self.currentURL
+            let url = self.isSecureInputActive || self.currentURL.isEmpty ? nil : self.currentURL
             let tabId = self.tabIdProvider?()
             BrowserResourceMonitor.shared.webContentProcessDidTerminate(tabId: tabId, url: url)
 
@@ -2645,6 +2781,7 @@ extension BrowserUseManager {
                                              message: String,
                                              defaultText: String?,
                                              defaultResponse: String) {
+        guard !isSecureInputActive else { return }
         if pendingDialogEvents.count >= Self.maxPendingDialogEvents {
             pendingDialogEvents.removeFirst()
             droppedDialogEvents += 1
@@ -2674,7 +2811,7 @@ extension BrowserUseManager {
     /// the tab being destroyed by the dead-tab path, taking an explanation of
     /// the wedge with it — is handled at that call site in BrowserTabPool.
     func drainInterceptedDialogReport() -> String? {
-        guard !pendingDialogEvents.isEmpty else { return nil }
+        guard !isSecureInputActive, !pendingDialogEvents.isEmpty else { return nil }
         let events = pendingDialogEvents
         let dropped = droppedDialogEvents
         pendingDialogEvents.removeAll()
@@ -2721,6 +2858,11 @@ extension BrowserUseManager: WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        if isSecureInputActive {
+            // Keep the user-controlled login inside its protected native host.
+            webView.load(navigationAction.request)
+            return nil
+        }
         // Create a new tab using the provided configuration so the child shares
         // the opener's session (cookies, window.opener) for OAuth flows.
         let url = navigationAction.request.url

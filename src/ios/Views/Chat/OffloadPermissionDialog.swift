@@ -39,7 +39,7 @@ private struct OffloadPermissionDialogContent: View {
                         Text("Permission Request")
                             .font(.title3.bold())
 
-                        Text("The agent wants to use **\(request.commandName)**")
+                        Text("Bot 请求使用：\(AppLocalized(String.LocalizationValue(request.displayLabel)))")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -49,7 +49,7 @@ private struct OffloadPermissionDialogContent: View {
 
                     // Description
                     if !request.description.isEmpty {
-                        Text(request.description)
+                        Text(AppLocalized(String.LocalizationValue(request.description)))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,7 +63,7 @@ private struct OffloadPermissionDialogContent: View {
                         VStack(spacing: 0) {
                             ForEach(Array(args.enumerated()), id: \.offset) { idx, arg in
                                 HStack {
-                                    Text(arg.key)
+                                    Text(AppLocalized(String.LocalizationValue(arg.key)))
                                         .font(.footnote.bold())
                                         .foregroundStyle(.secondary)
                                         .frame(width: 80, alignment: .trailing)

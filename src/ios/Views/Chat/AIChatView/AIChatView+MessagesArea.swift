@@ -116,6 +116,7 @@ extension AIChatView {
                             // and iOS 26 floors).
                             scrollFloatingButtonLabel("arrow.up.to.line")
                         }
+                        .accessibilityLabel("跳到上一轮对话")
                         .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
                     // Scroll to bottom — ORIGINAL behavior: shown whenever not
@@ -126,12 +127,13 @@ extension AIChatView {
                     } label: {
                         scrollFloatingButtonLabel("chevron.down")
                     }
+                    .accessibilityLabel("跳到最新消息")
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
                 .padding(.trailing, 4)
                 .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
                 .padding(.horizontal, 12)
-                .padding(.bottom, inputBarHeight + (hasFloatingPreview ? 80 : 12))
+                .padding(.bottom, inputBarHeight + floatingBarHeight + 12)
                 .animation(.easeInOut(duration: 0.2), value: vm.isNearBottom)
                 .animation(.easeInOut(duration: 0.2), value: vm.isAtFirstTurn)
                 .animation(.easeInOut(duration: 0.2), value: hasFloatingPreview)
@@ -141,7 +143,7 @@ extension AIChatView {
         }
         // [T-browser-download-ux-v2] Floating download button — same visual
         // family as the scroll buttons, stacked ABOVE their slot (the scroll
-        // group can show up to two 36pt buttons + spacing, so offset by 92pt)
+        // group can show up to two 44pt buttons + spacing, so offset by 108pt)
         // so the two never overlap regardless of scroll state. Hidden while
         // the session has no download records.
         .overlay(alignment: .bottom) {
@@ -151,7 +153,7 @@ extension AIChatView {
             .padding(.trailing, 4)
             .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .trailing)
             .padding(.horizontal, 12)
-            .padding(.bottom, inputBarHeight + (hasFloatingPreview ? 80 : 12) + 92)
+            .padding(.bottom, inputBarHeight + floatingBarHeight + 12 + 108)
             .animation(.easeInOut(duration: 0.2), value: hasFloatingPreview)
             .capsuleProtectedFrame("downloadButton")
         }
@@ -163,7 +165,7 @@ extension AIChatView {
         Image(systemName: systemName)
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(FloatingCircleButtonSurface.glyphStyle)
-            .frame(width: 36, height: 36)
+            .frame(width: 44, height: 44)
             .modifier(FloatingCircleButtonSurface())
     }
 

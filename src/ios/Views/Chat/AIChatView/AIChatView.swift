@@ -238,6 +238,7 @@ struct AIChatView: View {
     /// text's inner scroll or to swipe-to-send. Starts `true` because an empty
     /// composer has nothing to scroll.
     @State var inputAtScrollBottom: Bool = true
+    @State var navigationContainerWidth: CGFloat = 0
     @State var inputBarHeight: CGFloat = 0
     @State var inputBarHeightDebounce: Task<Void, Never>?
     /// [T-voice-inputbar-anim-tail] The most recent ON-SCREEN composer height
@@ -731,11 +732,11 @@ struct AIChatView: View {
                             // the blue entry dots read as a glitch, not
                             // feedback (user report 2026-07-06).
                             SessionLoadingCard()
-                                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                                .transition(.identity)
                                 .accessibilityIdentifier("sessionLoadingCard")
                         }
                     }
-                    .animation(.easeOut(duration: 0.28), value: vm.isLoadingSession)
+                    .transaction { $0.animation = nil }
                     .allowsHitTesting(false)
                 }
                 .overlay {
@@ -754,6 +755,9 @@ struct AIChatView: View {
             kernelBootOverlay
         })
         .background(ChatColors.background)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if abs(width - navigationContainerWidth) > 0.5 { navigationContainerWidth = width }
+        }
         .onDrop(of: [.image, .movie, .fileURL, .data], isTargeted: $isDropTargeted) { providers in
             handleDropProviders(providers)
             return true
@@ -784,8 +788,8 @@ struct AIChatView: View {
                 }
         }
         .navigationBarTitleDisplayMode(.inline)
-        // Bot chats show only the back chevron (no previous-page title), like the reference.
-        .toolbarRole(currentBot != nil ? .editor : .automatic)
+        // The editor role shifts the principal title toward the leading edge.
+        .toolbarRole(.automatic)
         // [T-ios-navbar-toolbar-host] The ENTIRE toolbar now lives inside an
         // equatable-gated host child. Root cause of the mid-streaming "..."
         // menu refresh (4th attempt, this one from instrumentation): with

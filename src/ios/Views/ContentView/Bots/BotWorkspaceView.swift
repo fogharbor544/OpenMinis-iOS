@@ -183,11 +183,10 @@ struct BotWorkspaceView: View {
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { profileRoom = nil } } }
                 }
             }
-            .sheet(item: $chat) { target in
-                NavigationStack {
+            .navigationDestination(isPresented: Binding(get: { chat != nil }, set: { if !$0 { chat = nil } })) {
+                if let target = chat {
                     AIChatView(sessionId: target.id)
                         .id(target.id)
-                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { chat = nil } } }
                         .safeAreaInset(edge: .bottom) {
                             if let entry = memory.lastSaved, entry.sourceSession == target.id, store.owner(forSession: target.id)?.memoryKey == entry.owner {
                                 HStack {
@@ -271,13 +270,16 @@ struct BotWorkspaceView: View {
         let subtitle = botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
             ?? preview?.lastMessage
             ?? bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
-        return Button { open(bot) } label: {
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            open(bot)
+        } label: {
             homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: preview?.updatedAt,
                     subtitle: subtitle, busy: openingBotID == bot.id,
                     avatar: { BotAvatar(profile: bot, size: 54) },
                     status: { BotRunStatusView(botID: bot.id, hidesWhenIdle: true) })
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BotRowPressStyle())
         .accessibilityHint("打开对话")
         .disabled(opening)
         .contextMenu {
@@ -394,7 +396,7 @@ struct BotWorkspaceView: View {
             do {
                 let id = try await store.session(botID: bot.id)
                 if let onOpenConversation { onOpenConversation(id) }
-                else { chat = BotChatTarget(id: id) }
+                else { withAnimation(reduceMotion ? nil : .default) { chat = BotChatTarget(id: id) } }
             }
             catch { failedBot = bot; store.errorMessage = error.localizedDescription }
         }
@@ -976,5 +978,16 @@ struct BotRunStatusView: View {
             .foregroundStyle(value.running ? Color.green : .secondary)
             .accessibilityElement(children: .combine)
         }
+    }
+}
+
+private struct BotRowPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.76 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

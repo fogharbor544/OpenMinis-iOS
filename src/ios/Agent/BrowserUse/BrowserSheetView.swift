@@ -11,6 +11,7 @@ struct BrowserSheetView: View {
     @State private var showBookmarks = false
     @State private var showPasswords = false
     @State private var isFullscreen = false
+    @State private var prepared = false
     @FocusState private var addressFocused: Bool
 
     private var manager: BrowserUseManager? { pool.activeManager }
@@ -21,7 +22,7 @@ struct BrowserSheetView: View {
                 if !isFullscreen {
                     // Tab bar
                     tabBar
-                        .allowsHitTesting(!isAgentBusy)
+                        .allowsHitTesting(!isAgentBusy && !pool.hasSecureInput)
 
                     // URL bar
                     HStack(spacing: 8) {
@@ -34,7 +35,7 @@ struct BrowserSheetView: View {
                             .keyboardType(.URL)
                             .submitLabel(.go)
                             .focused($addressFocused)
-                            .disabled(isAgentBusy)
+                            .disabled(isAgentBusy || pool.hasSecureInput)
                             .onSubmit {
                                 let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
@@ -54,25 +55,51 @@ struct BrowserSheetView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color(UIColor.secondarySystemBackground))
-                    .allowsHitTesting(!isAgentBusy)
+                    .allowsHitTesting(!isAgentBusy && !pool.hasSecureInput)
                 }
 
-                if let manager {
+                if let manager, !manager.isSecureInputActive {
                     BrowserLoginAutofillButton(manager: manager, isAgentBusy: isAgentBusy) { showPasswords = true }
                 }
 
                 // Live webview + agent overlay
                 ZStack {
                     if let manager {
-                        BrowserWebView(manager: manager)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .id(pool.selectedTabId)
+                        if manager.secureInputSession == nil {
+                            BrowserWebView(manager: manager)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .id(pool.selectedTabId)
+                        } else {
+                            VStack(spacing: 16) {
+                                Label("安全输入中", systemImage: "lock.shield").font(.headline)
+                                Text("请在原生安全输入卡片完成操作。")
+                            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        if manager.secureInputProtected && manager.secureInputSession == nil && manager.loadError == nil {
+                            ProgressView("正在清理安全输入并恢复网页")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color(UIColor.systemBackground))
+                        }
                         // [T-ios-webview-error-ui] Safari-style error overlay for
                         // agent/manual navigation failures (blank page otherwise).
+                        if manager.currentURL.isEmpty && !manager.isLoading && manager.loadError == nil {
+                            VStack(spacing: 16) {
+                                Image(systemName: "globe").font(.system(size: 40)).foregroundStyle(.secondary)
+                                Text("浏览器起始页").font(.title2.weight(.semibold))
+                                Text("在上方输入网址或搜索内容，也可以打开书签。").foregroundStyle(.secondary)
+                                Button("打开书签") { showBookmarks = true }.frame(minHeight: 44)
+                            }
+                            .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color(UIColor.systemBackground))
+                        }
                         BrowserLoadErrorOverlay(manager: manager)
                     } else {
-                        Color(UIColor.systemBackground)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        VStack(spacing: 16) {
+                            if prepared {
+                                Text("暂时无法准备浏览器，请关闭其他标签后重试。")
+                                Button("重试") { pool.ensureTabForUI() }.frame(minHeight: 44)
+                            } else { ProgressView("正在准备浏览器") }
+                        }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
                     if isAgentBusy {
@@ -132,7 +159,7 @@ struct BrowserSheetView: View {
                                 Image(systemName: "xmark")
                                     .frame(maxWidth: .infinity)
                             }
-                            .disabled(isAgentBusy)
+                            .disabled(isAgentBusy || pool.hasSecureInput)
                             .transition(.identity)
                         } else {
                             Button { pool.touchActivity(); manager?.reload() } label: {
@@ -140,7 +167,7 @@ struct BrowserSheetView: View {
                                     .frame(maxWidth: .infinity)
                             }
                             .transition(.identity)
-                            .disabled(isAgentBusy)
+                            .disabled(isAgentBusy || pool.hasSecureInput)
                         }
 
                         Button {
@@ -149,12 +176,12 @@ struct BrowserSheetView: View {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .frame(maxWidth: .infinity)
                         }
-                        .disabled(isAgentBusy)
+                        .disabled(isAgentBusy || pool.hasSecureInput)
                     }
                     .font(.system(size: 18))
                     .padding(.vertical, 10)
                     .background(Color(UIColor.secondarySystemBackground))
-                    .allowsHitTesting(!isAgentBusy)
+                    .allowsHitTesting(!isAgentBusy && !pool.hasSecureInput)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -184,26 +211,26 @@ struct BrowserSheetView: View {
                         } label: {
                             Image(systemName: "plus")
                         }
-                        .disabled(isAgentBusy || pool.tabs.count >= BrowserTabPool.maxTabs)
+                        .disabled(isAgentBusy || pool.hasSecureInput || pool.tabs.count >= BrowserTabPool.maxTabs)
 
                         Button {
                             showHistory = true
                         } label: {
                             Image(systemName: "clock.arrow.circlepath")
                         }
-                        .disabled(isAgentBusy)
+                        .disabled(isAgentBusy || pool.hasSecureInput)
                         Button {
                             showBookmarks = true
                         } label: {
                             Image(systemName: "bookmark")
                         }
                         .accessibilityLabel("Bookmarks")
-                        .disabled(isAgentBusy)
+                        .disabled(isAgentBusy || pool.hasSecureInput)
                         Button { showPasswords = true } label: {
                             Image(systemName: "key")
                         }
                         .accessibilityLabel("Passwords")
-                        .disabled(isAgentBusy || manager == nil)
+                        .disabled(isAgentBusy || pool.hasSecureInput || manager == nil)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -240,9 +267,8 @@ struct BrowserSheetView: View {
             }
             .onAppear {
                 // Ensure at least one tab exists when opened manually
-                if pool.tabs.isEmpty {
-                    pool.ensureTabForUI()
-                }
+                pool.ensureTabForUI()
+                prepared = true
                 addressText = manager?.currentURL ?? ""
             }
             .onDisappear {
@@ -270,7 +296,7 @@ struct BrowserSheetView: View {
 
     private var navigationTitle: String {
         let title = manager?.pageTitle ?? ""
-        return title.isEmpty ? "Browser" : title
+        return title.isEmpty ? "浏览器" : title
     }
 
     // MARK: - Tab Bar
@@ -332,7 +358,7 @@ struct BrowserSheetView: View {
         if !title.isEmpty { return String(title.prefix(20)) }
         let url = tab.manager.currentURL
         if !url.isEmpty { return String(url.prefix(20)) }
-        return "Tab \(tab.id)"
+        return "标签 \(tab.id)"
     }
 }
 
@@ -837,7 +863,7 @@ final class DownloadProgressObserver: ObservableObject {
 /// page. Split into its own `@ObservedObject` view so a `loadError` change
 /// actually re-renders — the parent reads `manager` via a computed property and
 /// wouldn't otherwise observe it.
-private struct BrowserLoadErrorOverlay: View {
+struct BrowserLoadErrorOverlay: View {
     @ObservedObject var manager: BrowserUseManager
 
     var body: some View {

@@ -38,15 +38,6 @@ struct BotProfile: Identifiable, Codable, Equatable {
     /// Non-nil while pinned to the top of the home list; the date orders pinned rows.
     var pinnedAt: Date?
 
-    static let commanderID = "builtin.commander"
-    var isCommander: Bool { id == Self.commanderID }
-
-    static var defaultCommander: BotProfile {
-        var bot = BotProfile(name: "指挥官", instructions: "理解用户目标，识别合适的团队成员，拆解并分配任务，核对执行结果后向用户汇总。没有适合的成员时自行完成。", iconSymbol: "star.circle.fill", skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
-        bot.id = commanderID
-        return bot
-    }
-
     static let builtinIcons = SessionCategory.all.map(\.icon)
 }
 
@@ -84,11 +75,7 @@ struct BotWorkspaceData: Codable, Equatable {
 
 @MainActor
 final class BotWorkspaceStore: ObservableObject {
-    static let shared: BotWorkspaceStore = {
-        let store = BotWorkspaceStore()
-        store.ensureCommander()
-        return store
-    }()
+    static let shared = BotWorkspaceStore()
     @Published private(set) var data = BotWorkspaceData()
     @Published var errorMessage: String?
     var pendingSessions: [String: Task<String, Error>] = [:]
@@ -138,23 +125,6 @@ final class BotWorkspaceStore: ObservableObject {
         _ = save(room)
     }
 
-    @discardableResult
-    func ensureCommander() -> Bool {
-        guard bot(BotProfile.commanderID) == nil else { return true }
-        var next = data
-        next.bots.insert(.defaultCommander, at: 0)
-        return persist(next)
-    }
-
-    /// Delegations have isolated histories but retain the selected Bot's capability ownership.
-    @discardableResult
-    func registerDelegation(sessionID: String, botID: String, roomID: String?) -> Bool {
-        guard bot(botID) != nil, roomID == nil || room(roomID!)?.members.contains(botID) == true else { return false }
-        var next = data
-        next.sessionOwners[sessionID] = BotSessionOwner(botId: botID, roomId: roomID)
-        return persist(next)
-    }
-
     func newBot() -> BotProfile {
         let counts = Dictionary(grouping: data.bots.filter { $0.iconImageData == nil },
                                 by: { $0.iconSymbol ?? "sparkles" }).mapValues(\.count)
@@ -170,7 +140,7 @@ final class BotWorkspaceStore: ObservableObject {
         data.sessionOwners[id]
     }
 
-    /// Bot delegations own their capabilities; ordinary helpers inherit the parent.
+    /// Bot and group sessions own their capabilities; helpers inherit the parent.
     func capabilitySessionID(for sessionID: String?, parentSessionID: String?) -> String? {
         if let sessionID, owner(forSession: sessionID) != nil { return sessionID }
         return parentSessionID ?? sessionID

@@ -218,3 +218,7 @@ Completed local repairs for all three findings and both confirmed risks. Added m
 
 
 Cloud delivery authorized. Existing private darkyuanbao06 repo and latest successful branch build verified. Fresh SQLite initialization checks and common-secret-pattern scan of 63 modified/new files passed; git diff whitespace passed. Preparing complete working-tree commit, including existing docs/plans.
+
+Committed/pushed d839804 (91 files) to darkyuanbao06/codex/bot-single-chat. Full workflow 41037513427 dispatched for exactly this SHA; follow existing run until terminal. Precommit check found trailing blank EOF in findings.md; normalized and staged successfully. Tests/build not yet passed.
+
+Run41037513427: source checks passed capability transport, then failed because macOS XCTest lacks XCTMain/testCase used by the new runner. Replaced manual XCTest entry with temporary Swift Package + swift test (no dependencies). Application build still running, unchanged source; dispatch only source checks for this test-runner repair.

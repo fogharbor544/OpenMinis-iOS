@@ -16,6 +16,7 @@ import HomeKit
 import HealthKit
 import AlarmKit
 import AVFoundation
+import CoreLocation
 
 struct MCPIntegrationsView: View {
     /// [T-mcp-oauth-deeplink] When set (minis://settings/mcp-servers/<id>),
@@ -283,45 +284,61 @@ struct BuiltinCapabilitiesView: View {
         ("photos", "照片", "photo"), ("camera", "相机", "camera"), ("music", "音乐", "music.note"),
         ("home", "家庭", "house"), ("health", "健康", "heart"),
         ("alarm", "时钟与闹钟", "alarm"), ("notification", "通知", "bell"),
-        ("maps", "地图", "map"), ("weather", "天气", "cloud.sun")
+        ("maps", "地图", "map"), ("weather", "天气", "cloud.sun"),
+        ("location", "位置", "location"), ("clipboard", "剪贴板", "doc.on.clipboard")
     ]
 
     var body: some View {
         List {
             Section {
-                ForEach(apps, id: \.id) { app in
+                Text("系统授权决定 iOS 是否开放数据；工具使用许可决定 Bot 能否调用。两者分别管理，对所有 Bot 生效。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            ForEach(apps, id: \.id) { app in
+                Section {
                     Button { Task { await manage(app.id) } } label: {
-                        HStack {
-                            Label(app.name, systemImage: app.icon).foregroundStyle(.primary)
-                            Spacer()
+                        HStack(spacing: 12) {
+                            Text("系统授权").foregroundStyle(.primary)
+                            Spacer(minLength: 8)
                             if busy == app.id { ProgressView() }
                             else {
-                                Text(statuses[app.id] ?? "检查中")
-                                    .font(.caption)
+                                Label(statuses[app.id] ?? "检查中", systemImage: granted.contains(app.id) ? "checkmark.circle.fill" : "info.circle")
+                                    .font(.caption.weight(.medium))
                                     .foregroundStyle(granted.contains(app.id) ? Color.green : Color.secondary)
+                                    .padding(.horizontal, 8).padding(.vertical, 5)
+                                    .background(Color(UIColor.tertiarySystemFill), in: Capsule())
                             }
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                         }
                         .frame(minHeight: 44)
                     }
                     .disabled(busy != nil)
+                    .accessibilityLabel("\(app.name)：系统授权")
+                    .accessibilityValue(statuses[app.id] ?? "检查中")
                     if let command = command(for: app.id) {
                         Picker("工具使用许可", selection: Binding(get: { permissions.permissionLevel(for: command) }, set: { permissions.setPermissionLevel($0, for: command) })) {
                             Text("允许").tag(OffloadPermissionLevel.bypass)
                             Text("每个会话首次询问").tag(OffloadPermissionLevel.askOnce)
                             Text("禁止").tag(OffloadPermissionLevel.notAllowed)
                         }
+                        .frame(minHeight: 44)
+                    }
+                } header: {
+                    Label {
+                        Text(app.name)
+                    } icon: {
+                        Image(systemName: app.icon).font(.system(size: 17, weight: .semibold))
+                            .frame(width: 26, height: 26)
                     }
                 }
-            } footer: {
-                Text("开启状态来自 iOS 实际授权。点击可请求权限或前往系统设置；关闭系统权限也需在设置中操作。返回后会自动刷新。工具使用许可对所有 Bot 生效，控制是否允许工具调用，不会替你开启 iOS 权限。相机和音乐共用媒体工具的使用许可。")
             }
             Section {
-                Text("健康的读取权限由 iOS 隐藏，不能显示为已开启。地图和天气查询无需独立系统权限；系统未提供的应用接口不会出现在这里。")
+                Text("健康读取权限由 iOS 隐藏，不会显示为已开启。地图和天气无需独立授权；定位权限单独管理。相机和音乐共用媒体工具许可。返回应用后会重新检查系统授权。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Built-in Capabilities")
+        .listStyle(.insetGrouped)
+        .navigationTitle("内置能力")
         .task { await refresh() }
         .onChange(of: homeAuthorization.authorized) { _ in Task { await refresh() } }
         .onChange(of: scenePhase) { phase in
@@ -365,6 +382,10 @@ struct BuiltinCapabilitiesView: View {
                notification.authorizationStatus == .provisional ? "静默通知" : "未开启")
         values["maps"] = "无需独立授权"
         values["weather"] = "无需独立授权"
+        let location = CLLocationManager().authorizationStatus
+        record("location", location == .authorizedAlways || location == .authorizedWhenInUse,
+               location == .restricted ? "系统限制" : "未开启")
+        values["clipboard"] = "粘贴时由系统确认"
         statuses = values
         granted = enabled
     }
@@ -412,6 +433,10 @@ struct BuiltinCapabilitiesView: View {
                 message = "请在系统弹窗或设置 → 隐私与安全性 → HomeKit 中管理家庭权限。自签名证书需要包含 HomeKit 能力。"
             case "health":
                 message = "请在健康 App → 头像 → App → OpenMinis 中按数据类型管理权限。首次使用健康工具时会申请授权；自签名证书需要包含 HealthKit 能力。iOS 不向 App 披露读取授权状态，授权弹窗完成也不代表所有权限已开启。"
+            case "location":
+                message = "请在系统设置 → OpenMinis → 位置中管理授权。使用当前位置的工具会请求必要权限。"
+            case "clipboard":
+                message = "读取其他应用复制的内容时，iOS 会按系统策略确认。工具许可不会绕过系统的粘贴保护。"
             case "maps":
                 message = "地图支持地点搜索和路线查询，无需独立授权。使用当前位置时，请在系统设置 → OpenMinis → 位置中管理定位权限。"
             case "weather":

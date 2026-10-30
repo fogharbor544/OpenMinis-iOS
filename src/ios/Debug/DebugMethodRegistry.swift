@@ -1375,7 +1375,8 @@ enum DebugMethodRegistry {
             description: "Send a prompt to a new or existing session. Equivalent to SendPromptIntent.",
             params: [
                 ParamSpec(name: "prompt", type: "string", required: true, default: nil, description: "User message text."),
-                ParamSpec(name: "sessionId", type: "string", required: false, default: nil, description: "Existing session to continue. Omit to create a new session."),
+                ParamSpec(name: "sessionId", type: "string", required: false, default: nil, description: "Existing session to continue. Otherwise botId is required."),
+                ParamSpec(name: "botId", type: "string", required: false, default: nil, description: "Existing Bot whose unique chat is opened or reused when sessionId is omitted."),
                 ParamSpec(name: "attachments", type: "[object]", required: false, default: nil, description: "Array of {name, data, mime?} where data is base64."),
                 ParamSpec(name: "thinkingLevel", type: "string", required: false, default: nil, description: "off | low | medium | high | xhigh."),
                 ParamSpec(name: "modelEntryId", type: "string", required: false, default: nil, description: "Pin to a specific entry from chat.models.list. Mutually exclusive with modelGroupId."),

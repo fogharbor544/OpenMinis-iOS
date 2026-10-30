@@ -123,6 +123,7 @@ struct NavTitleKey: Equatable {
 /// ToolbarContent builder — never re-runs.
 struct ChatToolbarKey: Equatable {
     let navTitle: NavTitleKey
+    var containerWidth: CGFloat = 0
     /// Bot chats swap the title for avatar + name and the "..." for a profile button.
     var botID: String? = nil
     let messagesEmpty: Bool

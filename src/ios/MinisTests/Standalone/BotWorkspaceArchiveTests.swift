@@ -5,21 +5,22 @@ import Foundation
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        var commander = BotProfile.defaultCommander
-        commander.name = "My commander"
-        commander.instructions = "Summarize results"
-        commander.sessionId = "main"
-        commander.conversationIds = ["main"]
-        let bot = BotProfile(name: "Designer", instructions: "Draw layouts", modelGroupId: "models",
+        var researcher = BotProfile(name: "Researcher")
+        researcher.instructions = "Summarize results"
+        researcher.sessionId = "main"
+        researcher.conversationIds = ["main"]
+        var bot = BotProfile(name: "Designer", instructions: "Draw layouts", modelGroupId: "models",
                              iconSymbol: "pencil", skillOverrides: ["design": true], connectorOverrides: ["files": false])
-        var room = BotRoom(name: "Team", members: [commander.id, bot.id])
+        bot.sessionId = "designer-chat"
+        bot.conversationIds = ["designer-chat"]
+        var room = BotRoom(name: "Team", members: [researcher.id, bot.id])
         room.sessions = [bot.id: "room-chat"]
         room.messages = [BotRoomMessage(speaker: bot.name, botId: bot.id, text: "Ready", sessionId: "room-chat")]
         room.interrupted = true
-        let workspace = BotWorkspaceData(bots: [bot, commander], rooms: [room], sessionOwners: [
-            "main": BotSessionOwner(botId: commander.id, roomId: nil),
+        let workspace = BotWorkspaceData(bots: [bot, researcher], rooms: [room], sessionOwners: [
+            "main": BotSessionOwner(botId: researcher.id, roomId: nil),
             "room-chat": BotSessionOwner(botId: bot.id, roomId: room.id),
-            "delegation": BotSessionOwner(botId: bot.id, roomId: nil)
+            "designer-chat": BotSessionOwner(botId: bot.id, roomId: nil)
         ])
         var entry = BotMemoryEntry(owner: "bot:\(bot.id)", content: "Prefers diagrams", category: "preference",
                                    scope: "work", sourceSession: "room-chat", sourceMessage: "message",
@@ -29,7 +30,7 @@ import Foundation
                                      evidence: "", updatedAt: Date(timeIntervalSince1970: 100), status: "deleted")
         deleted.pinned = false
         let archive = try BotWorkspaceArchive.capture(workspace: workspace, memories: [entry, deleted],
-            sessionIDs: ["main", "room-chat", "delegation"], includesHistory: true)
+            sessionIDs: ["main", "room-chat", "designer-chat"], includesHistory: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let decoder = JSONDecoder()
@@ -41,16 +42,16 @@ import Foundation
         precondition(decoded.memories.contains { $0.status == "deleted" })
 
         let store = BotWorkspaceStore(fileURL: root.appendingPathComponent("workspace.json"))
-        precondition(store.ensureCommander())
+        precondition(store.data.bots.isEmpty)
         let memory = BotMemoryStore(fileURL: root.appendingPathComponent("memory.sqlite"))
         let journal = root.appendingPathComponent("recovery/pending.json")
         // No private env-vars or subagents exist: Bot identities still restore independently.
         try BotWorkspaceTransfer.apply(decoded, workspace: store, memory: memory, journal: journal)
-        precondition(store.bot(commander.id)?.name == commander.name)
-        precondition(store.data.bots.map(\.id) == [bot.id, commander.id])
+        precondition(store.bot(researcher.id)?.name == researcher.name)
+        precondition(store.data.bots.map(\.id) == [bot.id, researcher.id])
         precondition(store.bot(bot.id)?.skillOverrides == ["design": true])
         precondition(store.owner(forSession: "room-chat")?.roomId == room.id)
-        precondition(store.owner(forSession: "delegation")?.botId == bot.id)
+        precondition(store.owner(forSession: "designer-chat")?.botId == bot.id)
         precondition(store.room(room.id)?.messages.count == 1)
         let restoredMemory = try memory.entries()
         precondition(restoredMemory.count == 2 && restoredMemory.contains { $0.grants == entry.grants })
@@ -59,6 +60,17 @@ import Foundation
         precondition(store.data == before)
         precondition(tryCount(memory) == 2)
         precondition(!FileManager.default.fileExists(atPath: journal.path))
+        var unsupported = decoded
+        unsupported.version = 1
+        do { try unsupported.validate(); preconditionFailure("Unsupported archive accepted") } catch {}
+        var conflict = decoded
+        conflict.workspace.bots[1].sessionId = "other-chat"
+        conflict.workspace.bots[1].conversationIds = ["other-chat"]
+        conflict.workspace.sessionOwners["other-chat"] = BotSessionOwner(botId: researcher.id, roomId: nil)
+        do {
+            _ = try conflict.merging(into: store.data, memories: restoredMemory)
+            preconditionFailure("Conflicting canonical chat accepted")
+        } catch { precondition(store.data == before) }
         let reload = BotWorkspaceStore(fileURL: root.appendingPathComponent("workspace.json"))
         precondition(reload.data == store.data)
 
@@ -80,10 +92,11 @@ import Foundation
 
         // Updated/new chats can be absent from the snapshot, including resumed shards.
         let partial = try BotWorkspaceArchive.capture(workspace: workspace, memories: [entry, deleted],
-            sessionIDs: ["delegation"], includesHistory: true)
+            sessionIDs: ["designer-chat"], includesHistory: true)
         try partial.validate()
-        precondition(Set(partial.workspace.sessionOwners.keys) == ["delegation"])
-        precondition(partial.workspace.bots.allSatisfy { $0.sessionId == nil && $0.conversationIds.isEmpty })
+        precondition(Set(partial.workspace.sessionOwners.keys) == ["designer-chat"])
+        precondition(partial.workspace.bots.first { $0.id == bot.id }?.sessionId == "designer-chat")
+        precondition(partial.workspace.bots.first { $0.id == researcher.id }?.sessionId == nil)
         precondition(partial.workspace.rooms.first?.sessions.isEmpty == true)
         precondition(partial.workspace.rooms.first?.messages.first?.text == "Ready")
         precondition(partial.workspace.rooms.first?.messages.first?.sessionId == nil)

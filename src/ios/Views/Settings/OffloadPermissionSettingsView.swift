@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct OffloadPermissionSettingsView: View {
-    @ObservedObject private var manager = OffloadPermissionManager.shared
     @ObservedObject private var configGate = MinisConfigPermissionStore.shared
     @ObservedObject private var correctionConsent = VoiceCorrectionCollectionConsent.shared
     @State private var showClearCorrectionConfirm = false
@@ -25,11 +24,14 @@ struct OffloadPermissionSettingsView: View {
                 Text("When disabled, the agent cannot read or modify any settings via minis-config. The change history at Logs → Config Changes remains accessible. The agent will receive a permission_denied error and can guide you via deep links instead.")
             }
 
-            Section("系统应用") {
-                NavigationLink("系统授权与 Bot 使用许可") { BuiltinCapabilitiesView() }
-                ForEach(settingsCommands.filter { ["apple-location", "apple-clipboard"].contains($0.name) }, id: \.name) { cmd in
-                    CommandPermissionRow(command: cmd)
+            Section {
+                NavigationLink { BuiltinCapabilitiesView() } label: {
+                    Label("连接器与内置能力", systemImage: "square.grid.2x2")
                 }
+            } header: {
+                Text("系统授权与工具许可")
+            } footer: {
+                Text("统一在连接器的内置能力页管理。系统授权与 Bot 工具使用许可分别生效，此处不重复保存设置。")
             }
 
             Section {
@@ -77,33 +79,4 @@ struct OffloadPermissionSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var settingsCommands: [OffloadCommandInfo] {
-        OffloadPermissionManager.allCommands.filter { $0.showInSettings }
-    }
-}
-
-private struct CommandPermissionRow: View {
-    let command: OffloadCommandInfo
-    @ObservedObject private var manager = OffloadPermissionManager.shared
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(command.displayLabel)
-                Text(command.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Picker("Permission", selection: Binding(
-                get: { manager.permissionLevel(for: command.name) },
-                set: { manager.setPermissionLevel($0, for: command.name) }
-            )) {
-                ForEach(OffloadPermissionLevel.allCases, id: \.self) { lvl in
-                    Text(lvl.displayName).tag(lvl)
-                }
-            }
-            .pickerStyle(.menu)
-        }
-    }
 }

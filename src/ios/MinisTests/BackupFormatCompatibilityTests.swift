@@ -1,7 +1,7 @@
 import XCTest
 @testable import Minis
 
-/// The v2 contract requires identity and category scope while tolerating
+/// The v3 contract requires identity and category scope while tolerating
 /// missing display metadata and unknown fields from same-major writers.
 final class BackupFormatCompatibilityTests: XCTestCase {
 
@@ -9,9 +9,9 @@ final class BackupFormatCompatibilityTests: XCTestCase {
 
     func testFormatAcceptanceMatrix() {
         // Accepted: same prefix, same major.
-        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/2"))
-        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/2.1"))
-        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/2.0.3"))
+        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/3"))
+        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/3.1"))
+        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/3.0.3"))
 
         // Refused: a different product that happens to use the same shape.
         // The pre-fix code ACCEPTED this — there was no prefix check at all.
@@ -19,10 +19,12 @@ final class BackupFormatCompatibilityTests: XCTestCase {
         // Refused: no prefix whatsoever. Also accepted pre-fix.
         XCTAssertFalse(BackupImporter.isFormatSupported("2"))
         // Both retired and future major versions are refused.
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/2"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/2.1"))
         XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/1"))
         XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/1.1"))
-        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/3"))
-        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/3.0"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/4"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/4.0"))
     }
 
     func testFormatAcceptanceRejectsMalformedStrings() {
@@ -33,6 +35,9 @@ final class BackupFormatCompatibilityTests: XCTestCase {
         XCTAssertFalse(BackupImporter.isFormatSupported("/2"))
         // Case matters: the prefix is compared literally.
         XCTAssertFalse(BackupImporter.isFormatSupported("MinisBak/2"))
+        for malformed in ["minisbak/3.", "minisbak/3..1", "minisbak/3.x", "minisbak/3/1", "minisbak/+3"] {
+            XCTAssertFalse(BackupImporter.isFormatSupported(malformed))
+        }
     }
 
     /// Whatever this build writes must be something this build accepts.
@@ -44,7 +49,7 @@ final class BackupFormatCompatibilityTests: XCTestCase {
     // MARK: - §2.2 rule 2 — manifest tolerance (review S1)
 
     private let identity: [String: Any] = [
-        "format": "minisbak/2", "created_at": "2026-08-14T00:00:00Z",
+        "format": "minisbak/3", "created_at": "2026-08-14T00:00:00Z",
         "backup_id": "ABC123", "categories": [String: Any]()
     ]
 
@@ -97,14 +102,14 @@ final class BackupFormatCompatibilityTests: XCTestCase {
          "future_field":{"nested":[1,2,3]},"another":"x"}
         """)
         XCTAssertEqual(m.deviceName, "iPhone")
-        XCTAssertEqual(m.format, "minisbak/2")
+        XCTAssertEqual(m.format, "minisbak/3")
     }
 
     /// §2.2 rule 2 turned into a test case directly: drop each optional key in
     /// turn from a complete manifest and assert the result still decodes.
     func testEveryOptionalFieldMayBeAbsent() throws {
         let full: [String: Any] = [
-            "format": "minisbak/2",
+            "format": "minisbak/3",
             "created_at": "2026-08-14T00:00:00Z",
             "snapshot_at": "2026-08-14T00:00:00Z",
             "app": ["platform": "ios", "version": "1.13", "build": "42"],

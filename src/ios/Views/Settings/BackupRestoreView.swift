@@ -462,7 +462,7 @@ struct BackupRestoreView: View {
         } header: {
             Text("Restore")
         } footer: {
-            Text("Restore matches stable IDs. Existing agent settings are kept, except the untouched default commander. Newer memories are merged. Chats, providers and environment variables also restore agent ownership.")
+            Text("Restore matches stable IDs. Existing agent settings are kept. Newer memories are merged. Chats, providers and environment variables also restore agent ownership.")
         }
     }
 

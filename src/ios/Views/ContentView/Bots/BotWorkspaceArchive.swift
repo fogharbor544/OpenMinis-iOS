@@ -2,7 +2,7 @@ import Foundation
 
 /// A versioned, logical snapshot; SQLite files, credentials and running jobs are not portable.
 struct BotWorkspaceArchive: Codable, Equatable {
-    var version = 1
+    var version = 2
     var includesHistory: Bool
     var workspace: BotWorkspaceData
     var memories: [BotMemoryEntry]
@@ -82,7 +82,7 @@ struct BotWorkspaceArchive: Codable, Equatable {
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw BotWorkspaceError.rejected(message) }
         }
-        try require(version == 1, "Unsupported agent archive version.")
+        try require(version == 2, "Unsupported agent archive version.")
         let bots = Set(workspace.bots.map(\.id)), rooms = Set(workspace.rooms.map(\.id))
         try require(bots.count == workspace.bots.count && rooms.count == workspace.rooms.count,
                     "Duplicate agent or group IDs in the archive.")
@@ -126,13 +126,13 @@ struct BotWorkspaceArchive: Codable, Equatable {
         }
     }
 
-    /// Same-ID local configuration wins, except the untouched factory commander.
+    /// Same-ID local configuration wins.
     /// Memory uses its own clock, including deleted/forgotten entries.
     func merging(into local: BotWorkspaceData, memories localMemories: [BotMemoryEntry]) throws -> Self {
         try validate()
         if local.rooms.isEmpty && local.sessionOwners.isEmpty && localMemories.isEmpty,
-           local.bots.isEmpty || local.bots == [.defaultCommander] {
-            // A fresh install has no user ordering to preserve, including its placeholder commander.
+           local.bots.isEmpty {
+            // A fresh install has no user ordering to preserve, including Bot order.
             var restored = self
             for i in restored.workspace.rooms.indices { restored.workspace.rooms[i].interrupted = false }
             restored.memories.sort { $0.id < $1.id }
@@ -141,12 +141,13 @@ struct BotWorkspaceArchive: Codable, Equatable {
         var next = local
         for incoming in workspace.bots {
             if let index = next.bots.firstIndex(where: { $0.id == incoming.id }) {
-                if next.bots[index] == .defaultCommander { next.bots[index] = incoming }
-                else {
-                    if next.bots[index].sessionId == nil { next.bots[index].sessionId = incoming.sessionId }
-                    for sid in incoming.conversationIds where !next.bots[index].conversationIds.contains(sid) {
-                        next.bots[index].conversationIds.append(sid)
-                    }
+                if let existing = next.bots[index].sessionId, let restored = incoming.sessionId,
+                   existing != restored {
+                    throw BotWorkspaceError.rejected("同一 Bot 已绑定其他聊天，请在干净环境恢复。")
+                }
+                if next.bots[index].sessionId == nil { next.bots[index].sessionId = incoming.sessionId }
+                for sid in incoming.conversationIds where !next.bots[index].conversationIds.contains(sid) {
+                    next.bots[index].conversationIds.append(sid)
                 }
             } else { next.bots.append(incoming) }
         }
@@ -156,7 +157,10 @@ struct BotWorkspaceArchive: Codable, Equatable {
                 guard Set(incoming.members) == Set(localRoom.members) else {
                     throw BotWorkspaceError.rejected("A group with the same ID has different local members. Restore on an empty device instead.")
                 }
-                for (bot, sid) in incoming.sessions where next.rooms[index].sessions[bot] == nil {
+                for (bot, sid) in incoming.sessions {
+                    if let existing = next.rooms[index].sessions[bot], existing != sid {
+                        throw BotWorkspaceError.rejected("同一群组成员已绑定其他聊天，请在干净环境恢复。")
+                    }
                     next.rooms[index].sessions[bot] = sid
                 }
                 let ids = Set(localRoom.messages.map(\.id))

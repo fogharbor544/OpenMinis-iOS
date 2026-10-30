@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 extension ContentView {
     // MARK: - Session List
@@ -29,7 +30,7 @@ extension ContentView {
                                  onOpenBrowser: { activeToolSheet = .browser },
                                  onBrowserSettings: { activeToolSheet = .browserManagement },
                                  onOpenSettings: { activeToolSheet = .settings },
-                                 onOpenConversation: { switchToSession($0) },
+                                 onOpenConversation: { switchToSession($0, animated: !UIAccessibility.isReduceMotionEnabled) },
                                  sessions: sessions)
             }
         }

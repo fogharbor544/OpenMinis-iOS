@@ -15,6 +15,11 @@ jobs:
     runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
+      - name: Current Bot and device repair contracts
+        run: |
+          python3 src/ios/MinisTests/Standalone/check_current_bot_contract.py
+          python3 src/ios/MinisTests/Standalone/check_chat_settings_contracts.py
+          python3 src/ios/MinisTests/Standalone/run_secure_input_tests.py
       - name: Fresh product initialization and Swift syntax
         run: |
           python3 src/ios/MinisTests/Standalone/check_fresh_install.py

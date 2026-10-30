@@ -7,6 +7,7 @@ enum BrowserAction: String, CaseIterable {
     case screenshot
     case click
     case type
+    case secureInput = "secure_input"
     case getText = "get_text"
     case scroll
     case getPageInfo = "get_page_info"
@@ -66,6 +67,8 @@ struct BrowserActionInput {
     /// `set_user_agent` with a value `userAgent` could not be parsed from can
     /// name that value in its error instead of silently picking a profile.
     var userAgentRaw: String? = nil
+    var secretKind: String? = nil
+    var purpose: String? = nil
 
     enum ScrollDirection: String {
         case up, down
@@ -111,7 +114,9 @@ struct BrowserActionInput {
             viewportReset: dict["reset"] as? Bool,
             fullPage: dict["full_page"] as? Bool,
             cookies: Self.parseCookies(dict["cookies"]),
-            userAgentRaw: dict["user_agent"] as? String
+            userAgentRaw: dict["user_agent"] as? String,
+            secretKind: dict["secret_kind"] as? String,
+            purpose: dict["purpose"] as? String
         )
     }
 

@@ -224,3 +224,26 @@ Committed/pushed d839804 (91 files) to darkyuanbao06/codex/bot-single-chat. Full
 Run41037513427: source checks passed capability transport, then failed because macOS XCTest lacks XCTMain/testCase used by the new runner. Replaced manual XCTest entry with temporary Swift Package + swift test (no dependencies). Application build still running, unchanged source; dispatch only source checks for this test-runner repair.
 
 Cloud delivery verification: device-build of41037513427 succeeded (artifact12968668733); follow-up source run41038602235 passed all steps at3b54e72. d839804 and3b54e72 have identical app source; only the test runner and progress record differ. Downloaded unsigned IPA to build/cloud/41037513427/OpenMinis-unsigned.ipa, version1.15 build1, com.openminis.app, iOS16+, arm64; ZIP test passed. SHA256 7ba54eb50bd7d22eeb61bb10f9198dfdc2ea51216d2c191fcaea7784bac214fe. User will sign and test on-device. Final plan/progress evidence committed and pushed without changing app source.
+
+## 2026-10-31 work started
+Read RTK and prior plan. Initial working tree clean. No Swift/Xcode installed. No developer/device data touched.
+
+### 2026-10-31 current repair progress
+- Confirmed target branch codex/bot-single-chat, baseline 28c9a17; all edits stay local.
+- Removed default identity/bootstrap and Bot delegate prompt/schema/registration/execution/resume; generic helper lifecycle, group ownership and schedules retained.
+- New format minisbak/3 and Bot archive v2; inspect rejects unsupported format, restore refuses conflicting unique Bot/group session bindings; tests use ordinary user-created Bots and empty destination.
+- Chat/settings implementation present: pane-based centered title, full input stack measurement, live floating height, drag-safe follow, native push/reduce-motion, grouped capabilities and single permission entry.
+- Native secure-input and retained-browser presentation implemented in independent workstream; final review/checks ongoing.
+- Passed source contracts and real isolated SQLite schema checks; generated format/inbound Swift harness. Production fill JS tested with Node. These are not Swift/Xcode/device acceptance.
+- Broad tree-sitter batch stalled and was cancelled; focused workstream parse reports used instead. No Swift/Xcode installed. No commit/push/CI or real data deletion.
+
+### 2026-10-31 final local integration status
+- Implementation present on codex/bot-single-chat: commander/cross-Bot delegation removal; minisbak/3 + archive v2; retained browser VM/start page; native secret cards/Keychain confirmation; chat geometry/navigation and grouped localized capabilities.
+- Final integration fixes: manual browser navigation has a 30-second deadline with visible retry; browser results/errors overlapping a native login are discarded using an interaction generation; explicit UIKit import is removed only in the macOS storage harness.
+- PASS executed: 55 production secure-fill/cleanup JavaScript assertions in Node; 6 chat/settings source-contract cases; current Bot source contracts; isolated SQLite initialization/reopen/write checks; Python AST/localization JSON; git diff --check.
+- PASS syntax/generation: 40 changed Swift sources compared to HEAD with no additional parse errors; browser WebKit/storage/permission harnesses generated and parsed with Swift subprocesses intercepted. This is not execution of those Swift tests. Evidence: build/validation/bot-removal/final-syntax.json.
+- Swift runtime tests, Xcode build and real-device acceptance remain pending because this Windows environment has no Swift/Xcode/device session. No new IPA, commit, push or CI dispatch performed.
+- Scope and remaining acceptance: docs/ios-bot-single-chat-repairs.md. Local implementation/checks finished; release acceptance is not complete.
+
+## 2026-10-31 cloud delivery authorized
+Astra medium read-only review found no confirmed defects. User now explicitly requests commit/push/cloud build and IPA. Added new Bot/chat/security checks to existing cloud source job. GitHub CLI keyring works outside sandbox; sandbox invalid-token report was an access limitation. Packaging uses existing unsigned Debug device build.

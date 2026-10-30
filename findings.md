@@ -101,3 +101,16 @@ Current inspection: old auto-grouping targets ChatStore folders, unrelated to Bo
 - Confirmed: format compatibility tests still expect v1 and optional identity fields; current contract requires v2 plus format/created_at/backup_id/categories.
 - Confirmed: merge failures increment blocked but still call cursor completion. Poll slices need aggregate success, including failures before the final slice.
 - Confirmed: retired SOUL still queues dirty records and remains in transport polling / dirty-type lists. No active SoulStore.save callers found.
+
+## 2026-10-31 inspection
+Commander entrypoints: BotWorkspaceStore/Profile/Archive, HelperRunner delegation+resume, tool schema/system prompt, debug new-chat. Preserve group/session ownership and generic helper lifecycle. Existing backup format contract and credential import/writeback require inspection.
+
+### 2026-10-31 current repair findings
+- Browser first-open used Boolean sheet and separate session state; item-based retained VM fixes presentation state coupling. Active manager notifications must reach browser pool UI.
+- Input measurement missed suspended-state strip; title geometry used full screen and editor toolbar role instead of actual navigation pane.
+- Credential store previously auto-imported and rewrote plaintext source; new path is explicit one-way import and Keychain-only saves.
+- Core review caught stale debug isNewSession reference; fixed with actual canonical session-ID comparison and updated debug parameter contract.
+- Tree-sitter is installed under build/validation-python, but does not typecheck Swift or exercise UIKit/WebKit/Keychain.
+
+### Final integration findings
+Manual navigation previously relied only on URLRequest timeout; a page waiting for load completion could leave the native UI loading. Added a bounded manual-navigation deadline and existing retry error presentation. Async browser reads begun before native login can complete while the user is entering a secret; interaction-generation checks now discard their response/error before model delivery. Current native fill/cleanup production JS passes 55 synthetic DOM assertions. Native WebKit, authentication, Keychain and device layout still require iOS acceptance.

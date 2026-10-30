@@ -65,22 +65,7 @@
       }
     }
   },
-  "Restore matches stable IDs. Existing agent settings are kept, except the untouched default commander. Newer memories are merged. Chats, providers and environment variables also restore agent ownership.": {
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Restore matches stable IDs. Existing agent settings are kept, except the untouched default commander. Newer memories are merged. Chats, providers and environment variables also restore agent ownership."
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "按固定 ID 恢复。保留本地已有智能体设置，未修改的默认指挥官除外；合并较新的记忆。恢复聊天、服务商和环境变量时，会同时恢复智能体归属。"
-        }
-      }
-    }
-  },
+
   "搜索 Bot、群聊及消息": {
     "localizations": {
       "en": {
@@ -2357,18 +2342,18 @@
       }
     },
     "External MCP Servers" : {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "External Connectors"
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "External Connectors"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "外部连接器"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外部 MCP 服务器"
           }
         }
       }
@@ -81529,7 +81514,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent 运行时"
+            "value" : "运行时"
           }
         },
         "zh-Hant" : {
@@ -83662,7 +83647,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "允许 minis-config"
+            "value" : "允许 minis-config 修改设置"
           }
         },
         "zh-Hant" : {
@@ -118167,7 +118152,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "当前 GPS 坐标和位置历史"
+            "value" : "当前位置坐标及位置记录"
           }
         },
         "zh-Hant" : {
@@ -135800,7 +135785,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "日程、时间安排和日历详情"
+            "value" : "日历事件、日程及详情"
           }
         },
         "zh-Hant" : {
@@ -200915,7 +200900,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "照片、视频和相册元数据"
+            "value" : "照片、视频及相册信息"
           }
         },
         "zh-Hant" : {
@@ -251006,7 +250991,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务、截止日期和提醒列表"
+            "value" : "任务、截止日期和提醒事项列表"
           }
         },
         "zh-Hant" : {
@@ -251682,7 +251667,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "复制到剪贴板的文本和图片"
+            "value" : "复制到剪贴板的文字和图片"
           }
         },
         "zh-Hant" : {
@@ -252471,7 +252456,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Agent 想要使用 **%@**"
+            "value" : "Bot 请求使用：**%@**"
           }
         },
         "zh-Hant" : {
@@ -277934,7 +277919,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待其他任务完成..."
+            "value" : "正在等待其他任务完成…"
           }
         },
         "zh-Hant" : {
@@ -278944,7 +278929,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "禁用后，Agent 无法通过 minis-config 读取或修改任何设置。日志 → 设置更改 中的更改历史仍可访问。Agent 将收到 permission_denied 错误，并可以改为通过深层链接为你引导。"
+            "value" : "关闭后，Bot 无法通过 minis-config 读取或修改设置。仍可在“日志 → 配置变更”查看记录；工具会返回权限拒绝，并可提供设置入口。"
           }
         },
         "zh-Hant" : {
@@ -285218,23 +285203,23 @@
     }
   }
 }
-, "Manage supported iOS apps and external connectors.": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Manage supported iOS apps and external connectors."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "管理支持的 iOS 系统应用和外部连接器。"
+, "Manage supported iOS apps and external connectors." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage supported iOS apps and external connectors."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "统一管理支持的系统应用、内置能力和外部连接器。"
+          }
+        }
       }
     }
-  }
-}
 , "Schedule": {
   "extractionState": "manual",
   "localizations": {
@@ -285473,6 +285458,92 @@
         }
       }
     }
+,
+  "Ask Once Per Session" : {
+    "extractionState" : "manual",
+    "localizations" : {
+      "zh-Hans" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "每个会话首次询问"
+        }
+      },
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Ask Once Per Session"
+        }
+      }
+    }
+  },
+  "Action" : {
+    "extractionState" : "manual",
+    "localizations" : {
+      "zh-Hans" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "操作"
+        }
+      },
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Action"
+        }
+      }
+    }
+  },
+  "arg" : {
+    "extractionState" : "manual",
+    "localizations" : {
+      "zh-Hans" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "参数"
+        }
+      },
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "arg"
+        }
+      }
+    }
+  },
+  "Permission" : {
+    "extractionState" : "manual",
+    "localizations" : {
+      "zh-Hans" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "工具使用许可"
+        }
+      },
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Permission"
+        }
+      }
+    }
+  },
+  "Restore matches stable IDs. Existing agent settings are kept. Newer memories are merged. Chats, providers and environment variables also restore agent ownership." : {
+    "extractionState" : "manual",
+    "localizations" : {
+      "zh-Hans" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "按稳定 ID 恢复，保留已有 Bot 设置并合并较新的记忆，同时恢复聊天、供应商和环境变量的 Bot 归属。"
+        }
+      },
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Restore matches stable IDs. Existing agent settings are kept. Newer memories are merged. Chats, providers and environment variables also restore agent ownership."
+        }
+      }
+    }
+  }
 },
   "version" : "1.0"
 }

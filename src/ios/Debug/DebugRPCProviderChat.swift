@@ -1127,31 +1127,24 @@ enum DebugRPCChat {
         let waitTimeout = clamp((params["waitTimeout"] as? Int) ?? 600, min: 1, max: 1800)
 
         let existingSessionId = params["sessionId"] as? String
-        let isNewSession = existingSessionId == nil
+        let isNewSession: Bool
 
         let vm: AIChatViewModel
         if let sid = existingSessionId {
+            isNewSession = false
             let (cached, _) = ViewModelCache.shared.getOrCreate(for: sid)
             vm = cached
             await vm.loadSession()
         } else {
-            // Bot-only app: a new debug chat is a commander conversation.
-            vm = ViewModelCache.shared.createDraft()
-            vm.sessionSource = "debug"
-        }
-
-        if isNewSession {
-            let sid = await vm.ensureSessionReturningId()
-            let workspace = BotWorkspaceStore.shared
-            guard workspace.ensureCommander(),
-                  let index = workspace.data.bots.firstIndex(where: { $0.id == BotProfile.commanderID }) else {
-                throw BotWorkspaceError.storage
+            guard let botID = params["botId"] as? String else {
+                throw DebugRPCErr(-32602, "Choose an existing botId or sessionId.")
             }
-            var next = workspace.data
-            next.sessionOwners[sid] = BotSessionOwner(botId: BotProfile.commanderID, roomId: nil)
-            next.bots[index].conversationIds.append(sid)
-            next.bots[index].sessionId = sid
-            guard workspace.persist(next) else { throw BotWorkspaceError.storage }
+            let previousID = BotWorkspaceStore.shared.bot(botID)?.sessionId
+            let sid = try await BotWorkspaceStore.shared.session(botID: botID)
+            isNewSession = previousID != sid
+            let (cached, _) = ViewModelCache.shared.getOrCreate(for: sid)
+            vm = cached
+            await vm.loadSession()
         }
 
         // Apply model selection on the session BEFORE send().

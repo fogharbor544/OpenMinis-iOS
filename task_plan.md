@@ -229,3 +229,25 @@ User now explicitly authorizes commits, pushes, cloud builds and download. No si
 - Test-only repair 3b54e72: run41038602235 SUCCESS; all source/regression steps including archive, capability transport and format/inbound passed. No application-source difference from the built revision.
 - Downloaded build/cloud/41037513427/OpenMinis-unsigned.ipa (100708665 bytes). ZIP CRC and Mach-O arm64 validation passed; verification.json contains SHA256 and revision evidence.
 - Complete local signing and real-device testing remain user-owned and unverified. Final documentation-only commit does not require rebuilding unchanged application code.
+
+## 2026-10-31 Commander removal and device UX repairs
+- Scope: iOS only, fresh product; no prior-data/backup/task compatibility; do not delete local/device data, commit, push or dispatch CI without authorization.
+- Phase 1 in progress: remove commander and cross-Bot delegation; current-version backup/restore.
+- Phase 2 pending: browser initial presentation, navigation title, streaming layout/scroll.
+- Phase 3 pending: native secret input, restricted fill, explicit Keychain save/update.
+- Phase 4 pending: transitions, Chinese strings, capability/settings consistency.
+- Phase 5 pending: targeted behavioral checks and honest separate build/device results.
+- Environment: Windows, python/node available, Swift/Xcode unavailable. RTK wrapper denied; native executable calls required. No project AGENTS file found. Initial git status clean.
+
+### 2026-10-31 phase update
+1. Commander removal and current-format backup/restore implemented; local contracts pass, Swift behavior pending macOS.
+2. Browser/chat repair code implemented; device acceptance pending.
+3. Native security implementation in final review; Node fill behavior executed, Keychain/device pending.
+4. Chinese/settings/navigation completed at source level; focused checks passed.
+5. Final integration and verification reporting in progress. No push/CI authorized; Windows cannot provide Xcode/device results.
+
+### 2026-10-31 verification gate
+Phases 1-4 implemented and locally integrated. Phase 5 locally available checks complete: Node 55 assertions, source contracts, isolated SQLite, generation/syntax/JSON/AST and whitespace checks passed. Swift runtime, Xcode build and device results are PENDING, not passed. No new package produced. See docs/ios-bot-single-chat-repairs.md for exact acceptance steps and build/validation/bot-removal/final-syntax.json for syntax evidence.
+
+## Authorized repair cloud delivery (2026-10-31)
+User authorizes commit, push, cloud validation/build and IPA delivery on codex/bot-single-chat. Include the reviewed iOS changes and new repair checks in the existing workflow. Follow actual macOS failures until tests/build pass; download and verify the unsigned arm64 IPA for user signing and device acceptance. No device results claimed.

@@ -732,6 +732,7 @@ extension AIChatViewModel {
                 toolSuccess = false
                 break
             }
+            let isSecureInput = BrowserActionInput.parse(from: argsJson)?.action == .secureInput
             var browserResult: BrowserActionResult
             if let input = BrowserActionInput.parse(from: argsJson) {
                 do {
@@ -743,7 +744,7 @@ extension AIChatViewModel {
                 browserResult = .error("Invalid browser_use input. Required: 'action' parameter.")
             }
 
-            if browserTakeoverActive {
+            if browserTakeoverActive && !isSecureInput && !browserTabPool.hasSecureInput {
                 if let freshResult = await waitForMidActionTakeover() {
                     let originalText = browserResult.text
                     let takeoverNote = "\n[Browser takeover] User manually operated the browser. Screenshot updated."
@@ -800,7 +801,7 @@ extension AIChatViewModel {
             // after the action resolves (navigation-turned-download resumes
             // the continuation first), so if a download is in flight but not
             // yet registered, wait briefly for the filename to be known.
-            if let sid = sessionId {
+            if !isSecureInput, !browserTabPool.hasSecureInput, let sid = sessionId {
                 var downloadReport = BrowserDownloadCenter.shared.agentReport(for: sid)
                 if downloadReport == nil,
                    browserTabPool.activeManager?.hasInflightDownloads == true {
@@ -1015,6 +1016,18 @@ extension AIChatViewModel {
                 // reload. Without this write the row stayed on the "starting"
                 // spinner for the rest of the turn and only read "Rejected"
                 // after reopening the session. Same as HelperRunner.reject.
+                if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                    messages[msgIdx].blocks[blockIdx].content = toolOutput
+                }
+                break
+            }
+            let supportedKeys: Set<String> = ["tool_title", "action", "task", "agent", "model_choice", "context", "max_minutes", "wait", "progress_report", "job_id", "message", "child_session_id"]
+            let action = (toolArgs["action"] as? String)?.lowercased() ?? "delegate"
+            guard Set(toolArgs.keys).isSubset(of: supportedKeys),
+                  ["delegate", "status", "steer", "cancel", "resume"].contains(action) else {
+                toolOutput = Self.jsonString(["ok": false, "status": "rejected", "reason": "invalid_arguments",
+                                              "detail": "Unsupported subagent_task action or parameter."])
+                toolSuccess = false
                 if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
                     messages[msgIdx].blocks[blockIdx].content = toolOutput
                 }

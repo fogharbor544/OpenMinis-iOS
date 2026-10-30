@@ -74,6 +74,22 @@ struct BrowserStorageBehaviorTests {
         precondition(BrowserCredentialStore.origin(for: "https://example.com:8443") != "https://example.com")
         precondition(BrowserCredentialStore.origin(for: "https://example.com.attacker.test") != "https://example.com")
         precondition(BrowserCredentialStore.origin(for: "http://example.com") == nil)
+        let sourceFile = root.appendingPathComponent("synthetic-import.json")
+        let sourceData = try JSONSerialization.data(withJSONObject: [["origin": "https://import.example", "username": "synthetic", "password": UUID().uuidString]])
+        try sourceData.write(to: sourceFile)
+        precondition(passwords.importFile(sourceFile))
+        var imported = passwords.entries.first { $0.origin == "https://import.example" }!
+        imported.password = UUID().uuidString
+        precondition(passwords.save(imported))
+        let afterEdit = try Data(contentsOf: sourceFile)
+        precondition(afterEdit == sourceData)
+        passwords.delete(imported)
+        let afterDelete = try Data(contentsOf: sourceFile)
+        precondition(afterDelete == sourceData)
+        vault.failWrites = true
+        precondition(!passwords.importFile(sourceFile))
+        precondition(!passwords.entries.contains { $0.origin == "https://import.example" })
+        vault.failWrites = false
         vault.data = Data("bad-json".utf8)
         let corrupted = BrowserCredentialStore(vault: vault, authenticate: { true })
         await corrupted.unlock()

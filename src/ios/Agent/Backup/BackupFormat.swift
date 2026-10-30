@@ -4,7 +4,7 @@ enum BackupFormat {
     /// Format major version. A reader that doesn't recognise it must refuse the
     /// package and tell the user to update (§2.2 rule 1) — never attempt a
     /// best-effort parse.
-    static let current = "minisbak/2"
+    static let current = "minisbak/3"
 
     /// File extension registered to the app for "open to import".
     static let fileExtension = "minisbak"

@@ -10,6 +10,7 @@ source = (root / 'Agent/BrowserUse/BrowserPasswords.swift').read_text(encoding='
 scripts = re.findall(r'callAsyncJavaScript\("""\n(.*?)\n\s*""", arguments:', source, re.S)
 assert len(scripts) == 2
 capture, fill = scripts
+secure_fill = re.search(r'// BEGIN NativeSecureFillScript.*?static let fillScript = """\n(.*?)\n\s*"""', source, re.S).group(1)
 program = '''import AppKit
 import WebKit
 
@@ -49,6 +50,9 @@ import WebKit
         let fill = """
 ''' + fill + '''
 """
+        let secureFill = """
+''' + secure_fill + '''
+"""
         let html = """
         <html><body><form onsubmit="window.submitted=true;return false">
         <input id="user" autocomplete="username"><input id="password" type="password">
@@ -87,7 +91,26 @@ import WebKit
         _ = try await page.web.evaluateJavaScript("document.querySelector('#password').readOnly=false;const extra=document.createElement('input');extra.type='password';document.body.append(extra)")
         let ambiguous = try await page.web.callAsyncJavaScript(fill, arguments: arguments, in: nil, contentWorld: .defaultClient)
         precondition(ambiguous as? Bool == false)
-        print("PASS: real WebKit capture/fill, input events, no auto-submit, origin mismatch, signup/read-only/multiple password rejection")
+        try await page.load(html)
+        let nativeArgs: [String: Any] = ["origin": "https://example.com", "selector": "#password", "secret": secret, "kind": "password"]
+        let native = try await page.web.callAsyncJavaScript(secureFill, arguments: nativeArgs, in: nil, contentWorld: .defaultClient)
+        precondition(native as? Bool == true)
+        let nativeValue = try await page.web.evaluateJavaScript("document.querySelector('#password').value") as! String
+        precondition(nativeValue == secret)
+        _ = try await page.web.evaluateJavaScript("window.dispatchEvent(new Event('pagehide'))")
+        let clearedValue = try await page.web.evaluateJavaScript("document.querySelector('#password').value") as! String
+        precondition(clearedValue.isEmpty)
+        var otpArgs = nativeArgs
+        otpArgs["kind"] = "otp"
+        _ = try await page.web.evaluateJavaScript("document.querySelector('#password').type='tel'")
+        let otp = try await page.web.callAsyncJavaScript(secureFill, arguments: otpArgs, in: nil, contentWorld: .defaultClient)
+        precondition(otp as? Bool == true)
+        let masked = try await page.web.evaluateJavaScript("document.querySelector('#password').type") as! String
+        precondition(masked == "password")
+        otpArgs["origin"] = "https://other.example"
+        let crossOrigin = try await page.web.callAsyncJavaScript(secureFill, arguments: otpArgs, in: nil, contentWorld: .defaultClient)
+        precondition(crossOrigin as? Bool == false)
+        print("PASS: real WebKit capture/fill, native password/OTP masking and erasure, no auto-submit, origin mismatch, invalid field rejection")
     }
 }
 '''

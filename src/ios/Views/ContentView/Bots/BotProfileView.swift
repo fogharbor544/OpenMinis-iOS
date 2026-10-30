@@ -56,7 +56,7 @@ struct BotProfileView: View {
     @State private var editingInstructions = false
     @State private var choosingAvatar = false
     @State private var deleting = false
-    @State private var showBrowser = false
+    @State private var browserTarget: BotBrowserTarget?
     @State private var showTerminal = false
     @State private var preview: (image: UIImage, pageURL: String?, capturedAt: Date)?
     @State private var openingSession = false
@@ -184,12 +184,8 @@ struct BotProfileView: View {
         }
         .sheet(isPresented: $choosingAvatar) { BotAvatarPicker(botID: bot.id) }
         .sheet(isPresented: $editingInstructions) { BotInstructionsEditor(botID: bot.id) }
-        .sheet(isPresented: $showBrowser, onDismiss: loadPreview) {
-            if let sid = resolvedSessionID {
-                let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
-                BrowserSheetView(pool: vm.browserTabPool, isAgentBusy: vm.browserTabPool.isAgentBrowsing,
-                                 onTakeover: { vm.browserTakeoverActive = true })
-            }
+        .sheet(item: $browserTarget, onDismiss: loadPreview) { target in
+            BotBrowserHost(vm: target.vm)
         }
         .fullScreenCover(isPresented: $showTerminal) {
             NavigationStack {
@@ -217,7 +213,12 @@ struct BotProfileView: View {
 
     @ViewBuilder
     private func browserCard(_ bot: BotProfile) -> some View {
-        Button { openSessionThen { showBrowser = true } } label: {
+        Button { openSessionThen {
+            guard let sid = resolvedSessionID else { return }
+            let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
+            vm.browserTabPool.sessionId = sid
+            browserTarget = BotBrowserTarget(id: sid, vm: vm)
+        } } label: {
             ZStack(alignment: .bottom) {
                 Group {
                     if let preview {
@@ -274,11 +275,9 @@ struct BotProfileView: View {
                 UIPasteboard.general.string = bot.id
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } label: { Label("复制 ID", systemImage: "doc.on.doc") }
-            if !bot.isCommander {
-                Divider()
-                Button(role: .destructive) { deleting = true } label: { Label("删除此 Bot", systemImage: "trash") }
-                    .disabled(locked)
-            }
+            Divider()
+            Button(role: .destructive) { deleting = true } label: { Label("删除此 Bot", systemImage: "trash") }
+                .disabled(locked)
         } label: {
             Image(systemName: "ellipsis")
         }
@@ -388,7 +387,9 @@ struct BotProfileView: View {
         Task { @MainActor in
             // Let the reload paint before re-capturing the card's preview.
             try? await Task.sleep(nanoseconds: 1_500_000_000)
-            if let image = try? await manager.webView.takeSnapshot(configuration: nil) {
+            if !manager.isSecureInputActive,
+               let image = try? await manager.webView.takeSnapshot(configuration: nil),
+               !manager.isSecureInputActive {
                 manager.lastScreenshot = image
             }
             loadPreview()
@@ -679,5 +680,18 @@ private struct BotInstructionsEditor: View {
             }
             .onAppear { text = store.bot(botID)?.instructions ?? "" }
         }
+    }
+}
+
+private struct BotBrowserTarget: Identifiable {
+    let id: String
+    let vm: AIChatViewModel
+}
+
+private struct BotBrowserHost: View {
+    @ObservedObject var vm: AIChatViewModel
+    var body: some View {
+        BrowserSheetView(pool: vm.browserTabPool, isAgentBusy: vm.browserTabPool.isAgentBrowsing,
+                         onTakeover: { vm.browserTakeoverActive = true })
     }
 }

@@ -257,11 +257,19 @@ check("the glide is additive, presentation-only and honours Reduce Motion",
       glideFn.contains("glide.isAdditive = true") && glideFn.contains("CABasicAnimation(keyPath: \"bounds.origin\")")
       && glideFn.contains("!UIAccessibility.isReduceMotionEnabled") && !code(glideFn).contains("layoutIfNeeded"))
 check("the composer reports its undebounced height, on-screen samples only",
-      inputBar.contains("if onscreen {\n                    latestInputBarFrameH = newH\n                    composerLiveHeight.report(newH)\n                }"))
-check("the chat's list gets the live height; the debounce itself is untouched",
+      inputBar.contains("if onscreen {\n                latestInputBarFrameH = newH\n                composerLiveHeight.report(newH)\n            }"))
+check("the chat's list gets the live height; animated voice retains its debounce",
       messagesArea.contains("composerLiveHeight: composerLiveHeight")
       && inputBar.contains("try? await Task.sleep(for: .milliseconds(380))")
       && inputBar.contains("inputBarHeight = committed"))
+
+check("normal input geometry commits immediately while voice settles",
+      inputBar.contains("if !voiceInputActive {\n                inputBarHeightDebounce?.cancel()\n                inputBarHeight = newH\n                return\n            }"))
+check("composer resizing cannot override a live user drag or deceleration",
+      representable.contains("if !cv.isTracking && !cv.isDragging && !cv.isDecelerating,"))
+check("floating controls use measured tool height instead of an 80pt estimate",
+      messagesArea.contains("inputBarHeight + floatingBarHeight + 12")
+      && !messagesArea.contains("hasFloatingPreview ? 80"))
 
 print(failures == 0 ? "\n✅ ALL PASSED" : "\n❌ \(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

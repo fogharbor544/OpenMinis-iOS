@@ -10,9 +10,9 @@ enum OffloadPermissionLevel: Int, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .bypass: return "Bypass"
-        case .askOnce: return "Ask Once"
-        case .notAllowed: return "Not Allowed"
+        case .bypass: return AppLocalized("Allow")
+        case .askOnce: return AppLocalized("Ask Once Per Session")
+        case .notAllowed: return AppLocalized("Not Allowed")
         }
     }
 }

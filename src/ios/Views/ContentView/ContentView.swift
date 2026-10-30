@@ -585,7 +585,6 @@ struct ContentView: View {
             // [T-p1-delegate-task] Hidden child sessions never reach the
             // sidebar; they are entered from their parent's helper block.
             sessions = await ChatStore.shared.listSessions().filter { !$0.isChild }
-            // Bot-only app: file pre-Bot and unowned conversations under the commander.
             // [T-ios-moveto-seed] Hand the sidebar's freshly-loaded list to the
             // Move-to sheet's seed, so opening the picker paints populated
             // instead of waiting on the ChatStore actor.

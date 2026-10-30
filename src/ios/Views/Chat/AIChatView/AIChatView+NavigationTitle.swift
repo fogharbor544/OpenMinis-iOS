@@ -25,45 +25,10 @@ import WebKit
 extension AIChatView {
     // MARK: - Navigation Title + Model Selector
 
-    /// [T-ios-navbar-toolbar-host] Principal toolbar content, extracted from
-    /// the old inline ToolbarItem so ChatToolbarHost can render it. Layout
-    /// preserved verbatim:
-    /// [T-navbar-title-centering] iOS 18 and below let the principal toolbar
-    /// item shrink to its content width and anchor it left-of-center; iOS 19+
-    /// centers natively — wrap in an infinite-width HStack with bookend
-    /// Spacers on legacy iOS, and cap the width to (screen − ~140pt chrome)
-    /// so long titles truncate instead of pushing through the trailing menu.
-    @ViewBuilder
+    /// Size both title rows against the actual navigation pane, including split views.
     var chatNavPrincipalContent: some View {
-        // Cap the title width to (screen − chrome) on ALL versions.
-        //
-        // [NavTitleGestureTruncation 2026-07-24] iOS 19+ previously left the
-        // titleView unconstrained, letting the system principal toolbar decide
-        // the truncation width from whatever space the left/right bar items
-        // leave. During an INTERACTIVE pop (edge-swipe), the system snapshots
-        // the nav bar and interpolates bar-item positions; at some drag/cancel
-        // frames the principal's available width widens, so lineLimit(1) stops
-        // truncating and a long title momentarily "un-truncates" to its full
-        // form — a jarring jump when the user cancels the swipe. Pinning an
-        // explicit, version-stable cap makes the truncation point identical in
-        // the steady state and every transition frame, so the title never
-        // pops to full. Does not affect normal-length titles (they're under
-        // the cap). This is a MITIGATION of the system snapshot behavior, not
-        // a fix of it: the top-crop of the snapshot itself is UIKit-level and
-        // out of SwiftUI's reach.
-        let cap = max(120, UIScreen.main.bounds.width - 140)
-        if #available(iOS 19, *) {
-            titleView
-                .frame(maxWidth: cap)
-        } else {
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                titleView
-                    .frame(maxWidth: cap)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity)
-        }
+        titleView
+            .frame(width: max(0, navigationContainerWidth - 144), alignment: .center)
     }
 
     /// [T-ios-navbar-toolbar-host] Everything the toolbar DISPLAYS (principal
@@ -72,6 +37,7 @@ extension AIChatView {
     var chatToolbarKey: ChatToolbarKey {
         ChatToolbarKey(
             navTitle: navTitleKey,
+            containerWidth: navigationContainerWidth,
             botID: currentBot?.id,
             messagesEmpty: vm.messages.isEmpty,
             hasSession: vm.sessionId != nil,

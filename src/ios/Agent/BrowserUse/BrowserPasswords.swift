@@ -2,14 +2,13 @@ import SwiftUI
 import Security
 import WebKit
 import UniformTypeIdentifiers
+import UIKit
 
 struct BrowserCredential: Identifiable, Codable {
     var id = UUID()
     var origin: String
     var username: String
     var password: String
-    var sourceBookmark: Data?
-    var isSharedVault: Bool?
 }
 
 @MainActor
@@ -60,14 +59,12 @@ final class BrowserCredentialStore: ObservableObject {
     @Published var errorMessage: String?
     private let vault: any BrowserCredentialVault
     private let authenticate: () async -> Bool
-    private let legacyVaultURL: URL
 
-    init(vault: (any BrowserCredentialVault)? = nil, legacyVaultURL: URL? = nil,
+    init(vault: (any BrowserCredentialVault)? = nil,
          authenticate: @escaping () async -> Bool = {
              await BiometricAuth.authenticate(reason: String(localized: "Unlock browser passwords"))
          }) {
         self.vault = vault ?? KeychainBrowserCredentialVault()
-        self.legacyVaultURL = legacyVaultURL ?? Self.sharedVaultURL
         self.authenticate = authenticate
     }
     private var unlockGeneration = UUID()
@@ -96,9 +93,6 @@ final class BrowserCredentialStore: ObservableObject {
             } else { entries = [] }
             isUnlocked = true
             errorMessage = nil
-            if FileManager.default.fileExists(atPath: legacyVaultURL.path) {
-                _ = importFile(legacyVaultURL, sharedVault: true)
-            }
         } catch { errorMessage = String(localized: "Unable to read browser passwords from Keychain.") }
     }
 
@@ -123,23 +117,17 @@ final class BrowserCredentialStore: ObservableObject {
             entry.id = next[index].id
             next[index] = entry
         } else { next.append(entry) }
-        let previous = entries.first { $0.id == entry.id }
-        if entry.sourceBookmark == nil, let source = previous?.sourceBookmark, let index = next.firstIndex(where: { $0.id == entry.id }) { next[index].sourceBookmark = source; next[index].isSharedVault = previous?.isSharedVault }
-        return persist(next, replacing: previous)
+        return persist(next)
     }
 
     func delete(_ entry: BrowserCredential) {
         guard isUnlocked else { return }
-        _ = persist(entries.filter { $0.id != entry.id }, replacing: entry)
+        _ = persist(entries.filter { $0.id != entry.id })
     }
 
-    /// A user-selected JSON source stays linked so editing/deleting never leaves a stale copy.
-    static var sharedVaultURL: URL {
-        AIChatViewModel.minisSharedPersistentDir.appendingPathComponent("password_manager/vault.json")
-    }
-
+    /// Explicit one-way import. The user-selected source is never rewritten.
     @discardableResult
-    func importFile(_ url: URL, sharedVault: Bool = false) -> Bool {
+    func importFile(_ url: URL) -> Bool {
         guard isUnlocked else { return false }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -147,20 +135,17 @@ final class BrowserCredentialStore: ObservableObject {
             let data = try Data(contentsOf: url)
             let object = try JSONSerialization.jsonObject(with: data)
             let rows = try Self.validatedRows(object)
-            let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-            var next = sharedVault ? entries.filter { $0.isSharedVault != true } : entries
+            var next = entries
             for row in rows {
                 guard let credential = Self.credential(row) else { throw NSError(domain: "BrowserCredentialFile", code: 1) }
                 var imported = credential
                 if let existing = entries.first(where: { $0.origin == imported.origin && $0.username == imported.username }) { imported.id = existing.id }
-                imported.sourceBookmark = bookmark
-                imported.isSharedVault = sharedVault
                 if let index = next.firstIndex(where: { $0.origin == imported.origin && $0.username == imported.username }) {
                     imported.id = next[index].id
                     next[index] = imported
                 } else { next.append(imported) }
             }
-            guard sharedVault || !rows.isEmpty else { throw NSError(domain: "BrowserCredentialFile", code: 2) }
+            guard !rows.isEmpty else { throw NSError(domain: "BrowserCredentialFile", code: 2) }
             return persist(next)
         } catch {
             errorMessage = "导入失败。请选择包含网站、用户名和密码的 JSON 文件；支持 origin/url/website、username/account/email 和 password 字段。"
@@ -203,61 +188,14 @@ final class BrowserCredentialStore: ObservableObject {
         throw NSError(domain: "BrowserCredentialFile", code: 4)
     }
 
-    private static func replaceInFile(_ object: Any, old: BrowserCredential, replacement: BrowserCredential?, siteHint: String? = nil) -> Any? {
-        if let rows = object as? [Any] {
-            return rows.compactMap { replaceInFile($0, old: old, replacement: replacement, siteHint: siteHint) }
-        }
-        guard var root = object as? [String: Any] else { return object }
-        if let entry = credential(root, siteHint: siteHint), entry.origin == old.origin, entry.username == old.username {
-            guard let replacement else { return nil }
-            let siteKey = siteKeys.first { root[$0] != nil } ?? "origin"
-            let userKey = userKeys.first { root[$0] != nil } ?? "username"
-            root[siteKey] = replacement.origin
-            root[userKey] = replacement.username
-            root["password"] = replacement.password
-            return root
-        }
-        for (key, value) in root {
-            root[key] = replaceInFile(value, old: old, replacement: replacement, siteHint: siteKeys.compactMap { root[$0] as? String }.first ?? (key.contains(".") ? key : siteHint))
-        }
-        return root
-    }
-
-    private func persist(_ next: [BrowserCredential], replacing old: BrowserCredential? = nil) -> Bool {
-        var sourceURL: URL?
-        var previousData: Data?
-        var scoped = false
-        var sourceChanged = false
-        defer { if scoped { sourceURL?.stopAccessingSecurityScopedResource() } }
+    private func persist(_ next: [BrowserCredential]) -> Bool {
         do {
-            if let old, let bookmark = old.sourceBookmark {
-                var stale = false
-                let url: URL
-                if old.isSharedVault == true { url = legacyVaultURL }
-                else { url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) }
-                sourceURL = url
-                scoped = url.startAccessingSecurityScopedResource()
-                if FileManager.default.fileExists(atPath: url.path) {
-                    let data = try Data(contentsOf: url)
-                    let object = try JSONSerialization.jsonObject(with: data)
-                    _ = try Self.validatedRows(object)
-                    let replacement = next.first { $0.id == old.id }
-                    let output = Self.replaceInFile(object, old: old, replacement: replacement) ?? [String: Any]()
-                    previousData = data
-                    try JSONSerialization.data(withJSONObject: output, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
-                    sourceChanged = true
-                }
-            }
             try vault.write(JSONEncoder().encode(next))
             entries = next
             errorMessage = nil
             return true
         } catch {
-            if sourceChanged, let url = sourceURL, let previousData {
-                do { try previousData.write(to: url, options: .atomic) }
-                catch { errorMessage = "密码保存失败，源文件回滚也失败，请检查源文件与密码管理器。"; return false }
-            }
-            errorMessage = "无法同步密码，请确认设备密码已开启，关联文件仍可读写。未从密码管理器移除记录。"
+            errorMessage = "无法保存密码，请确认设备已设置锁屏密码后重试。原记录未改变。"
             return false
         }
     }
@@ -269,9 +207,6 @@ final class BrowserCredentialStore: ObservableObject {
            let saved = try? JSONDecoder().decode([BrowserCredential].self, from: data) {
             passwords += saved.map(\.password)
         }
-        if let data = try? Data(contentsOf: sharedVaultURL),
-           let object = try? JSONSerialization.jsonObject(with: data),
-           let rows = try? fileRows(object) { passwords += rows.compactMap { credential($0)?.password } }
         return Array(Set(passwords.filter { !$0.isEmpty })).sorted { $0.count > $1.count }
     }
 
@@ -280,9 +215,6 @@ final class BrowserCredentialStore: ObservableObject {
         if let data = try? KeychainBrowserCredentialVault().read(),
            let entries = try? JSONDecoder().decode([BrowserCredential].self, from: data),
            entries.contains(where: { $0.origin == origin }) { return true }
-        if let data = try? Data(contentsOf: sharedVaultURL),
-           let object = try? JSONSerialization.jsonObject(with: data),
-           let rows = try? fileRows(object) { return rows.contains { credential($0)?.origin == origin } }
         return false
     }
 
@@ -311,7 +243,7 @@ struct BrowserPasswordsView: View {
                         Button("Save Login from Current Page") { Task { await capture() } }
                             .disabled(busy || BrowserCredentialStore.origin(for: manager.currentURL) == nil)
                     } footer: {
-                        Text("密码保存在本机 Keychain，同时读取 shared/password_manager/vault.json。来自文件的记录在修改或删除时同步原文件。填充仅匹配相同 HTTPS 网站，不会自动提交登录。")
+                        Text("密码仅保存在本机 Keychain。手动导入不会修改源文件。填充仅匹配相同 HTTPS 网站，不会自动提交登录。")
                     }
                     if store.entries.isEmpty { Text("No Saved Passwords").foregroundStyle(.secondary) }
                     ForEach(store.entries) { entry in
@@ -343,7 +275,7 @@ struct BrowserPasswordsView: View {
             .fileImporter(isPresented: $importing, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
                 switch result {
                 case .success(let urls):
-                    if let url = urls.first, store.importFile(url) { message = "密码已保存，请在密码管理器中查看。关联文件的修改和删除会同步。" }
+                    if let url = urls.first, store.importFile(url) { message = "密码已导入本机 Keychain；源文件未修改。" }
                 case .failure: message = "无法打开密码文件。"
                 }
             }
@@ -385,12 +317,8 @@ struct BrowserPasswordsView: View {
         defer { busy = false }
         guard await BiometricAuth.authenticate(reason: String(localized: "Fill browser password")),
               store.isUnlocked, BrowserCredentialStore.origin(for: manager.currentURL) == entry.origin else { return }
-        do {
-            let result = try await BrowserCredentialFiller.fill(entry, manager: manager)
-            message = result
-                ? String(localized: "Login filled. Review the page before signing in.")
-                : String(localized: "No supported login form found on this page.")
-        } catch { message = String(localized: "Unable to fill this login form.") }
+        let result = await BrowserCredentialFiller.request(entry, manager: manager)
+        message = result ? "安全登录流程已完成。" : "安全登录已取消或不可用。"
     }
 }
 
@@ -423,13 +351,45 @@ private struct BrowserCredentialEditor: View {
 
 @MainActor
 enum BrowserCredentialFiller {
-    static func fill(_ entry: BrowserCredential, manager: BrowserUseManager) async throws -> Bool {
-        guard BrowserCredentialStore.origin(for: manager.currentURL) == entry.origin else { return false }
+    /// Saved credentials use the same isolated native flow as newly requested values.
+    static func request(_ entry: BrowserCredential, manager: BrowserUseManager) async -> Bool {
+        guard BrowserUseManager.secureInteractionManager == nil, !manager.isSecureInputActive,
+              BrowserCredentialStore.origin(for: manager.currentURL) == entry.origin,
+              UIApplication.shared.applicationState == .active,
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
+              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return false }
+        var presenter = root
+        while let presented = presenter.presentedViewController { presenter = presented }
+        guard !presenter.isBeingDismissed else { return false }
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: false); return }
+                let session = BrowserSecureInputSession(manager: manager, origin: entry.origin,
+                    requester: "用户手动操作", purpose: "填充已保存的账号密码", selector: "input[type=password]", kind: .password) { status in
+                    continuation.resume(returning: !status.contains("cancelled") && !status.contains("expired"))
+                }
+                session.secret = entry.password; session.username = entry.username; session.useSavedAccount = true
+                BrowserUseManager.secureInteractionManager = manager
+                BrowserUseManager.secureInteractionGeneration = UUID()
+                manager.secureInputProtected = true
+                manager.secureInputSession = session
+                manager.lastScreenshot = nil
+                session.present(from: presenter)
+            }
+        }, onCancel: {
+            Task { @MainActor in manager.secureInputSession?.finish("cancelled") }
+        })
+    }
+
+    fileprivate static func fill(_ entry: BrowserCredential, manager: BrowserUseManager) async throws -> Bool {
+        guard manager.secureInputSession != nil, manager.secureInputProtected,
+              BrowserCredentialStore.origin(for: manager.currentURL) == entry.origin else { return false }
         let result = try await manager.webView.callAsyncJavaScript("""
                 if (location.origin !== origin) return false;
                 const fields = [...document.querySelectorAll('input[type="password"]')].filter(e => e.getClientRects().length && !e.disabled && !e.readOnly && e.autocomplete !== 'new-password');
                 if (fields.length !== 1) return false;
                 const passwordField = fields[0];
+                window.addEventListener('pagehide', () => { passwordField.value = ''; }, {once: true});
                 const scope = passwordField.form || document;
                 const usernameField = scope.querySelector('input[autocomplete="username"], input[type="email"], input[type="text"]');
                 const set = (field, value) => {
@@ -466,10 +426,8 @@ struct BrowserLoginAutofillButton: View {
                         let matches = store.entries.filter { $0.origin == BrowserCredentialStore.origin(for: manager.currentURL) }
                         guard matches.count == 1, let entry = matches.first else { onChoose(); return }
                         guard !isAgentBusy else { return }
-                        do {
-                            let filled = try await BrowserCredentialFiller.fill(entry, manager: manager)
-                            feedback = filled ? "已填充，请确认后登录。" : "当前页面未找到支持的登录表单。"
-                        } catch { feedback = "无法填充当前页面。" }
+                        let filled = await BrowserCredentialFiller.request(entry, manager: manager)
+                        feedback = filled ? "安全登录流程已完成。" : "安全登录已取消或不可用。"
                     }
                 } label: { Label(filling ? "正在填充" : "填充已保存的账号密码", systemImage: "key.fill") }
                 .disabled(filling).frame(minHeight: 44)
@@ -509,3 +467,190 @@ enum PasswordReplyRedactor {
     }
 }
 // END PasswordReplyRedactor
+
+
+// Secrets exist only in this native session; no Codable, tool payload or history field.
+@MainActor
+final class BrowserSecureInputSession: ObservableObject {
+    enum Kind: String { case password, pin, otp
+        var label: String {
+            switch self { case .password: return "密码"; case .pin: return "PIN"; case .otp: return "验证码" }
+        }
+    }
+    let id = UUID()
+    let origin: String
+    let requester: String
+    let purpose: String
+    let selector: String
+    let kind: Kind
+    let manager: BrowserUseManager
+    @Published var secret = ""
+    @Published var username = ""
+    @Published var reveal = false
+    @Published var filled = false
+    @Published var confirmedLogin = false
+    @Published var feedback: String?
+    @Published var busy = false
+    @Published var shielded = false
+    @Published var updateExisting = false
+    var useSavedAccount = false
+    let store: BrowserCredentialStore
+    private var completion: ((String) -> Void)?
+    private weak var controller: UIViewController?
+    private var timeout: Task<Void, Never>?
+    private var ended = false
+
+    init(manager: BrowserUseManager, origin: String, requester: String, purpose: String,
+         selector: String, kind: Kind, store: BrowserCredentialStore? = nil, completion: @escaping (String) -> Void) {
+        self.store = store ?? BrowserCredentialStore()
+        self.manager = manager; self.origin = origin; self.requester = requester
+        self.purpose = purpose; self.selector = selector; self.kind = kind; self.completion = completion
+    }
+
+    func present(from presenter: UIViewController) {
+        let controller = UIHostingController(rootView: BrowserSecureInputView(session: self))
+        controller.isModalInPresentation = true
+        controller.modalPresentationStyle = .fullScreen
+        self.controller = controller
+        presenter.present(controller, animated: true)
+        timeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.finish("expired")
+        }
+    }
+
+    func fill() async {
+        guard !busy, !ended, !secret.isEmpty,
+              !manager.isLoading, BrowserCredentialStore.origin(for: manager.webView.url?.absoluteString ?? "") == origin else {
+            feedback = "网站已变化或输入为空，请取消后重新请求。"; return
+        }
+        busy = true
+        defer { busy = false }
+        // Lock before crossing into WebKit; JS exceptions must never surface their arguments.
+        manager.secureInputProtected = true
+        do {
+            let result: Bool
+            if useSavedAccount {
+                result = try await BrowserCredentialFiller.fill(BrowserCredential(origin: origin, username: username, password: secret), manager: manager)
+            } else {
+                let value = try await manager.webView.callAsyncJavaScript(Self.fillScript,
+                    arguments: ["origin": origin, "selector": selector, "secret": secret, "kind": kind.rawValue],
+                    in: nil, contentWorld: .defaultClient)
+                result = value as? Bool == true
+            }
+            guard !ended else { manager.finishSecureInput(); return }
+            guard result else { feedback = "未找到唯一、可编辑的安全输入框，未填充。"; return }
+            filled = true; reveal = false
+            feedback = "已安全填充。请在网页中完成登录，再确认结果；应用不会自动提交。"
+            if kind != .password { secret = "" }
+        } catch { if !ended { feedback = "安全填充失败，请重试或取消。" } }
+    }
+
+    // BEGIN NativeSecureFillScript
+    static let fillScript = """
+        if (location.origin !== origin) return false;
+        const fields = [...document.querySelectorAll(selector)];
+        if (fields.length !== 1) return false;
+        const field = fields[0];
+        if (!(field instanceof HTMLInputElement) || !field.getClientRects().length || field.disabled || field.readOnly) return false;
+        if (kind === 'password' && (field.type !== 'password' || field.autocomplete === 'new-password')) return false;
+        if (kind !== 'password' && !['password', 'text', 'tel', 'number'].includes(field.type)) return false;
+        // PIN/OTP remain visually masked; no plaintext value is returned.
+        if (kind !== 'password') field.type = 'password';
+        // Erase this document before WebKit can place it in the back-forward cache.
+        window.addEventListener('pagehide', () => { field.value = ''; }, {once: true});
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, secret);
+        field.dispatchEvent(new Event('input', {bubbles: true}));
+        field.dispatchEvent(new Event('change', {bubbles: true}));
+        return true;
+        """
+    // END NativeSecureFillScript
+
+    func prepareSave() async {
+        guard !ended, filled, kind == .password, confirmedLogin, !busy else { return }
+        busy = true
+        defer { busy = false }
+        await store.unlock()
+        guard !ended else { store.lock(); return }
+        guard store.isUnlocked else { feedback = store.errorMessage; return }
+        updateExisting = store.entries.contains { $0.origin == origin && $0.username == username }
+        feedback = updateExisting ? "同一网站和账号已有密码。请确认更新。" : "请确认将密码保存到本机 Keychain。"
+    }
+
+    func save() {
+        guard !ended, filled, confirmedLogin, kind == .password, store.isUnlocked else { return }
+        let previous = store.entries.first { $0.origin == origin && $0.username == username }
+        var entry = previous ?? BrowserCredential(origin: origin, username: username, password: secret)
+        entry.password = secret
+        guard store.save(entry) else { feedback = store.errorMessage; return }
+        finish(previous == nil ? "saved" : "updated")
+    }
+
+    func finish(_ status: String) {
+        guard !ended else { return }
+        ended = true; timeout?.cancel(); timeout = nil
+        secret = ""; username = ""; reveal = false; shielded = true; store.lock()
+        manager.secureInputSession = nil
+        manager.finishSecureInput()
+        let callback = completion; completion = nil
+        controller?.dismiss(animated: true) { [weak manager = manager] in manager?.objectWillChange.send() }
+        callback?("reference=\(id.uuidString); \(status)")
+    }
+}
+
+private struct BrowserSecureInputView: View {
+    @ObservedObject var session: BrowserSecureInputSession
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ZStack {
+                    BrowserWebView(manager: session.manager)
+                    BrowserLoadErrorOverlay(manager: session.manager)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("安全输入 · " + session.kind.label, systemImage: "lock.shield").font(.headline)
+                        Text(session.origin).font(.subheadline).textSelection(.enabled)
+                        Text("请求 Bot：" + session.requester)
+                        Text("用途：" + session.purpose)
+                        Text("输入由原生通道交给此网站；模型只收到状态。完成后刷新网页并清空输入框，保留登录状态。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        if !session.filled {
+                            if session.reveal { TextField(session.kind.label, text: $session.secret) }
+                            else { SecureField(session.kind.label, text: $session.secret) }
+                            Toggle("显示输入", isOn: $session.reveal)
+                            Button("提交到网页") { Task { await session.fill() } }
+                                .disabled(session.secret.isEmpty || session.busy).frame(minHeight: 44)
+                        } else if session.kind == .password {
+                            Toggle("我已在网页中确认登录成功", isOn: $session.confirmedLogin)
+                            TextField("账号（用于区分此网站的密码）", text: $session.username)
+                                .disabled(session.store.isUnlocked)
+                            if session.store.isUnlocked {
+                                Button(session.updateExisting ? "确认更新密码" : "确认保存密码") { session.save() }
+                                    .disabled(!session.confirmedLogin).frame(minHeight: 44)
+                            } else {
+                                Button("保存密码") { Task { await session.prepareSave() } }
+                                    .disabled(!session.confirmedLogin || session.busy).frame(minHeight: 44)
+                            }
+                            Button("暂不保存") { session.finish("filled_not_saved") }.frame(minHeight: 44)
+                        } else {
+                            Button("完成，不保存") { session.finish("filled") }.frame(minHeight: 44)
+                        }
+                        if let feedback = session.feedback { Text(feedback).font(.footnote).foregroundStyle(.secondary) }
+                    }
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().padding()
+                }.frame(maxHeight: 330).background(.regularMaterial)
+            }
+            .navigationTitle("安全登录").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) {
+                Button("取消") { session.finish("cancelled") }
+            } }
+        }
+        .privacySensitive()
+        .overlay { if session.shielded { Color(UIColor.systemBackground).ignoresSafeArea().overlay(Label("安全输入已遮蔽", systemImage: "lock.fill")) } }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in session.shielded = true; session.reveal = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in session.shielded = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in session.finish("cancelled") }
+    }
+}

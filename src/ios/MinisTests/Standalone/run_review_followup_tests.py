@@ -18,18 +18,15 @@ def format_source():
         "\n    // MARK: - Integrity", 1
     )[0]
     tests = read("MinisTests/BackupFormatCompatibilityTests.swift").replace(
-        "@testable import Minis", ""
+        "@testable import Minis", "@testable import BackupModels"
     )
     methods = re.findall(r"    func (test\w+)\(", tests)
     assert len(methods) >= 12
-    cases = ",\n".join(f'("{name}", BackupFormatCompatibilityTests.{name})' for name in methods)
     return (
         tests
-        + "\nfunc AppLocalized(_ text: String) -> String { text }\n"
-        + "enum BackupImporter {\n    static func isFormatSupported("
+        + "\nenum BackupImporter {\n    static func isFormatSupported("
         + acceptance
-        + "\n}\n@main struct FormatTests { static func main() {\n"
-        + f"XCTMain([testCase([\n{cases}\n])])\n}} }}\n"
+        + "\n}\n"
     )
 
 
@@ -192,19 +189,30 @@ def main():
     }
     with tempfile.TemporaryDirectory(prefix="minis-review-followup-") as temp:
         for name, source in sources.items():
+            if name == "format":
+                package = Path(temp) / "format-package"
+                models = package / "Sources/BackupModels"
+                tests = package / "Tests/FormatTests"
+                models.mkdir(parents=True)
+                tests.mkdir(parents=True)
+                (package / "Package.swift").write_text('''// swift-tools-version: 5.9
+import PackageDescription
+let package = Package(name: "BackupFormatRegression", platforms: [.macOS(.v13)], targets: [
+    .target(name: "BackupModels"),
+    .testTarget(name: "FormatTests", dependencies: ["BackupModels"])
+])
+''', encoding="utf-8")
+                (models / "BackupFormat.swift").write_text(read(support[name][0]), encoding="utf-8")
+                (models / "Localization.swift").write_text(
+                    'func AppLocalized(_ text: String) -> String { text }\n', encoding="utf-8"
+                )
+                (tests / "FormatTests.swift").write_text(source, encoding="utf-8")
+                subprocess.run(["swift", "test", "--package-path", str(package)], check=True, timeout=180)
+                continue
             test = Path(temp) / f"{name}.swift"
             test.write_text(source, encoding="utf-8")
             binary = Path(temp) / name
-            flags = []
-            if name == "format":
-                platform = Path(subprocess.check_output(
-                    ["xcrun", "--sdk", "macosx", "--show-sdk-platform-path"], text=True
-                ).strip())
-                frameworks = str(platform / "Developer/Library/Frameworks")
-                flags = ["-F", frameworks, "-I", str(platform / "Developer/usr/lib"),
-                         "-Xlinker", "-rpath", "-Xlinker", frameworks]
             subprocess.run(["swiftc", "-swift-version", "5", "-parse-as-library",
-                            *flags,
                             *[str(ROOT / p) for p in support[name]], str(test), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=30)
 

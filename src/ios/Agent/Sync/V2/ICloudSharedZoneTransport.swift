@@ -46,7 +46,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         "SyncDeviceV2":       devicesZoneName,
         "EnvVarItem":         secretsZoneName,
         "EnvVarStateItem":    secretsZoneName,  // [T-envvar-disable] beside its variable
-        "SoulV2":             sharedZoneName,
         // [T-provider-sync-v3-zone-mapping] Per-record provider sync v3.
         // Instances carry secretBlob (encrypted API keys), so they belong
         // in the secrets zone alongside ProviderConfigV2. Entries and
@@ -654,7 +653,6 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
             ("MCPServerItem", "updatedAt"),
             ("EnvVarItem", "updatedAt"),
             ("EnvVarStateItem", "updatedAt"),  // [T-envvar-disable]
-            ("SoulV2", "updatedAt"),
         ]
         var totalFetched = 0
         var byType: [String: Int] = [:]
@@ -826,91 +824,84 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
         // good once it aged past the 5-min slack. It is now committed by
         // `commitRecentFetchCursor` from the LAST chunk's onApplied.
         let fetchStampForCursor = Date().timeIntervalSince1970
-        // [T-icloud-fresh-restore-provider-groups] Anchor each full-history
-        // config type so it stops re-pulling its whole history — but ONLY once
-        // its consumer is actually ready to APPLY what we fetched. The V3
-        // provider/group/entry mergers `guard let db = ProviderConfigStore.db`
-        // and silently drop records while the SQLite store is still opening
-        // (async Task.detached on a fresh device). If we anchored now, those
-        // dropped records would never be re-pulled (the cursor advanced past
-        // them). So gate the three provider V3 types + ProviderConfigV2 on the
-        // provider DB being open; other config types anchor on a clean run.
-        let providerDBReady = ProviderConfigStore.shared.db != nil
-        let providerGatedTypes: Set<String> = [
-            "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3", "ProviderConfigV2",
-            "ProviderThinkingRuleV3",
-        ]
-        // [T-icloud-provider-anchor-per-type] Anchor each full-history type on
-        // ITS OWN successful pull (no error for THAT type), not on a clean batch.
-        // A transient failure in an unrelated type no longer blocks provider
-        // types from anchoring, so they stop re-pulling their whole history every
-        // cold start.
-        for type in Self.fullHistoryConfigTypes
-        where !UserDefaults.standard.bool(forKey: Self.configTypeAnchoredKey(type)) {
-            if typesWithError.contains(type) {
-                logger.info("[iCloudTrace] fetchRecentV2 NOT anchoring \(type) — this type's pull errored, will re-pull next run")
-                continue
+        // Neither the poll cursor nor full-history anchors may pass failed merges.
+        let finishFetch: (Bool) -> Void = { [weak self] applied in
+            guard let self else { return }
+            guard applied else {
+                logger.warning("[iCloudTrace] fetchRecentV2 cursor and anchors NOT advanced - inbound apply failed")
+                return
             }
-            if providerGatedTypes.contains(type) && !providerDBReady {
-                logger.info("[iCloudTrace] fetchRecentV2 NOT anchoring \(type) — provider DB not open yet, will re-pull full history next run")
-                continue
+            // [T-icloud-fresh-restore-provider-groups] Anchor each full-history
+            // config type so it stops re-pulling its whole history — but ONLY once
+            // its consumer is actually ready to APPLY what we fetched. The V3
+            // provider/group/entry mergers `guard let db = ProviderConfigStore.db`
+            // and silently drop records while the SQLite store is still opening
+            // (async Task.detached on a fresh device). If we anchored now, those
+            // dropped records would never be re-pulled (the cursor advanced past
+            // them). So gate the three provider V3 types + ProviderConfigV2 on the
+            // provider DB being open; other config types anchor on a clean run.
+            let providerDBReady = ProviderConfigStore.shared.db != nil
+            let providerGatedTypes: Set<String> = [
+                "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3", "ProviderConfigV2",
+                "ProviderThinkingRuleV3",
+            ]
+            // [T-icloud-provider-anchor-per-type] Anchor each full-history type on
+            // ITS OWN successful pull (no error for THAT type), not on a clean batch.
+            // A transient failure in an unrelated type no longer blocks provider
+            // types from anchoring, so they stop re-pulling their whole history every
+            // cold start.
+            for type in Self.fullHistoryConfigTypes
+            where !UserDefaults.standard.bool(forKey: Self.configTypeAnchoredKey(type)) {
+                if typesWithError.contains(type) {
+                    logger.info("[iCloudTrace] fetchRecentV2 NOT anchoring \(type) — this type's pull errored, will re-pull next run")
+                    continue
+                }
+                if providerGatedTypes.contains(type) && !providerDBReady {
+                    logger.info("[iCloudTrace] fetchRecentV2 NOT anchoring \(type) — provider DB not open yet, will re-pull full history next run")
+                    continue
+                }
+                // [T-provider-anchor-two-run-confirm] CK queries are eventually
+                // consistent: one clean pull can still return a SUBSET, and
+                // anchoring on it permanently hides the missed records behind the
+                // incremental window. Require two consecutive clean full-history
+                // pulls with the SAME count before trusting the snapshot. Costs
+                // one extra full-history query per type on a fresh device (low
+                // volume, and the second run's applies all hit the updatedAt
+                // guard); the steady-state incremental path is unchanged.
+                let fetchedThisRun = byType[type] ?? 0
+                let pendingKey = Self.configTypeAnchorPendingCountKey(type)
+                if let prev = UserDefaults.standard.object(forKey: pendingKey) as? Int,
+                   prev == fetchedThisRun {
+                    UserDefaults.standard.set(true, forKey: Self.configTypeAnchoredKey(type))
+                    UserDefaults.standard.removeObject(forKey: pendingKey)
+                    logger.info("[iCloudTrace] fetchRecentV2 anchored config type \(type) (confirmed: two full-history pulls both fetched=\(fetchedThisRun))")
+                } else {
+                    UserDefaults.standard.set(fetchedThisRun, forKey: pendingKey)
+                    logger.info("[iCloudTrace] fetchRecentV2 NOT anchoring \(type) yet — first clean full-history pull fetched=\(fetchedThisRun), awaiting a confirming run")
+                }
             }
-            // [T-provider-anchor-two-run-confirm] CK queries are eventually
-            // consistent: one clean pull can still return a SUBSET, and
-            // anchoring on it permanently hides the missed records behind the
-            // incremental window. Require two consecutive clean full-history
-            // pulls with the SAME count before trusting the snapshot. Costs
-            // one extra full-history query per type on a fresh device (low
-            // volume, and the second run's applies all hit the updatedAt
-            // guard); the steady-state incremental path is unchanged.
-            let fetchedThisRun = byType[type] ?? 0
-            let pendingKey = Self.configTypeAnchorPendingCountKey(type)
-            if let prev = UserDefaults.standard.object(forKey: pendingKey) as? Int,
-               prev == fetchedThisRun {
-                UserDefaults.standard.set(true, forKey: Self.configTypeAnchoredKey(type))
-                UserDefaults.standard.removeObject(forKey: pendingKey)
-                logger.info("[iCloudTrace] fetchRecentV2 anchored config type \(type) (confirmed: two full-history pulls both fetched=\(fetchedThisRun))")
-            } else {
-                UserDefaults.standard.set(fetchedThisRun, forKey: pendingKey)
-                logger.info("[iCloudTrace] fetchRecentV2 NOT anchoring \(type) yet — first clean full-history pull fetched=\(fetchedThisRun), awaiting a confirming run")
-            }
+            if !fetchHadError { self.commitRecentFetchCursor(fetchStampForCursor) }
         }
         let breakdown = byType.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         logger.info("[iCloudTrace] fetchRecentV2 ok total=\(totalFetched) byType=[\(breakdown)] window=\(Int(Self.recentFetchWindow))s")
         if !portables.isEmpty, let h = observeHandler {
-            // Slice into 50-record chunks (same as token-driven path). The
-            // cursor is committed by the last chunk's completion; earlier
-            // chunks carry no completion. [T-icloud-inbound-serial-apply]
-            // SyncCore chains every processInbound task onto the previous one
-            // (`inboundTail`), so slices apply strictly in hand-off order and
-            // "last chunk applied" implies all earlier chunks applied. It did
-            // NOT hold before that change: one independent task per slice
-            // interleaved at every await.
-            // A run in which ANY per-type query failed must not advance the
-            // cursor: that type's records were never fetched, and moving
-            // past them would hide them until the 24 h window is forced. The
-            // pre-change code stamped unconditionally — that was a second,
-            // quieter way to lose a batch. `.unknownItem` (type not in
-            // schema) does not set fetchHadError, so an empty type still
-            // lets the cursor advance.
-            let commitAllowed = !fetchHadError
+            // Every slice reports success, including earlier slices without the
+            // final cursor. A later successful slice cannot erase an earlier failure.
+            var allApplied = true
             let chunk = 50
             var i = 0
             while i < portables.count {
                 let end = min(i + chunk, portables.count)
                 let isLast = end >= portables.count
-                let stamp = fetchStampForCursor
                 h(SyncInboundBatch(records: Array(portables[i..<end]), deletes: [], sourceDeviceId: nil,
-                                   onApplied: (isLast && commitAllowed) ? { [weak self] in self?.commitRecentFetchCursor(stamp) } : nil))
+                                   onApplied: { succeeded in
+                    allApplied = allApplied && succeeded
+                    if isLast { finishFetch(allApplied) }
+                }))
                 i = end
             }
-            if !commitAllowed {
-                logger.info("[iCloudTrace] fetchRecentV2 cursor NOT advanced — a per-type query failed this run; will re-pull from the previous cursor")
-            }
-        } else if !fetchHadError {
-            // Nothing to apply and nothing failed: the fetch itself is the
-            // whole unit of work.
-            commitRecentFetchCursor(fetchStampForCursor)
+        } else if portables.isEmpty {
+            finishFetch(true)
         }
         // Also poke CKSyncEngine to keep its token catching up.
         if let engine = syncEngine {

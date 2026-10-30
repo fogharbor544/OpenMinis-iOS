@@ -23,13 +23,15 @@ final class SyncCoreHydrators {
     /// "Given recordType + id, return a PortableRecord ready to push (or
     /// nil if the local row no longer exists)." Called on the SyncCore
     /// actor; implementations are free to await actor hops internally.
-    typealias Builder = (_ id: String) async -> PortableRecord?
+    // Throw on a failed build so SyncCore retains the dirty row for retry.
+    typealias Builder = (_ id: String) async throws -> PortableRecord?
 
     /// "Given a remote PortableRecord, merge it into local SQLite using
     /// this type's conflict resolution." Should be a no-op when the
     /// record cannot be applied (e.g. unknown schema version was already
-    /// filtered upstream by SyncCore).
-    typealias Merger = (_ record: PortableRecord) async -> Void
+    /// filtered upstream by SyncCore). Throw on restoration failure so it
+    /// is not counted as an applied record.
+    typealias Merger = (_ record: PortableRecord) async throws -> Void
 
     /// "Given a record id, propagate its remote deletion locally — but
     /// honour soft-delete / tombstone rules per §3.3." Optional; if not
@@ -51,12 +53,12 @@ final class SyncCoreHydrators {
         if let d = deletionApplier { deleters[recordType] = d }
     }
 
-    func buildPortable(recordType: String, id: String) async -> PortableRecord? {
+    func buildPortable(recordType: String, id: String) async throws -> PortableRecord? {
         guard let b = builders[recordType] else {
             // No builder yet — type is registered for read-only consumption.
             return nil
         }
-        return await b(id)
+        return try await b(id)
     }
 
     /// True when this recordType has a builder closure registered. Used by
@@ -66,7 +68,7 @@ final class SyncCoreHydrators {
         builders[recordType] != nil
     }
 
-    func mergeRemote(_ record: PortableRecord) async {
+    func mergeRemote(_ record: PortableRecord) async throws {
         // Honour the same per-category upload toggle on the inbound side.
         // If the user has turned off, say, Memory Files in iCloud Sync
         // settings, this device should neither push local writes nor
@@ -78,7 +80,7 @@ final class SyncCoreHydrators {
             return
         }
         guard let m = mergers[record.id.type] else { return }
-        await m(record)
+        try await m(record)
     }
 
     func applyRemoteDeletion(_ id: SyncRecordID) async {

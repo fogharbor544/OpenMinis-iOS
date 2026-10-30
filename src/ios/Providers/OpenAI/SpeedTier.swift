@@ -20,11 +20,7 @@ import Foundation
 // "default" as "this account doesn't support Ultrafast" — a Pro user was shown
 // exactly that. It is gone; the echo is only logged, without a verdict.
 //
-// Storage keeps the old Bool key: `codexFastModeEnabled == true` still means
-// Fast, so a user upgrading from the switch keeps exactly what they had, and a
-// downgrade to a build that only knows the Bool reads Fast for both Fast and
-// Ultrafast (never an unknown value). The tier itself lives under a new String
-// key, written together with the Bool.
+// Storage uses the selected tier string.
 //
 // Foundation-only on purpose: MinisTests/Standalone/SpeedTierTests.swift
 // compiles this file as shipped.
@@ -47,27 +43,16 @@ enum SpeedTier: String, CaseIterable, Equatable {
 enum SpeedTierSettings {
     /// New String key holding the tier (`SpeedTier.rawValue`).
     static let tierDefaultsKey = "codexSpeedTier"
-    /// The pre-tier Bool ("Enable Fast Mode"). Same string as
-    /// `OpenAIProvider.fastModeDefaultsKey`; kept in step with the tier.
-    static let legacyFastModeKey = "codexFastModeEnabled"
-
     // BEGIN storedTier
-    /// The user's chosen tier, independent of any model. A valid tier key
-    /// wins; without one, the legacy Bool decides (true → Fast), so a value
-    /// written by the old switch keeps its meaning with no migration step.
     static func storedTier(in defaults: UserDefaults = .standard) -> SpeedTier {
         if let raw = defaults.string(forKey: tierDefaultsKey), let tier = SpeedTier(rawValue: raw) {
             return tier
         }
-        return defaults.bool(forKey: legacyFastModeKey) ? .fast : .standard
+        return .standard
     }
 
-    /// Writes the tier AND the legacy Bool (on for Fast and Ultrafast), so any
-    /// reader of the old key — including an older build after a downgrade —
-    /// still sees "fast mode on" whenever a faster tier is chosen.
     static func setTier(_ tier: SpeedTier, in defaults: UserDefaults = .standard) {
         defaults.set(tier.rawValue, forKey: tierDefaultsKey)
-        defaults.set(tier != .standard, forKey: legacyFastModeKey)
     }
     // END storedTier
 

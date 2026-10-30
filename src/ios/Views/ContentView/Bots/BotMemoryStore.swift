@@ -3,7 +3,7 @@ import SwiftUI
 import SQLite3
 import CryptoKit
 
-struct BotMemoryEntry: Identifiable, Codable {
+struct BotMemoryEntry: Identifiable, Codable, Equatable {
     var id = UUID().uuidString
     var owner: String
     var content: String
@@ -89,6 +89,21 @@ enum BotMemoryError: LocalizedError {
         sqlite3_bind_text(statement, 2, entry.owner, -1, transient)
         sqlite3_bind_text(statement, 3, payload, -1, transient)
         guard sqlite3_step(statement) == SQLITE_DONE else { throw BotMemoryError.invalid("Unable to save Bot memory.") }
+    }
+
+    /// The transfer journal coordinates this transaction with the workspace file.
+    func replaceForRestore(_ snapshot: [BotMemoryEntry]) throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try execute("DELETE FROM memories")
+            for entry in snapshot { try write(entry) }
+            try execute("COMMIT")
+        } catch {
+            try execute("ROLLBACK")
+            throw error
+        }
+        lastSaved = nil
+        revision += 1
     }
 
     static func fingerprint(_ text: String) -> String {

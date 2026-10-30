@@ -102,15 +102,4 @@ enum ForceSyncHelper {
         return count
     }
 
-    /// Mark SOUL.md dirty for push. Returns 1 when the file exists on
-    /// disk (otherwise 0 — there's nothing to push and a dirty row
-    /// would just cycle through buildSoul returning nil).
-    @MainActor
-    @discardableResult
-    static func markSoulDirty() async -> Int {
-        let url = SoulStore.fileURL
-        guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
-        await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul")
-        return 1
-    }
 }

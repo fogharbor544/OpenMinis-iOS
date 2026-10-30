@@ -80,6 +80,18 @@ jobs:
         run: python3 src/ios/MinisTests/Standalone/run_schedule_completion_tests.py
       - name: Backup model restore regression tests
         run: python3 src/ios/MinisTests/Standalone/run_backup_model_restore_tests.py
+      - name: Bot capability transport regression tests
+        run: python3 src/ios/MinisTests/Standalone/run_capability_transport_tests.py
+      - name: Backup format and inbound cursor regressions
+        run: python3 src/ios/MinisTests/Standalone/run_review_followup_tests.py
+      - name: Bot workspace backup and device restore
+        run: |
+          swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
+            src/ios/Views/ContentView/Bots/BotMemoryStore.swift \
+            src/ios/Views/ContentView/Bots/BotWorkspaceArchive.swift \
+            src/ios/MinisTests/Standalone/BotWorkspaceArchiveTests.swift \
+            -lsqlite3 -o "$RUNNER_TEMP/bot-archive-tests"
+          "$RUNNER_TEMP/bot-archive-tests"
       - name: Bot room orchestration behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_bot_room_tests.py
       - name: Browser form WebKit tests

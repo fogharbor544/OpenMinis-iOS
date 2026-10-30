@@ -257,6 +257,11 @@ extension AIChatViewModel {
     /// can read. Its transcript, media rows and job identity stay its own.
     var fsSessionId: String? { helperConfig?.parentSessionId ?? sessionId }
 
+    var capabilitySessionId: String? {
+        BotWorkspaceStore.shared.capabilitySessionID(
+            for: sessionId, parentSessionID: helperConfig?.parentSessionId)
+    }
+
     // MARK: - Limits (design §4.3, all enforced in code, not prompt)
 
     /**

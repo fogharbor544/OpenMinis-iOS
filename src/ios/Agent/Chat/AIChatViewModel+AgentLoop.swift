@@ -221,16 +221,14 @@ extension AIChatViewModel {
         }
 
         // Inject enabled skill metadata into system prompt
-        // [T-p1-delegate-task] A helper inherits the PARENT session's skill
-        // and MCP enablement (the user configured those for the conversation
-        // that spawned it; the child session has no overrides of its own).
-        if let sid = helperConfig?.parentSessionId ?? sessionId,
+        // Bot delegations use the target Bot; ordinary helpers inherit their parent.
+        if let sid = capabilitySessionId,
            let skillFragment = SkillStore.shared.skillPromptFragment(for: sid) {
             userSystemPrompt += "\n\n" + skillFragment
         }
 
         // [T-mcp-integration-ios] Inject Top-20 enabled MCP server metadata.
-        if let sid = helperConfig?.parentSessionId ?? sessionId,
+        if let sid = capabilitySessionId,
            let mcpFragment = MCPStore.shared.systemPromptSnippet(for: sid) {
             userSystemPrompt += "\n\n" + mcpFragment
         }
@@ -1040,16 +1038,13 @@ extension AIChatViewModel {
                 if let behaviorFragment = newEntry.model.agentBehaviorPromptFragment {
                     userSystemPrompt += "\n\n" + behaviorFragment
                 }
-                // [T-ios-helper-fallback-parent-skills] Same key as the setup
-                // path: a helper uses its PARENT's skill / MCP enablement.
-                // Keying on the child id here made a sub-agent that fell back
-                // lose the parent's skills and MCP servers mid-run.
-                if let sid = helperConfig?.parentSessionId ?? sessionId,
+                // Keep the same Bot/ordinary-helper scope after a model fallback.
+                if let sid = capabilitySessionId,
                    let skillFragment = SkillStore.shared.skillPromptFragment(for: sid) {
                     userSystemPrompt += "\n\n" + skillFragment
                 }
                 // [T-mcp-integration-ios] Inject Top-20 enabled MCP metadata.
-                if let sid = helperConfig?.parentSessionId ?? sessionId,
+                if let sid = capabilitySessionId,
                    let mcpFragment = MCPStore.shared.systemPromptSnippet(for: sid) {
                     userSystemPrompt += "\n\n" + mcpFragment
                 }

@@ -488,18 +488,6 @@ struct BotProfileEditor: View {
             }
             .navigationTitle(store.bot(profile.id) == nil ? LocalizedStringKey("新建 Bot") : LocalizedStringKey("Edit Bot"))
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                if profile.memoryEnabled == nil, let sid = profile.sessionId {
-                    let legacy = await ChatStore.shared.getMemoryEnabled(sessionId: sid)
-                    if profile.memoryEnabled == nil { profile.memoryEnabled = legacy }
-                }
-            }
-            .onAppear {
-                if let sid = profile.sessionId {
-                    if profile.skillOverrides == nil { profile.skillOverrides = Dictionary(uniqueKeysWithValues: SkillStore.shared.skills.map { ($0.id, SkillStore.shared.isEnabledForSession($0.id, sessionId: sid)) }) }
-                    if profile.connectorOverrides == nil { profile.connectorOverrides = Dictionary(uniqueKeysWithValues: MCPStore.shared.servers.map { ($0.id, MCPStore.shared.isEnabledForSession($0.id, sessionId: sid)) }) }
-                }
-            }
             .task(id: selectedPhoto) {
                 guard let selectedPhoto else { return }
                 do {
@@ -590,12 +578,6 @@ struct BotRoomEditor: View {
             .environment(\.editMode, .constant(.active))
             .navigationTitle(store.room(room.id) == nil ? LocalizedStringKey("创建群聊") : LocalizedStringKey("Edit Group"))
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                if room.memoryEnabled == nil, let sid = room.sessions.values.sorted().first {
-                    let legacy = await ChatStore.shared.getMemoryEnabled(sessionId: sid)
-                    if room.memoryEnabled == nil { room.memoryEnabled = legacy }
-                }
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

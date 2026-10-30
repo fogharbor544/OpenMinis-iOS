@@ -405,7 +405,6 @@ extension ContentView {
             openSession(id)
             return
         }
-        searchFocused = false
         let animate = Self.shouldAnimateSessionPush(
             requested: animated,
             pathIsEmpty: navigationPath.isEmpty,
@@ -423,8 +422,6 @@ extension ContentView {
             return
         }
         draftLog.info("🔑DRAFT openSession id=\(id) isWide=\(isWideLayout) prevSel=\(selectedSessionId ?? "nil") prevReal=\(newSessionRealId ?? "nil") prevDraft=\(activeDraftId ?? "nil")")
-        // Dismiss keyboard when navigating to a session
-        searchFocused = false
         if isWideLayout {
             // Reset new-session tracking when navigating away
             if Self.isNewSessionId(id) {

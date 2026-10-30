@@ -176,6 +176,7 @@ struct BackupSettingsView: View {
             } header: {
                 Text("Include")
             } footer: {
+                Text("Agent definitions and memory are included with chats, providers or environment variables. Select all categories for a device migration.")
                 // The cap's consequence is stated, because §3.4's whole point is
                 // that a skipped file leaves a tombstone rather than silently
                 // vanishing — the user should know that before it happens, not
@@ -606,9 +607,13 @@ struct BackupSettingsView: View {
 
     private func binding(for category: BackupCategory) -> Binding<Bool> {
         Binding(
-            get: { selected.contains(category) },
+            get: { BackupCategory.includingAgentOwners(selected).contains(category) },
             set: { on in
-                if on { selected.insert(category) } else { selected.remove(category) }
+                if on { selected.insert(category) }
+                else {
+                    selected.remove(category)
+                    if category == .agents { selected.subtract([.chats, .providers, .environmentVariables]) }
+                }
                 selectedStore = selected.map(\.rawValue).sorted().joined(separator: ",")
             })
     }

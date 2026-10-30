@@ -205,105 +205,78 @@ extension ContentView {
     @ToolbarContentBuilder
     var sidebarToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            if isSelecting {
-                // [T-ios-ipad-sidebar-title-offcentre] Same width claim as the
-                // idle title below — this label is LONGER ("Select Sessions"
-                // vs a short SOUL name) and shares the bar with Cancel and
-                // Select All, so the narrow sidebar column squeezes it harder.
-                Text(selectedIds.isEmpty ? "Select Sessions" : "\(selectedIds.count) Selected")
-                    .font(.headline)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            } else {
-                let canOpenSync: Bool = {
-                    if #available(iOS 17.0, *) { return SyncV2Bootstrap.isEnabled }
-                    return false
-                }()
-                let titleLabel = Text(soulName)
-                    .font(.system(size: 18.5, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    // A custom SOUL name can be long, and the width claim below
-                    // hands this label the whole column — without a limit a long
-                    // name would wrap to two lines inside an inline bar or push
-                    // under the buttons. One line, shrink a little, then ellipse.
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .overlay(alignment: .leading) {
-                        if canOpenSync {
-                            Button {
-                                activeToolSheet = .syncMigrationDetail
-                            } label: {
-                                titleSyncIndicator(for: migrationSubtitle)
-                                    .contentShape(Rectangle())
-                                    .padding(4)
-                            }
-                            .buttonStyle(.plain)
-                            .offset(x: -27)
-                        }
-                    }
-
-                // [T-ios-ipad-sidebar-title-offcentre] Claim the width the bar
-                // will give us and centre inside it, instead of letting the
-                // item collapse to the title's intrinsic size.
-                //
-                // Why this is needed on iPad mini portrait specifically: at
-                // 744pt the window clears `compactThreshold` (700), so the app
-                // uses `splitLayout`. A NavigationSplitView lays each column's
-                // bar out independently, so the principal item is centred
-                // within the SIDEBAR column — 340pt at its minimum — not the
-                // window. That column also carries the gear (leading) plus the
-                // alarm and terminal-menu buttons (trailing), roughly 150pt of
-                // chrome once margins are counted. UIKit resolves the squeeze
-                // by yielding the centre and pinning the shrunken principal
-                // item toward the leading side, which is the "title pushed to
-                // the left" the report describes.
-                //
-                // `maxWidth: .infinity` makes the item take the space the bar
-                // offers rather than only its text width, so `.center` then has
-                // something to centre within; the title sits mid-column and the
-                // sync dot keeps riding it as a zero-layout overlay. On wider
-                // columns (iPad landscape, larger iPads) this is a no-op — the
-                // item was already getting its full width there.
-                Group {
+            let canOpenSync: Bool = {
+                if #available(iOS 17.0, *) { return SyncV2Bootstrap.isEnabled }
+                return false
+            }()
+            let titleLabel = Text(soulName)
+                .font(.system(size: 18.5, weight: .semibold))
+                .foregroundStyle(.primary)
+                // A custom SOUL name can be long, and the width claim below
+                // hands this label the whole column — without a limit a long
+                // name would wrap to two lines inside an inline bar or push
+                // under the buttons. One line, shrink a little, then ellipse.
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .overlay(alignment: .leading) {
                     if canOpenSync {
                         Button {
                             activeToolSheet = .syncMigrationDetail
                         } label: {
-                            titleLabel
+                            titleSyncIndicator(for: migrationSubtitle)
+                                .contentShape(Rectangle())
+                                .padding(4)
                         }
                         .buttonStyle(.plain)
-                    } else {
-                        titleLabel
+                        .offset(x: -27)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
+
+            // [T-ios-ipad-sidebar-title-offcentre] Claim the width the bar
+            // will give us and centre inside it, instead of letting the
+            // item collapse to the title's intrinsic size.
+            //
+            // Why this is needed on iPad mini portrait specifically: at
+            // 744pt the window clears `compactThreshold` (700), so the app
+            // uses `splitLayout`. A NavigationSplitView lays each column's
+            // bar out independently, so the principal item is centred
+            // within the SIDEBAR column — 340pt at its minimum — not the
+            // window. That column also carries the gear (leading) plus the
+            // alarm and terminal-menu buttons (trailing), roughly 150pt of
+            // chrome once margins are counted. UIKit resolves the squeeze
+            // by yielding the centre and pinning the shrunken principal
+            // item toward the leading side, which is the "title pushed to
+            // the left" the report describes.
+            //
+            // `maxWidth: .infinity` makes the item take the space the bar
+            // offers rather than only its text width, so `.center` then has
+            // something to centre within; the title sits mid-column and the
+            // sync dot keeps riding it as a zero-layout overlay. On wider
+            // columns (iPad landscape, larger iPads) this is a no-op — the
+            // item was already getting its full width there.
+            Group {
+                if canOpenSync {
+                    Button {
+                        activeToolSheet = .syncMigrationDetail
+                    } label: {
+                        titleLabel
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    titleLabel
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         ToolbarItem(placement: .topBarLeading) {
-            if isSelecting {
-                Button("Cancel") {
-                    isSelecting = false
-                    selectedIds.removeAll()
-                }
-            } else {
-                Button {
-                    activeToolSheet = .settings
-                } label: {
-                    Image(systemName: "gear")
-                }
+            Button {
+                activeToolSheet = .settings
+            } label: {
+                Image(systemName: "gear")
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
-            if isSelecting {
-                Button(selectedIds.count == sessions.count ? "Deselect All" : "Select All") {
-                    if selectedIds.count == sessions.count {
-                        selectedIds.removeAll()
-                    } else {
-                        selectedIds = Set(sessions.map(\.id))
-                    }
-                }
-            } else if hasAlarms {
+            if hasAlarms {
                 Button {
                     showAlarmList = true
                 } label: {
@@ -313,57 +286,55 @@ extension ContentView {
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
-            if !isSelecting {
-                Menu {
-                    Button {
-                        showTerminal = true
-                    } label: {
-                        Label("Shell Terminal", systemImage: "terminal")
-                    }
-                    Button {
-                        activeToolSheet = .rootfsManagement
-                    } label: {
-                        Label("Rootfs Management", systemImage: "externaldrive")
-                    }
-                    Divider()
-                    Button {
-                        activeToolSheet = .browser
-                    } label: {
-                        Label("Open Browser", systemImage: "globe")
-                    }
-                    Button {
-                        activeToolSheet = .browserManagement
-                    } label: {
-                        Label("Browser Settings", systemImage: "globe.badge.chevron.backward")
-                    }
-                    #if DEBUG
-                    Divider()
-                    // [debug] Keep Screen Awake — disables auto-lock while the app
-                    // is foregrounded. Tap toggles; a checkmark shows the current
-                    // state. Memory-only (not persisted). DEBUG builds only.
-                    Button {
-                        keepScreenAwake.toggle()
-                        IdleTimerLease.set(.debugMenu, held: keepScreenAwake, reason: "debug menu")
-                    } label: {
-                        Label("Keep Screen Awake", systemImage: keepScreenAwake ? "checkmark.circle.fill" : "sun.max")
-                    }
-                    #endif
+            Menu {
+                Button {
+                    showTerminal = true
                 } label: {
-                    // [T-ios-mac-toolbar-image-intrinsic] TerminalCircle is a
-                    // 200x200 bitmap. SwiftUI's `.frame` only constrains the
-                    // SwiftUI view; when this label is bridged to a
-                    // UIBarButtonItem (Mac / iPad navigation bar) UIKit builds
-                    // the button from the IMAGE's intrinsic size, so it came out
-                    // 200pt wide and squeezed the `.principal` title down to
-                    // 60pt (measured on a 416pt sidebar navbar: gear 44 + this
-                    // item 212 + sidebar toggle 44, leaving 60 for the title,
-                    // which truncated the SOUL name to "Minif..."). Every other
-                    // toolbar item uses an SF Symbol, whose intrinsic size is
-                    // already correct — which is why only this one broke.
-                    // A pre-scaled UIImage makes the intrinsic size 24pt at the
-                    // source, independent of SwiftUI layout.
-                    Image(uiImage: Self.terminalCircleIcon)
+                    Label("Shell Terminal", systemImage: "terminal")
                 }
+                Button {
+                    activeToolSheet = .rootfsManagement
+                } label: {
+                    Label("Rootfs Management", systemImage: "externaldrive")
+                }
+                Divider()
+                Button {
+                    activeToolSheet = .browser
+                } label: {
+                    Label("Open Browser", systemImage: "globe")
+                }
+                Button {
+                    activeToolSheet = .browserManagement
+                } label: {
+                    Label("Browser Settings", systemImage: "globe.badge.chevron.backward")
+                }
+                #if DEBUG
+                Divider()
+                // [debug] Keep Screen Awake — disables auto-lock while the app
+                // is foregrounded. Tap toggles; a checkmark shows the current
+                // state. Memory-only (not persisted). DEBUG builds only.
+                Button {
+                    keepScreenAwake.toggle()
+                    IdleTimerLease.set(.debugMenu, held: keepScreenAwake, reason: "debug menu")
+                } label: {
+                    Label("Keep Screen Awake", systemImage: keepScreenAwake ? "checkmark.circle.fill" : "sun.max")
+                }
+                #endif
+            } label: {
+                // [T-ios-mac-toolbar-image-intrinsic] TerminalCircle is a
+                // 200x200 bitmap. SwiftUI's `.frame` only constrains the
+                // SwiftUI view; when this label is bridged to a
+                // UIBarButtonItem (Mac / iPad navigation bar) UIKit builds
+                // the button from the IMAGE's intrinsic size, so it came out
+                // 200pt wide and squeezed the `.principal` title down to
+                // 60pt (measured on a 416pt sidebar navbar: gear 44 + this
+                // item 212 + sidebar toggle 44, leaving 60 for the title,
+                // which truncated the SOUL name to "Minif..."). Every other
+                // toolbar item uses an SF Symbol, whose intrinsic size is
+                // already correct — which is why only this one broke.
+                // A pre-scaled UIImage makes the intrinsic size 24pt at the
+                // source, independent of SwiftUI layout.
+                Image(uiImage: Self.terminalCircleIcon)
             }
         }
     }

@@ -112,7 +112,6 @@ final class SkillStore: ObservableObject {
         createTables()
         loadSkills()
         installBundledSkills()
-        migrateMarkBundledSkillsDirty()
     }
 
     deinit {
@@ -155,7 +154,8 @@ final class SkillStore: ObservableObject {
             import_source TEXT NOT NULL DEFAULT 'file',
             is_enabled INTEGER NOT NULL DEFAULT 1,
             installed_at REAL NOT NULL,
-            updated_at REAL NOT NULL
+            updated_at REAL NOT NULL,
+            use_count REAL NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS session_skill_overrides (
             session_id TEXT NOT NULL,
@@ -165,13 +165,6 @@ final class SkillStore: ObservableObject {
         );
         """
         sqlite3_exec(db, sql, nil, nil, nil)
-        migrateAddUseCount()
-    }
-
-    /// Add use_count column if it doesn't exist (migration).
-    private func migrateAddUseCount() {
-        let sql = "ALTER TABLE skills ADD COLUMN use_count REAL NOT NULL DEFAULT 0"
-        sqlite3_exec(db, sql, nil, nil, nil) // silently fails if column already exists
     }
 
     // MARK: - DB Operations
@@ -404,29 +397,6 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     }
 
     // MARK: - One-time Migration: re-sync skills with bundled files
-
-    /// On first launch after the bundle-sync update, mark all skills that have bundled files
-    /// (scripts, references, assets) as dirty so they get re-uploaded with the ZIP asset.
-    /// Without this, skills synced by the old code (SKILL.md only) would never re-sync.
-    private func migrateMarkBundledSkillsDirty() {
-        let key = "skillStore.didMigrateBundleSync"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        UserDefaults.standard.set(true, forKey: key)
-
-        var count = 0
-        for skill in skills {
-            let skillDir = skillsDir.appendingPathComponent(skill.id)
-            let bundledFiles = collectRelativePaths(in: skillDir)  // excludes SKILL.md
-            if !bundledFiles.isEmpty {
-                AppLogger(category: "SkillSync").info("[MIGRATE] '\(skill.name)' has \(bundledFiles.count) bundled files — marking dirty for re-sync")
-                Task { await ChatStore.shared.markDirty(recordType: "Skill", recordId: skill.id) }
-                count += 1
-            }
-        }
-        if count > 0 {
-            AppLogger(category: "SkillSync").info("[MIGRATE] Marked \(count) skills with bundled files for re-sync")
-        }
-    }
 
     // MARK: - YAML Frontmatter Parser
 
@@ -1209,8 +1179,6 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     func isEnabledForSession(_ skillId: String, sessionId: String) -> Bool {
         if let bot = BotWorkspaceStore.shared.bot(forSession: sessionId) {
             if let choices = bot.skillOverrides { return choices[skillId] ?? (skills.first(where: { $0.id == skillId })?.isEnabled ?? false) }
-            // Read the former canonical Bot session only until its choices are saved on the Bot.
-            if let source = bot.sessionId, let value = dbSessionOverride(sessionId: source, skillId: skillId) { return value }
             return skills.first(where: { $0.id == skillId })?.isEnabled ?? false
         }
         if let override = dbSessionOverride(sessionId: sessionId, skillId: skillId) {

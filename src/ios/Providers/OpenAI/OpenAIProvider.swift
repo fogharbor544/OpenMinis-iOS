@@ -108,13 +108,6 @@ final class OpenAIProvider: LLMProvider {
     // the catalog would offer models the inference fingerprint cannot use.
     static let codexClientVersion = "0.159.0"
 
-    /// [T-codex-fast-mode] UserDefaults key for the Codex Fast Mode toggle.
-    /// Read at request-build time (not cached at init) so flipping the "..."
-    /// menu toggle affects the very next request of an ongoing session.
-    /// [T-codex-speed-tier] Now the legacy half of the speed tier: read and
-    /// written through `SpeedTierSettings`, never directly.
-    static let fastModeDefaultsKey = SpeedTierSettings.legacyFastModeKey
-
     /// [T-codex-routing-hint] `x-codex-routing-hint` on a ChatGPT-backend
     /// (Codex OAuth) Responses request, from the FINAL body — call right
     /// before serialising it, so the header can never describe a different

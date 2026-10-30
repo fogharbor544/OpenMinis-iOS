@@ -107,7 +107,7 @@ func parentsFirst(_ records: [Rec]) -> [Rec] {
     /// Mirrors SyncCore.processInbound: one MainActor task per call, 25-record
     /// sub-chunks, an awaited hop per record, 50 ms yield, onApplied at the end.
     /// `chained` = the fix: each task awaits the previous one first.
-    func processInbound(_ records: [Rec], onApplied: (() -> Void)?) {
+    func processInbound(_ records: [Rec], onApplied: ((Bool) -> Void)?) {
         let previous = chained ? inboundTail : nil
         inboundTail = Task { @MainActor in
             await previous?.value
@@ -119,17 +119,21 @@ func parentsFirst(_ records: [Rec]) -> [Rec] {
                 i = end
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
-            onApplied?()
+            onApplied?(true)
         }
     }
-    /// Mirrors fetchRecentV2's hand-off: 50-record slices, completion on the
-    /// last slice only.
+    /// Mirrors fetchRecentV2's hand-off: every slice reports its result before
+    /// the final slice decides whether to commit.
     func handOff(_ portables: [Rec], slice: Int = 50, onCommit: @escaping () -> Void) {
         var i = 0
+        var allApplied = true
         while i < portables.count {
             let end = min(i + slice, portables.count)
             let isLast = end >= portables.count
-            processInbound(Array(portables[i..<end]), onApplied: isLast ? onCommit : nil)
+            processInbound(Array(portables[i..<end]), onApplied: { succeeded in
+                allApplied = allApplied && succeeded
+                if isLast && allApplied { onCommit() }
+            })
             i = end
         }
     }
@@ -155,7 +159,7 @@ struct Outcome { let skipped: [String]; let appliedAtCommit: Int; let total: Int
     let commit = {
         Task { let s = await store.snapshot(); appliedAtCommit = s.applied; committed = true }
     }
-    if singleBatch { core.processInbound(portables, onApplied: { _ = commit() }) }
+    if singleBatch { core.processInbound(portables, onApplied: { _ in _ = commit() }) }
     else { core.handOff(portables, onCommit: { _ = commit() }) }
     // Wait until the commit fired AND every record was applied.
     for _ in 0..<400 {
@@ -261,18 +265,19 @@ check("the apply task awaits the previous one before applying anything",
       (body.range(of: "await previous?.value")?.lowerBound ?? body.endIndex)
         < (body.range(of: "let allRecords = Self.parentsFirst")?.lowerBound ?? body.startIndex))
 check("an empty batch's onApplied also waits for the tail (no synchronous early commit)",
-      !body.contains("else { batch.onApplied?(); return }") && body.contains("await previous.value\n                onApplied()"))
+      !body.contains("else { batch.onApplied?(); return }") && body.contains("await previous.value\n                onApplied(true)"))
 check("inboundTail is declared on SyncCore", core.contains("private var inboundTail: Task<Void, Never>?"))
 check("parentsFirst is applied per batch", body.contains("let allRecords = Self.parentsFirst(batch.records)"))
 check("each record is an awaited hydrator call", body.contains("await SyncCoreHydrators.shared.mergeRemote(record)"))
 check("25-record sub-chunks with a 50 ms yield", body.contains("let chunkSize = 25") && body.contains("Task.sleep(nanoseconds: 50_000_000)"))
-check("onApplied fires at the end of the task", body.contains("batch.onApplied?()"))
+check("onApplied reports whether any records were blocked", body.contains("batch.onApplied?(blocked == 0)"))
 check("ChatStore is an actor (so every merge is a real suspension point)", chatStore.contains("\nactor ChatStore {"))
 check("mergeRemoteMessage drops a message whose session is absent",
       chatStore.contains("mergeRemoteMessage SKIP (session row not present yet)"))
 let fetch = transport.components(separatedBy: "private func fetchRecentV2() async {").dropFirst().first ?? ""
 check("fetchRecentV2 hands off in 50-record slices", fetch.contains("let chunk = 50"))
-check("…with onApplied only on the last slice", fetch.contains("onApplied: (isLast && commitAllowed)"))
+check("every slice contributes to the final cursor decision",
+      fetch.contains("allApplied = allApplied && succeeded") && fetch.contains("if isLast { finishFetch(allApplied) }"))
 check("incremental queries follow queryCursor up to incrementalPageCap pages",
       fetch.contains("let pageCap = paginate ? Int.max : Self.incrementalPageCap")
         && fetch.contains("guard pages < pageCap else")

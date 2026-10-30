@@ -1,38 +1,28 @@
 import XCTest
 @testable import Minis
 
-/// Regression tests for `.minisbak` format acceptance and manifest tolerance
-/// (docs/backup-restore-design.md §2.2; review findings S1 and S3).
-///
-/// Both behaviours are the kind that fail silently: S3 accepted a package
-/// written by a completely different product, and S1 rejected a whole valid
-/// package because one optional counter was absent. Neither shows up in a
-/// device smoke test, because the packages this app writes itself are always
-/// well-formed — you only see it when someone else's writer, or a future
-/// version, produces the file.
+/// The v2 contract requires identity and category scope while tolerating
+/// missing display metadata and unknown fields from same-major writers.
 final class BackupFormatCompatibilityTests: XCTestCase {
 
     // MARK: - §2.2 rule 1 / rule 2 — version acceptance (review S3)
 
-    /// The exact cases named in the review. The pre-fix implementation took
-    /// everything after the "/" as the "major", which both accepted foreign
-    /// formats and refused same-major minor bumps.
     func testFormatAcceptanceMatrix() {
         // Accepted: same prefix, same major.
-        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/1"))
-        // Same major with a minor component — §2.2 rule 2 requires this to
-        // import. The pre-fix code REFUSED it (Int("1.1") == nil).
-        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/1.1"))
-        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/1.0.3"))
+        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/2"))
+        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/2.1"))
+        XCTAssertTrue(BackupImporter.isFormatSupported("minisbak/2.0.3"))
 
         // Refused: a different product that happens to use the same shape.
         // The pre-fix code ACCEPTED this — there was no prefix check at all.
-        XCTAssertFalse(BackupImporter.isFormatSupported("otherformat/1"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("otherformat/2"))
         // Refused: no prefix whatsoever. Also accepted pre-fix.
-        XCTAssertFalse(BackupImporter.isFormatSupported("1"))
-        // Refused: a future major. Rule 1 is a hard refusal.
-        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/2"))
-        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/2.0"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("2"))
+        // Both retired and future major versions are refused.
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/1"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/1.1"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/3"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/3.0"))
     }
 
     func testFormatAcceptanceRejectsMalformedStrings() {
@@ -40,9 +30,9 @@ final class BackupFormatCompatibilityTests: XCTestCase {
         XCTAssertFalse(BackupImporter.isFormatSupported("minisbak"))
         XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/"))
         XCTAssertFalse(BackupImporter.isFormatSupported("minisbak/x"))
-        XCTAssertFalse(BackupImporter.isFormatSupported("/1"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("/2"))
         // Case matters: the prefix is compared literally.
-        XCTAssertFalse(BackupImporter.isFormatSupported("MinisBak/1"))
+        XCTAssertFalse(BackupImporter.isFormatSupported("MinisBak/2"))
     }
 
     /// Whatever this build writes must be something this build accepts.
@@ -53,19 +43,41 @@ final class BackupFormatCompatibilityTests: XCTestCase {
 
     // MARK: - §2.2 rule 2 — manifest tolerance (review S1)
 
+    private let identity: [String: Any] = [
+        "format": "minisbak/2", "created_at": "2026-08-14T00:00:00Z",
+        "backup_id": "ABC123", "categories": [String: Any]()
+    ]
+
+    /// Ancillary-field fixtures always carry valid identity so a missing
+    /// required field cannot mask the behavior under test (notably KDF errors).
     private func decode(_ json: String) throws -> BackupManifest {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(BackupManifest.self, from: Data(json.utf8))
+        let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        let manifest = identity.merging(fields) { _, incoming in incoming }
+        return try decodeManifest(manifest)
     }
 
-    /// The floor of the tolerance promise: an empty object must still decode.
-    /// Swift's synthesized `Decodable` ignores struct default values and throws
-    /// `keyNotFound`, so this only passes because of the hand-written init.
-    func testEmptyObjectDecodesToDefaults() throws {
+    private func decodeManifest(_ fields: [String: Any]) throws -> BackupManifest {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(BackupManifest.self, from: JSONSerialization.data(withJSONObject: fields))
+    }
+
+    func testIdentityAndScopeAreRequired() throws {
+        XCTAssertThrowsError(try decodeManifest([:]))
+        for key in identity.keys {
+            var missing = identity
+            missing.removeValue(forKey: key)
+            XCTAssertThrowsError(try decodeManifest(missing), "manifest must require '\(key)'")
+            var null = identity
+            null[key] = NSNull()
+            XCTAssertThrowsError(try decodeManifest(null), "manifest must reject null '\(key)'")
+        }
+    }
+
+    func testMinimalIdentityDecodesWithMetadataDefaults() throws {
         let m = try decode("{}")
         XCTAssertEqual(m.format, BackupFormat.current)
-        XCTAssertEqual(m.createdAt, Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(m.createdAt, ISO8601DateFormatter().date(from: "2026-08-14T00:00:00Z"))
         XCTAssertEqual(m.app.platform, "unknown")
         XCTAssertEqual(m.deviceName, "Unknown device")
         XCTAssertTrue(m.categories.isEmpty)
@@ -74,26 +86,27 @@ final class BackupFormatCompatibilityTests: XCTestCase {
         XCTAssertNil(m.encryption)
         XCTAssertTrue(m.integrity.isEmpty)
         XCTAssertNil(m.manifestMac)
-        // A default backupId must still be usable, not empty.
-        XCTAssertFalse(m.backupId.isEmpty)
+        XCTAssertEqual(m.backupId, "ABC123")
+        XCTAssertNil(m.snapshotAt)
     }
 
     /// A newer writer adding fields must not break an older reader.
     func testUnknownFieldsAreIgnored() throws {
         let m = try decode("""
-        {"format":"minisbak/1","device_name":"iPhone",
+        {"device_name":"iPhone",
          "future_field":{"nested":[1,2,3]},"another":"x"}
         """)
         XCTAssertEqual(m.deviceName, "iPhone")
-        XCTAssertEqual(m.format, "minisbak/1")
+        XCTAssertEqual(m.format, "minisbak/2")
     }
 
     /// §2.2 rule 2 turned into a test case directly: drop each optional key in
     /// turn from a complete manifest and assert the result still decodes.
     func testEveryOptionalFieldMayBeAbsent() throws {
         let full: [String: Any] = [
-            "format": "minisbak/1",
+            "format": "minisbak/2",
             "created_at": "2026-08-14T00:00:00Z",
+            "snapshot_at": "2026-08-14T00:00:00Z",
             "app": ["platform": "ios", "version": "1.13", "build": "42"],
             "device_name": "iPhone",
             "backup_id": "ABC123",
@@ -102,9 +115,7 @@ final class BackupFormatCompatibilityTests: XCTestCase {
             "integrity": ["manifest.json": "deadbeef"],
             "manifest_mac": "bWFj",
         ]
-        // `format` is the one key with real meaning when absent (it defaults to
-        // current), but it must still decode — so every key is exercised.
-        for key in full.keys {
+        for key in full.keys where identity[key] == nil {
             var reduced = full
             reduced.removeValue(forKey: key)
             let data = try JSONSerialization.data(withJSONObject: reduced)
@@ -119,7 +130,7 @@ final class BackupFormatCompatibilityTests: XCTestCase {
     /// was a missing `limits.skipped_files`.
     func testNestedOptionalCountersMayBeAbsent() throws {
         let m = try decode("""
-        {"format":"minisbak/1","limits":{},
+        {"limits":{},
          "categories":{"chats":{},"providers":{"entries":2}},
          "app":{}}
         """)
@@ -138,7 +149,7 @@ final class BackupFormatCompatibilityTests: XCTestCase {
     /// of bug this file exists to stop.
     func testSnakeCaseKeysAreTheWireFormat() throws {
         let m = try decode("""
-        {"format":"minisbak/1","device_name":"A","backup_id":"B",
+        {"device_name":"A","backup_id":"B",
          "limits":{"max_file_bytes":7,"skipped_files":8,"skipped_bytes":9},
          "categories":{"providers":{"entries":1,"includes_credentials":true}},
          "manifest_mac":"TUFD"}
@@ -160,38 +171,30 @@ final class BackupFormatCompatibilityTests: XCTestCase {
     /// is actually enforced rather than merely documented.
     func testKDFAlgAndSaltAreRequired() {
         let base = """
-        {"format":"minisbak/1","encryption":{"scheme":"minisbak-enc/1",
+        {"encryption":{"scheme":"minisbak-enc/1",
          "verifier":"dg==","kdf":{%@}}}
         """
-        func manifest(_ kdf: String) -> Data {
-            Data(base.replacingOccurrences(of: "%@", with: kdf).utf8)
+        func manifest(_ kdf: String) throws -> BackupManifest {
+            try decode(base.replacingOccurrences(of: "%@", with: kdf))
         }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
 
         // Both present -> decodes.
-        XCTAssertNoThrow(try decoder.decode(
-            BackupManifest.self,
-            from: manifest("\"alg\":\"pbkdf2-hmac-sha256\",\"salt\":\"c2FsdA==\"")))
+        XCTAssertNoThrow(try manifest("\"alg\":\"pbkdf2-hmac-sha256\",\"salt\":\"c2FsdA==\""))
 
         // `salt` missing -> must throw.
-        XCTAssertThrowsError(try decoder.decode(
-            BackupManifest.self,
-            from: manifest("\"alg\":\"pbkdf2-hmac-sha256\"")))
+        XCTAssertThrowsError(try manifest("\"alg\":\"pbkdf2-hmac-sha256\""))
 
         // `alg` missing -> must throw.
-        XCTAssertThrowsError(try decoder.decode(
-            BackupManifest.self, from: manifest("\"salt\":\"c2FsdA==\"")))
+        XCTAssertThrowsError(try manifest("\"salt\":\"c2FsdA==\""))
 
         // Both missing -> must throw.
-        XCTAssertThrowsError(try decoder.decode(
-            BackupManifest.self, from: manifest("")))
+        XCTAssertThrowsError(try manifest(""))
     }
 
     /// The optional Argon2 parameters may be absent even though alg/salt aren't.
     func testKDFOptionalParametersMayBeAbsent() throws {
         let m = try decode("""
-        {"format":"minisbak/1","encryption":{"scheme":"minisbak-enc/1",
+        {"encryption":{"scheme":"minisbak-enc/1",
          "verifier":"dg==","kdf":{"alg":"pbkdf2-hmac-sha256","salt":"c2FsdA==",
          "iterations":600000}}}
         """)

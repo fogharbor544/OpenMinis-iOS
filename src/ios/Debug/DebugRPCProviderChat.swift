@@ -1142,7 +1142,16 @@ enum DebugRPCChat {
 
         if isNewSession {
             let sid = await vm.ensureSessionReturningId()
-            BotWorkspaceStore.shared.adoptIntoCommander(sessionIDs: [sid])
+            let workspace = BotWorkspaceStore.shared
+            guard workspace.ensureCommander(),
+                  let index = workspace.data.bots.firstIndex(where: { $0.id == BotProfile.commanderID }) else {
+                throw BotWorkspaceError.storage
+            }
+            var next = workspace.data
+            next.sessionOwners[sid] = BotSessionOwner(botId: BotProfile.commanderID, roomId: nil)
+            next.bots[index].conversationIds.append(sid)
+            next.bots[index].sessionId = sid
+            guard workspace.persist(next) else { throw BotWorkspaceError.storage }
         }
 
         // Apply model selection on the session BEFORE send().

@@ -189,7 +189,7 @@ let mcp = read("Views/MCP/MCPFormSheet.swift")
 
 print("▶️  environment injection and masking")
 check("allAsDict skips disabled variables",
-      body(storeSrc, "nonisolated func allAsDict()").contains("for entry in entries where book.isEnabled(entry.id) {"))
+      body(storeSrc, "nonisolated func allAsDict(").contains("for entry in entries where book.isEnabled(entry.id) && entry.isAvailable(toBot: botId) {"))
 check("masking still covers every variable, disabled ones included",
       redactor.contains("for entry in entries {") && !redactor.contains("loadStateBook")
       && !redactor.contains("stateBook") && !redactor.contains("isEnabled(entry"))
@@ -246,10 +246,10 @@ check("minis-config envvars.<KEY>.enabled: bool, sensitive, revertable, localize
 check("the envvars summary reports enabled", builtins.contains("\"enabled\": .bool(EnvVarStore.shared.isEnabled(id: e.id))"))
 check("backup export writes EnvVarBackupEntry with enabled",
       exporter.contains("EnvVarBackupEntry(id: $0.id, key: $0.key, createdAt: $0.createdAt,")
-      && exporter.contains("enabled: store.isEnabled(id: $0.id))"))
+      && exporter.contains("enabled: store.isEnabled(id: $0.id),"))
 check("backup import: reads enabled, leaves an existing variable alone, disables a new one when the line says so",
       importer.contains("decoder.decode([EnvVarBackupEntry].self, from: data)")
-      && ordered(importer, ["guard !existing.contains(entry.key) else {", "store.add(key: entry.key, value: value, note: entry.note)",
+      && ordered(importer, ["guard existing == nil else {", "store.add(key: entry.key, value: value, note: entry.note, ownerBotId: entry.ownerBotId)",
                             "if !entry.enabled,", "store.setEnabled(id: created.id, false)"]))
 check("list: greyed + Disabled tag + Duplicate tag",
       view.contains(".opacity(isEnabled ? 1 : 0.6)") && view.contains("AppLocalized(\"Disabled (environment variable)\")")
@@ -295,7 +295,7 @@ let secretsImp = read("Agent/Backup/BackupSecretsImporter.swift")
 check("environment variables restore their values from secrets.json before creating the variables",
       ordered(importer, ["decoder.decode([EnvVarBackupEntry].self, from: data)",
                          "BackupSecretsImporter.restoreEnvVarValues(from: root)",
-                         "store.add(key: entry.key, value: value, note: entry.note)"]))
+                         "store.add(key: entry.key, value: value, note: entry.note, ownerBotId: entry.ownerBotId)"]))
 check("one value writer, never overwriting (shared by the Providers credential pass)",
       secretsImp.contains("static func restoreEnvVarValues(from root: URL) -> (restored: Int, kept: Int) {")
       && secretsImp.contains("let env = restoreEnvVarValues(secrets.envVars)")

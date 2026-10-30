@@ -23,7 +23,7 @@ enum SessionCategory {
 }
 
 
-struct BotProfile: Identifiable, Codable {
+struct BotProfile: Identifiable, Codable, Equatable {
     var id = UUID().uuidString
     var name: String
     var instructions = ""
@@ -32,25 +32,31 @@ struct BotProfile: Identifiable, Codable {
     var conversationIds: [String] = []
     var iconSymbol: String?
     var iconImageData: Data?
-    var skillOverrides: [String: Bool]?
-    var connectorOverrides: [String: Bool]?
-    var memoryEnabled: Bool?
+    var skillOverrides: [String: Bool]? = [:]
+    var connectorOverrides: [String: Bool]? = [:]
+    var memoryEnabled: Bool? = true
     /// Non-nil while pinned to the top of the home list; the date orders pinned rows.
     var pinnedAt: Date?
 
     static let commanderID = "builtin.commander"
     var isCommander: Bool { id == Self.commanderID }
 
+    static var defaultCommander: BotProfile {
+        var bot = BotProfile(name: "指挥官", instructions: "理解用户目标，识别合适的团队成员，拆解并分配任务，核对执行结果后向用户汇总。没有适合的成员时自行完成。", iconSymbol: "star.circle.fill", skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
+        bot.id = commanderID
+        return bot
+    }
+
     static let builtinIcons = SessionCategory.all.map(\.icon)
 }
 
-struct BotSessionOwner: Codable {
+struct BotSessionOwner: Codable, Equatable {
     var botId: String
     var roomId: String?
     var memoryKey: String { roomId.map { "room:\($0)" } ?? "bot:\(botId)" }
 }
 
-struct BotRoomMessage: Identifiable, Codable {
+struct BotRoomMessage: Identifiable, Codable, Equatable {
     var id = UUID()
     var speaker: String
     var botId: String?
@@ -59,18 +65,18 @@ struct BotRoomMessage: Identifiable, Codable {
     var sessionId: String?
 }
 
-struct BotRoom: Identifiable, Codable {
+struct BotRoom: Identifiable, Codable, Equatable {
     var id = UUID().uuidString
     var name: String
     var members: [String]
     var sessions: [String: String] = [:]
     var messages: [BotRoomMessage] = []
     var interrupted = false
-    var memoryEnabled: Bool?
+    var memoryEnabled: Bool? = true
     var pinnedAt: Date?
 }
 
-struct BotWorkspaceData: Codable {
+struct BotWorkspaceData: Codable, Equatable {
     var bots: [BotProfile] = []
     var rooms: [BotRoom] = []
     var sessionOwners: [String: BotSessionOwner] = [:]
@@ -101,6 +107,11 @@ final class BotWorkspaceStore: ObservableObject {
     func bot(_ id: String) -> BotProfile? { data.bots.first { $0.id == id } }
     func room(_ id: String) -> BotRoom? { data.rooms.first { $0.id == id } }
 
+    func dataForBackup() throws -> BotWorkspaceData {
+        guard !unreadable else { throw BotWorkspaceError.storage }
+        return data
+    }
+
     nonisolated static var defaultFileURL: URL {
         FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MinisChat/bot-workspace.json")
@@ -130,10 +141,8 @@ final class BotWorkspaceStore: ObservableObject {
     @discardableResult
     func ensureCommander() -> Bool {
         guard bot(BotProfile.commanderID) == nil else { return true }
-        var commander = BotProfile(name: "指挥官", instructions: "理解用户目标，识别合适的团队成员，拆解并分配任务，核对执行结果后向用户汇总。没有适合的成员时自行完成。", iconSymbol: "star.circle.fill", skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
-        commander.id = BotProfile.commanderID
         var next = data
-        next.bots.insert(commander, at: 0)
+        next.bots.insert(.defaultCommander, at: 0)
         return persist(next)
     }
 
@@ -159,6 +168,38 @@ final class BotWorkspaceStore: ObservableObject {
 
     func owner(forSession id: String) -> BotSessionOwner? {
         data.sessionOwners[id]
+    }
+
+    /// Bot delegations own their capabilities; ordinary helpers inherit the parent.
+    func capabilitySessionID(for sessionID: String?, parentSessionID: String?) -> String? {
+        if let sessionID, owner(forSession: sessionID) != nil { return sessionID }
+        return parentSessionID ?? sessionID
+    }
+
+    /// A scoped capability carries its owner's configuration, never its chat history.
+    func capabilityOwnerJSON(for botID: String?) throws -> String? {
+        guard let botID else { return nil }
+        guard var profile = bot(botID) else { throw BotWorkspaceError.missingBot }
+        profile.sessionId = nil
+        profile.conversationIds = []
+        profile.pinnedAt = nil
+        return String(decoding: try JSONEncoder().encode(profile), as: UTF8.self)
+    }
+
+    /// Seed only missing identities. Restoring a capability must not overwrite a local Bot.
+    func restoreCapabilityOwner(botID: String?, json: String?) throws {
+        guard let botID, bot(botID) == nil else { return }
+        guard let json else {
+            throw BotWorkspaceError.rejected("The private capability's Bot is missing. Export it again from its source device with the Bot configuration included.")
+        }
+        var profile = try JSONDecoder().decode(BotProfile.self, from: Data(json.utf8))
+        guard profile.id == botID, !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw BotWorkspaceError.rejected("The private capability's Bot configuration does not match its owner.")
+        }
+        profile.sessionId = nil
+        profile.conversationIds = []
+        profile.pinnedAt = nil
+        guard save(profile) else { throw BotWorkspaceError.storage }
     }
 
     func memoryEnabled(forSession id: String) -> Bool {
@@ -190,24 +231,6 @@ final class BotWorkspaceStore: ObservableObject {
         if owner.roomId == nil && !next.bots[index].conversationIds.contains(sessionID) {
             next.bots[index].conversationIds.append(sessionID)
         }
-        return persist(next)
-    }
-
-    /// Bot-only app: a top-level conversation that no Bot owns (created by an
-    /// older build, a debug path, or any caller that skipped Bot selection)
-    /// belongs to the commander. Group and delegated sessions keep their owners.
-    @discardableResult
-    func adoptIntoCommander(sessionIDs: [String]) -> Bool {
-        guard ensureCommander(), let index = data.bots.firstIndex(where: { $0.isCommander }) else { return false }
-        let orphans = sessionIDs.filter { data.sessionOwners[$0] == nil }
-        guard !orphans.isEmpty else { return true }
-        var next = data
-        for id in orphans {
-            next.sessionOwners[id] = BotSessionOwner(botId: BotProfile.commanderID, roomId: nil)
-            if !next.bots[index].conversationIds.contains(id) { next.bots[index].conversationIds.append(id) }
-        }
-        // The commander had no main chat yet: the most recent adopted one becomes it.
-        if next.bots[index].sessionId == nil { next.bots[index].sessionId = orphans.first }
         return persist(next)
     }
 

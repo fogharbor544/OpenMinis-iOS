@@ -976,13 +976,6 @@ extension ConfigRegistry {
             userDefaultsKey: StopConfirmPolicy.settingsKey,
             defaultValue: StopConfirmPolicy.defaultValue
         ))
-        r.register(AppStorageBoolField(
-            path: "chat.fabOnLeft",
-            displayName: "FAB on left",
-            description: "Move the floating action button to the left edge.",
-            userDefaultsKey: "fabOnLeft",
-            defaultValue: false
-        ))
         // [T-keyboard-auto-pop default flip] On by default — most users
         // want the input ready for a follow-up immediately after the
         // reply lands; turn off if you prefer to read the response first.

@@ -527,6 +527,8 @@ struct SyncedSubAgentV3: Syncable {
     var updatedAt: Date
     /// Bot that owns a private definition; nil = global. Optional for older peers.
     var ownerBotId: String? = nil
+    /// Self-contained owner identity; no session IDs, transcripts or memory entries.
+    var ownerBotJSON: String? = nil
 
     static let syncMetadata: SyncTypeMetadata<SyncedSubAgentV3> = {
         typealias F = FieldDescriptor<SyncedSubAgentV3>
@@ -544,9 +546,10 @@ struct SyncedSubAgentV3: Syncable {
                 F.int("sortOrder",               \SyncedSubAgentV3.sortOrder),
                 F.date("updatedAt",              \SyncedSubAgentV3.updatedAt),
                 F.optionalString("ownerBotId",   \SyncedSubAgentV3.ownerBotId),
+                F.optionalString("ownerBotJSON", \SyncedSubAgentV3.ownerBotJSON),
             ],
             conflictPolicy: .lastWriteWinsByField(\SyncedSubAgentV3.updatedAt),
-            version: 1
+            version: 2
         )
     }()
 }
@@ -559,6 +562,7 @@ struct SyncedEnvVar: Syncable {
     var createdAt: Date
     var updatedAt: Date
     var ownerBotId: String? = nil  // nil = global
+    var ownerBotJSON: String? = nil
 
     static let syncMetadata: SyncTypeMetadata<SyncedEnvVar> = {
         typealias F = FieldDescriptor<SyncedEnvVar>
@@ -574,9 +578,10 @@ struct SyncedEnvVar: Syncable {
                 F.date("createdAt",   \SyncedEnvVar.createdAt),
                 F.date("updatedAt",   \SyncedEnvVar.updatedAt),
                 F.optionalString("ownerBotId", \SyncedEnvVar.ownerBotId),
+                F.optionalString("ownerBotJSON", \SyncedEnvVar.ownerBotJSON),
             ],
             conflictPolicy: .lastWriteWinsByField(\SyncedEnvVar.updatedAt),
-            version: 1
+            version: 2
         )
     }()
 }
@@ -653,35 +658,6 @@ struct SyncedDevice: Syncable {
 
 /// Call once during app launch (before any sync activity) to register
 /// every Syncable type with the singleton registry. Idempotent.
-// MARK: - SyncedSoul (SOUL.md personality/identity file)
-//
-// One singleton record per iCloud account holding the full SOUL.md text
-// (frontmatter + body). LWW by updatedAt — SOUL.md is small and edited
-// rarely; per-field merging would not buy anything. The file lives at
-// <minisMemoryPersistentDir>/SOUL.md and is read/written by SoulStore.
-struct SyncedSoul: Syncable {
-    /// Constant id — only one SOUL.md per app/account.
-    var id: String = "soul"
-    /// Full SOUL.md serialized text (yaml frontmatter + markdown body).
-    var contentMarkdown: String
-    var updatedAt: Date
-
-    static let syncMetadata: SyncTypeMetadata<SyncedSoul> = {
-        typealias F = FieldDescriptor<SyncedSoul>
-        return SyncTypeMetadata<SyncedSoul>(
-            recordType: "SoulV2",
-            idKeyPath: \SyncedSoul.id,
-            scope: .global,
-            fields: [
-                F.string("contentMarkdown", \SyncedSoul.contentMarkdown),
-                F.date("updatedAt",          \SyncedSoul.updatedAt),
-            ],
-            conflictPolicy: .lastWriteWinsByField(\SyncedSoul.updatedAt),
-            version: 1
-        )
-    }()
-}
-
 // MARK: - SyncedFolder
 
 /// Home-list session folder (FolderV2). Identity is the locally generated
@@ -757,6 +733,5 @@ enum SyncedTypesBootstrap {
         r.register(SyncedEnvVar.self)    // per-variable, current schema
         r.register(SyncedEnvVarState.self) // [T-envvar-disable] enabled state
         r.register(SyncedDevice.self)
-        r.register(SyncedSoul.self)
     }
 }

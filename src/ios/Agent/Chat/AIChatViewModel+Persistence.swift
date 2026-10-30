@@ -243,7 +243,6 @@ extension AIChatViewModel {
         // Loop detector state is per-runtime; reload of a session clears it.
         toolLoopDetector.reset()
 
-        await BotWorkspaceStore.shared.adoptLegacyMemorySetting(for: sessionId)
 
         // Clear stale compact/pending state from previous lifecycle
         skipCompactCheck = false

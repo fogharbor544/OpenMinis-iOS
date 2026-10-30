@@ -13,29 +13,17 @@
 //        (layout switch, sheets, onChange / onReceive wiring)
 //    ContentView/ContentView+<Concern>.swift  ContentView members by concern:
 //        Layout             split (iPad / wide) vs stack (iPhone) layout, detail
-//        SidebarGrouping    date / pinned / folder sections, folder collapse and
-//                           mini bar, the cheap-to-diff SidebarGroup projection
-//        SessionList        the List / ForEach of rows and folder sections
-//        SidebarToolbar     toolbar, sync subtitle and indicators
-//        Navigation         selection helpers, new chat, open / switch session,
-//                           quick-action and background navigation
-//        SessionMenu        row context menu label + action channel wiring
-//        RemoteSessions     sessions synced from other devices
+//        SessionList        home: Bot workspace, or setup steps before models
+//        SidebarToolbar     onboarding toolbar and sync subtitle
+//        Navigation         new chat, open / switch session, quick-action and
+//                           background navigation
 //        PendingShare       share-extension handoff
 //        EmptyState         first-run setup steps
-//        Search             search bar and search scheduling
-//        SessionRefresh     session list refresh / debounce
-//        FAB                floating new-chat and search buttons
-//        SectionHeaders     selectable rows, date and folder section headers,
-//                           folder actions
-//        SelectionToolbar   multi-select toolbar, force sync
-//        SessionActions     delete (with info), regenerate title
-//        Export             JSON / plain-text export
-//    ContentView/Sidebar/   types the list is built from: SidebarGroup model,
-//        row views (SessionRow, RemoteSessionRow), surfaces and modifiers,
-//        context menu, action channels, folder picker and alerts, FAB, sync
-//        indicators, DEBUG probes and tracer
-//    ContentView/Sheets/    delete confirmation, export preview, session edit
+//        SessionRefresh     session list refresh / cooldown
+//        SessionActions     deleting sessions removed elsewhere
+//    ContentView/Bots/      the Bot workspace (home), profiles, memory
+//    ContentView/Sidebar/   sync indicators
+//    ContentView/Sheets/    session edit (also used by AIChatView)
 //    ContentView/Support/   MacOS27GlassWorkaround (also used by AIChatView)
 //    Settings/SettingsSheet.swift, Settings/AppearanceSettingsView.swift
 //                           the settings screen opened from the toolbar
@@ -119,157 +107,7 @@ struct ContentView: View {
     /// publisher is attached (typical cold-launch race) would otherwise be
     /// dropped.
     @ObservedObject private var quickActionRouter = QuickActionRouter.shared
-    // [T-ios-ipad-sidebar-running-indicator-stale] Observe the activity /
-    // concurrency trackers AT THE LIST LEVEL too (SessionRow already observes
-    // them, but the #584 id-list ForEach reuses an already-materialized cell
-    // for the running session and swallows the row's @ObservedObject change
-    // when only the running flag flips — id list & resolved ChatSession value
-    // are unchanged). Observing here re-evaluates the list body when
-    // activeSessions / suspended flips, which regenerates each row's composite
-    // diff key (see sessionRowKeys) so the ForEach can't skip re-materializing
-    // the row whose running state changed.
-    @ObservedObject var sidebarActivityTracker = SessionActivityTracker.shared
-    // Folder-header aggregates (anyUnread / anyPaused) read the badge store
-    // during sidebarGroups; observing it here is what re-derives those
-    // aggregates when a badge flips. Row-level observation alone would only
-    // refresh the rows, not the header pass.
-    @ObservedObject var sidebarBadgeStore = SessionBadgeStore.shared
-    @ObservedObject var sidebarConcurrencyManager = SessionConcurrencyManager.shared
-    /// [T-sidebar-subagent-running] Is this conversation busy, by the same
-    /// rule the composer uses (`AIChatView.isBusy`)?
-    ///
-    /// `SessionActivityTracker` only knows about a session's OWN agent loop.
-    /// When a turn delegates to background sub agents the parent's loop ends
-    /// while they work, so the row went back to looking idle even though the
-    /// composer still showed Stop and results were still on their way. The two
-    /// surfaces have to answer this the same way.
-    /// [T-ios-listsessions-perf] Every session id currently running work, as
-    /// ONE set built per body pass.
-    ///
-    /// This used to be two calls per row per body pass —
-    /// `SessionActivityTracker.isActive(id)` plus
-    /// `AgentJobRegistry.hasActiveChildren(parent: id)`, the latter of which
-    /// scans the job registry for a matching parent. The CPU Profiler trace
-    /// measured 8.4 G cycles in that pair alone (inside 28.6 G of total
-    /// `erasedSessionRow` work), because the cost is O(rows x registry) on a
-    /// path that re-runs whenever ANY tracked activity ticks.
-    ///
-    /// Both underlying properties are already materialised sets — the folder
-    /// header aggregate in `sidebarGroups` computes exactly this union — so
-    /// gathering them once per pass and letting each row do a hash lookup
-    /// makes the row side O(1) and the pass O(rows + registry).
-    ///
-    /// Held as @State rather than recomputed per row: the two ForEach bodies
-    /// that build rows would each pay the union again, which is the cost this
-    /// removes. `sidebarGroups` already builds the same union for its folder
-    /// aggregates and publishes it here (see `noteRunningSessionIds`), so the
-    /// set costs nothing extra to maintain.
-    @State private var runningSessionIds: Set<String> = []
-
-    /// Publish the running-id set computed by the groups pass. Assigns only on
-    /// a real change: Set == is O(n) but the sets are small, and an
-    /// unconditional write would invalidate the sidebar on every activity tick
-    /// even when nothing started or stopped.
-    func noteRunningSessionIds(_ ids: Set<String>) {
-        guard ids != runningSessionIds else { return }
-        DispatchQueue.main.async { runningSessionIds = ids }
-    }
-
-    func sessionIsRunning(_ id: String) -> Bool {
-        runningSessionIds.contains(id)
-    }
-
-    /// [T-home-list-pass-trigger] The list inputs of this body pass, in
-    /// HomeListPassInputs.names order. Lives here because runningSessionIds is
-    /// private to this file. All O(1) except the small Set hashes.
-    var homeListPassInputs: HomeListPassInputs {
-        let sessionsIdentity = sessions.withUnsafeBufferPointer { Int(bitPattern: $0.baseAddress) } ^ sessions.count
-        return HomeListPassInputs(values: [
-            sessionsIdentity,
-            runningSessionIds.hashValue,
-            navigationPath.count,
-            selectedSessionId?.hashValue ?? 0,
-            isSearching ? searchQuery.hashValue : 0,
-            isSelecting ? 1 &+ selectedIds.hashValue : 0,
-            offscreenFolderHeaderIds.hashValue,
-            collapsedFolderIds.hashValue,
-            regeneratingTitleSessionId?.hashValue ?? 0,
-            folders.count,
-        ])
-    }
-
     @State var sessions: [ChatSession] = []
-    @State var folders: [ChatFolder] = []
-    /// Collapsed folder sections. Pure UI view-state: persisted locally, never
-    /// synced (like SessionBadgeStore's .unread — cross-device expand state is
-    /// noise, not signal).
-    @State var collapsedFolderIds: Set<String> =
-        Set(UserDefaults.standard.stringArray(forKey: "collapsedFolderIds") ?? [])
-    /// Folder ids whose EXPANDED header card is currently scrolled out above
-    /// the list's visible top — drives the floating mini-bar. A Set (not a
-    /// single id) because "expanded" is the DEFAULT folder state: before the
-    /// accordion ever runs, several folders can be expanded at once, so more
-    /// than one header can be offscreen. Display picks one deterministically.
-    @State var offscreenFolderHeaderIds: Set<String> = []
-    /// Global Y of the list's visible top edge (under the nav bar), measured
-    /// by the mini-bar overlay. The header probe compares its own global
-    /// frame against this to decide "scrolled out". Changes on rotation only.
-    @State var folderMiniBarTopY: CGFloat = 0
-    /// [T-ios-folder-accordion-scroll-anchor] Last observed global minY of each
-    /// folder header row, keyed by folder id. Written by a lightweight probe on
-    /// every header (collapsed ones included — the accordion needs the position
-    /// of the header ABOUT to expand, which by definition is still collapsed
-    /// when the tap lands). Read once per toggle to decide whether a scroll
-    /// correction is needed at all; never drives layout, so the per-frame writes
-    /// cost nothing but a dictionary store.
-    @State var folderHeaderTopY: [String: CGFloat] = [:]
-    /// The list's visible BOTTOM edge in global coords, the lower bound of the
-    /// "still on screen" test. Paired with `folderMiniBarTopY` (the top edge).
-    @State var folderListBottomY: CGFloat = 0
-    /// Memo for the sidebar grouping — see SidebarGroupsMemo. Keeps the
-    /// O(N) partition + per-folder aggregation off every AttributeGraph
-    /// flush (activity ticks during streaming re-eval this body at high
-    /// frequency, including mid-scroll).
-    @State var sidebarGroupsMemo = SidebarGroupsMemo()
-    /// Pending "move to folder" — non-nil presents the picker sheet. Shared by
-    /// the multi-select toolbar and the row context menu (single-selection is a
-    /// one-element set).
-    @State var folderPickerRequest: FolderPickerRequest?
-    /// Set when the picker applied a move that originated from multi-select;
-    /// selection mode is exited in the sheet's onDismiss (not in the apply
-    /// callback) to avoid the documented animation conflict.
-    @State private var folderMoveApplied = false
-    // Folder-header context-menu state (rename / dissolve / delete-all / new chat).
-    @State var folderToRename: ChatFolder?
-    @State var renameFolderText = ""
-    @State var renameFolderDesc = ""
-    @State var folderToDissolve: ChatFolder?
-    /// When delete-all runs for a folder, the (by then empty) folder row is
-    /// dropped after the sessions are gone. Cleared on cancel in onDismiss.
-    @State var pendingDeleteFolderId: String?
-    /// "New chat in folder": the folder intent rides with the DRAFT ID, not a
-    /// bare flag — a draft is promoted to a real row only on first message, so
-    /// folder_id can't be written at draft time, and keying on the draft id
-    /// means an abandoned draft never mis-files a later unrelated session.
-    @State var pendingFolderDraft: (draftId: String, folderId: String)?
-    /// Folder id currently hovered by a drag (empty string = the "ungroup"
-    /// target on a date-bucket header). Drives the drop highlight.
-    @State var dropTargetFolderId: String?
-    /// [T-ios-session-list-equatable-jank] id → ChatSession lookup backing the
-    /// sidebar rows. Held in @State (not a per-body-eval computed `[String:
-    /// ChatSession]`) on purpose: a plain `let byId = computedDict` inside the
-    /// List builder was captured as an AttributeGraph node input, so EVERY
-    /// transaction flush deep-compared the whole dictionary
-    /// (Dictionary.== → ChatSession.== × N) — the dominant scroll-deceleration
-    /// CPU cost (HangDetector: flushTransactions → AGGraphSetOutputValue →
-    /// Dictionary.== → ChatSession.==; Instruments: app-update phase 60–587ms
-    /// spikes). @State is diffed by storage-box identity, not by deep value, so
-    /// reading it from the row closure costs nothing per frame. Rebuilt only
-    /// when `sessions` changes (see .onChange below).
-    @State var sessionsByIdCache: [String: ChatSession] = [:]
-    /// [T-sidebar-row-lookup-miss] Answers rows that miss the cache above
-    /// (the render pass before its `.onChange` rebuild) without a per-row scan.
-    @State var sessionRowLookupMemo = SessionRowLookupMemo()
     /// Soul name shown as the sidebar title. Sourced from SOUL.md, falls
     /// back to "Minis". Refreshed whenever SoulStore posts .soulMdChanged.
     let soulName = "OpenMinis"
@@ -301,7 +139,6 @@ struct ContentView: View {
             }
         }
     }
-    @State var remoteDeviceSessions: [(device: SyncDevice, sessions: [ChatSession])] = []
     // showSettings consolidated into activeToolSheet (.settings)
     @State var showTerminal = false
     @State var showAlarmList = false
@@ -361,86 +198,6 @@ struct ContentView: View {
 
     /// Launch screen preference: 0=Auto, 1=Last Session, 2=New Chat.
     @AppStorage("launch.destination") private var launchScreen: Int = 0
-    /// FAB position preference: false = right (default), true = left.
-    @AppStorage("fabOnLeft") var fabOnLeft = false
-    /// Mirror of `SyncV2Bootstrap.isEnabled` so SwiftUI re-evaluates
-    /// the iCloud-gated menu entries (per-session Force Sync / Force
-    /// Pull and the multi-select Force Sync) the moment the user
-    /// flips the toggle in Settings — without this, calling the
-    /// static getter inline would only re-read on the next unrelated
-    /// state change. `SyncV2Bootstrap.setEnabled` writes the same key.
-    @AppStorage("cloudSync.v2.enabled") var iCloudSyncEnabled: Bool = false
-    /// Current drag offset of the FAB (reset to 0 on drop).
-    @State var fabDragOffset: CGFloat = 0
-
-    // Multi-select
-    @State var isSelecting = false
-    @State var selectedIds: Set<String> = []
-    /// Transient banner shown after a Force Sync action runs against
-    /// a selection. Cleared after a few seconds via DispatchQueue.
-    @State var forceSyncToast: String? = nil
-    @State var forceSyncInFlight = false
-    @State var scrollToId: String?
-    @State var showDeleteConfirm = false
-    @State var isComputingDelete = false
-    @State var showExportPreview = false
-    @State var isExporting = false
-    @State var exportFileURL: URL?
-    /// [T-export-preview-blank] The UNZIPPED payload backing `exportFileURL`, used
-    /// only to render the preview. `exportFileURL` is the artifact the user shares
-    /// or saves (a .zip), and zip bytes cannot be decoded as text — previewing it
-    /// produced a blank page. Nil when there is nothing text-previewable.
-    @State var exportPreviewURL: URL?
-    @State var exportProgress: (done: Int, total: Int)? = nil
-    @State var exportSummary: ExportSummary? = nil
-    @State var deleteInfo: DeleteInfo?
-
-    // Single delete
-    @State var sessionToDelete: ChatSession?
-    @State var singleDeleteInfo: DeleteInfo?
-
-    // Title regeneration
-    @State var regeneratingTitleSessionId: String?
-
-    // Edit session
-    @State var sessionToEdit: ChatSession?
-
-    // [T-ios-crash-contextmenu-uaf] Stable action relay for session context menus.
-    @State var menuActions = SessionMenuActionChannel()
-
-    // [T-ios-crash-objectdestroy-fab-uaf] Same, for the draggable FABs.
-    @State var fabActions = FABActionChannel()
-
-    // Search
-    @State var showSearchBar = false
-    var isSearching: Bool { showSearchBar && !searchText.isEmpty }
-    @State var searchText = ""
-    /// Session IDs that matched the current search query (nil = no active filter).
-    @State var searchMatchedIds: Set<String>?
-    /// Per-session matched-content snippet for sessions whose match was on
-    /// message body rather than title — surfaced in the row's subtitle slot
-    /// in place of the generic `lastMessage` preview. Empty when no active
-    /// search or for title-only matches. Mirrors Android
-    /// `SessionListViewModel.searchSnippets` (commit 545d585).
-    /// T-search-highlight 8edb74f2.
-    @State var searchMatchSnippets: [String: String] = [:]
-    /// [T-search-folder-expand] Folders whose NAME matched the query. Their
-    /// members all count as results, and the folder card shows even when
-    /// empty, so a hit on the folder itself is visible.
-    @State var searchMatchedFolderIds: Set<String> = []
-    /// [T-search-folder-pages] Pages shown per search-expanded folder (folder
-    /// id → page count, default 1). Reset whenever a new result set arrives
-    /// or search ends, so every search starts at the first page.
-    @State var searchFolderPages: [String: Int] = [:]
-    @State var searchTask: Task<Void, Never>?
-    /// [T-search-folder-expand] A search result set is on screen (not merely
-    /// text in the field: whitespace-only input and the debounce window keep
-    /// the normal list). Folders are shown expanded while this holds.
-    var searchResultsActive: Bool { isSearching && searchMatchedIds != nil }
-    /// The query as the search ran it — the rows highlight this, so a
-    /// trailing space in the field does not stop the highlight.
-    var searchQuery: String { searchText.trimmingCharacters(in: .whitespaces) }
-
     /// Width threshold below which the layout collapses to single-column (iPhone-style).
     private let compactThreshold: CGFloat = 700
     /// Whether the device is an iPad (iPhones always use stack layout regardless of width).
@@ -563,21 +320,11 @@ struct ContentView: View {
                     stackLayout
                 }
             }
-            .overlay(alignment: .top) {
-                if let toast = forceSyncToast {
-                    ForceSyncToastBanner(text: toast)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .padding(.top, 8)
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: forceSyncToast)
             .onChange(of: wide) { newWide in
                 isWideLayout = newWide
             }
             .onAppear {
                 isWideLayout = wide
-                wireMenuActions()
-                wireFABActions()
             }
             // [T-storage-session-cache] Sessions deleted from Settings › Storage:
             // drop them from the list now and close the conversation if it is one
@@ -585,10 +332,6 @@ struct ContentView: View {
             // on iPhone that conversation can be open underneath it.
             .onReceive(NotificationCenter.default.publisher(for: .sessionsDeletedElsewhere), perform: handleSessionsDeletedElsewhere)
         }
-        .onReceive(
-            NotificationCenter.default.publisher(for: .sessionDidCreate),
-            perform: handleSessionCreatedForPendingFolder
-        )
         .onReceive(NotificationCenter.default.publisher(for: .newChatRequested)) { note in
             if let id = note.userInfo?["sessionId"] as? String { switchToSession(id) }
             else { handleNewChatRequest() }
@@ -602,10 +345,6 @@ struct ContentView: View {
             BotConversationPicker { sessionID in
                 if shareCoordinator.pendingShareBuffer != nil {
                     shareCoordinator.setBufferTarget(sessionID)
-                }
-                if let pending = pendingFolderDraft, pending.draftId == pendingBotDraftId {
-                    pendingFolderDraft = nil
-                    Task { _ = await ChatStore.shared.setFolderIfUnfiled(pending.folderId, forSession: sessionID) }
                 }
                 pendingBotDraftId = nil
                 if case .pendingDispatch = QuickActionWorkflow.shared.state {
@@ -842,173 +581,15 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .dismissAllImmersivePresentations)) { _ in
             if activeToolSheet != nil { activeToolSheet = nil }
         }
-        .sheet(item: $sessionToDelete) { session in
-            DeleteConfirmSheet(info: $singleDeleteInfo, isLoading: false) {
-                print("[DELETE] onDelete called for session: \(session.id)")
-                deleteSession(session)
-                sessionToDelete = nil
-                singleDeleteInfo = nil
-            }
-            .onAppear {
-                print("[DELETE] Sheet appeared. singleDeleteInfo is \(singleDeleteInfo == nil ? "nil" : "non-nil, sessionCount=\(singleDeleteInfo!.sessionCount)")")
-            }
-            .presentationDetents([.medium])
-        }
-        .sheet(item: $sessionToEdit) { session in
-            SessionEditSheet(session: session) { newTitle, newCategory in
-                // [T-ios-state-publish-offmain-crash] @MainActor so the @State
-                // write after the actor-hop await stays on the main thread.
-                Task { @MainActor in
-                    await ChatStore.shared.updateSessionTitle(session.id, title: newTitle, category: newCategory)
-                    refreshSessionList()
-                }
-                sessionToEdit = nil
-            }
-            .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showDeleteConfirm, onDismiss: {
-            if deleteInfo == nil {
-                // Deletion was performed — reset selection mode after sheet is fully dismissed
-                isSelecting = false
-                selectedIds.removeAll()
-            } else {
-                // Cancelled — a pending delete-folder-with-sessions must not
-                // linger and attach itself to a later unrelated delete.
-                pendingDeleteFolderId = nil
-            }
-        }) {
-            DeleteConfirmSheet(info: $deleteInfo, isLoading: isComputingDelete) {
-                deleteSelectedSessions()
-                showDeleteConfirm = false
-            }
-            .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showExportPreview) {
-            ExportPreviewSheet(fileURL: exportFileURL, previewURL: exportPreviewURL, summary: exportSummary)
-        }
-        .sheet(item: $folderPickerRequest, onDismiss: {
-            // Mirror the delete sheet's pattern (see the comment near
-            // computeDeleteInfo): selection state is reset only after the
-            // sheet is fully dismissed to avoid animation conflicts.
-            if folderMoveApplied {
-                folderMoveApplied = false
-                isSelecting = false
-                selectedIds.removeAll()
-            }
-        }) { req in
-            FolderPickerSheet(
-                items: folderPickerItems(),
-                sessionIds: Array(req.sessionIds),
-                anyFiled: req.anyFiled
-            ) { choice in
-                Task { @MainActor in
-                    switch choice {
-                    case .existing(let folderId):
-                        await ChatStore.shared.setFolder(folderId, forSessions: Array(req.sessionIds))
-                    case .create(let name, let desc):
-                        let folder = await ChatStore.shared.createFolder(name: name, desc: desc)
-                        await ChatStore.shared.setFolder(folder.id, forSessions: Array(req.sessionIds))
-                    case .removeFromFolder:
-                        await ChatStore.shared.setFolder(nil, forSessions: Array(req.sessionIds))
-                    }
-                    refreshSessionList()
-                }
-                if req.fromMultiSelect { folderMoveApplied = true }
-                folderPickerRequest = nil
-            }
-            .presentationDetents([.medium, .large])
-        }
-        .modifier(FolderAlertsModifier(
-            folderToRename: $folderToRename,
-            renameFolderText: $renameFolderText,
-            renameFolderDesc: $renameFolderDesc,
-            folderToDissolve: $folderToDissolve,
-            allFolders: folders,
-            memberCount: { fid in sessions.filter { $0.folderId == fid }.count },
-            onRename: { folder, name, desc in
-                Task { @MainActor in
-                    // Always pass desc (empty clears): the dialog is seeded with
-                    // the stored value when it opens ([T-folder-rename-desc-wipe]),
-                    // so whatever is in the field on Rename is the user's
-                    // intended state.
-                    await ChatStore.shared.renameFolder(folder.id, name: name, desc: desc)
-                    refreshSessionList()
-                }
-            },
-            onDissolve: { folder in
-                Task { @MainActor in
-                    _ = await ChatStore.shared.dissolveFolder(folder.id)
-                    refreshSessionList()
-                }
-            },
-            // [T-folder-duplicate-name] Merge the renamed group into the
-            // existing same-named one: move its chats over, then dissolve the
-            // now-empty source. Dissolve (not delete) is deliberate — it only
-            // ever ungroups, so a mistake here can never cost a session.
-            onMergeInto: { source, target in
-                Task { @MainActor in
-                    let memberIds = sessions.filter { $0.folderId == source.id }.map(\.id)
-                    if !memberIds.isEmpty {
-                        await ChatStore.shared.setFolder(target.id, forSessions: memberIds)
-                    }
-                    _ = await ChatStore.shared.dissolveFolder(source.id)
-                    refreshSessionList()
-                }
-            }
-        ))
-        .overlay {
-            if isExporting {
-                ZStack {
-                    Color.black.opacity(0.3).ignoresSafeArea()
-                    VStack(spacing: 12) {
-                        // [T-ios-hud-spinner-contrast] Tint the spinner with the
-                        // adaptive label colour (GH#333).
-                        //
-                        // The card behind it is `.ultraThinMaterial`, which is
-                        // LIGHT in light mode. An untinted ProgressView takes
-                        // the ambient tint rather than the label colour, and
-                        // over a pale material that lands close to the
-                        // background — the reported "can't tell whether it is
-                        // loading". `UIColor.label` is dark on light and light
-                        // on dark, so this fixes light mode without touching
-                        // how dark mode looks today.
-                        ProgressView()
-                            .controlSize(.large)
-                            .tint(ChatColors.primaryText)
-                        if let p = exportProgress, p.total > 0 {
-                            Text(AppLocalized("Exporting… \(p.done) / \(p.total)"))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(AppLocalized("Exporting…"))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                }
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: isExporting)
-            }
-        }
         .task {
             // [T-p1-delegate-task] Hidden child sessions never reach the
             // sidebar; they are entered from their parent's helper block.
             sessions = await ChatStore.shared.listSessions().filter { !$0.isChild }
             // Bot-only app: file pre-Bot and unowned conversations under the commander.
-            BotWorkspaceStore.shared.adoptIntoCommander(sessionIDs: sessions.map(\.id))
             // [T-ios-moveto-seed] Hand the sidebar's freshly-loaded list to the
             // Move-to sheet's seed, so opening the picker paints populated
             // instead of waiting on the ChatStore actor.
             ViewModelCache.noteSessionsLoaded(sessions)
-            // Folders must load WITH the first session batch: groupedSessionIDs
-            // treats a folder_id whose folder isn't loaded as an orphan and
-            // renders the session ungrouped, so a first paint with sessions
-            // but no folders shows a flat list and the folder cards only
-            // "appear after a while" (whenever refreshSessionList next ran —
-            // the exact symptom reported from the Mac build).
-            folders = await ChatStore.shared.listFolders()
             let shareAlreadyHandled = shareCoordinator.bufferVersion > 0
             // A Home Screen Quick Action that fired during launch will
             // open the right session itself via `quickActionRouter.newChatTrigger`.
@@ -1101,19 +682,8 @@ struct ContentView: View {
                 }
             }
 
-            // iPad split launch: every launchScreen branch above has resolved
-            // by now, so if the restored selection lives inside a collapsed
-            // folder, expand that folder (accordion — closes the others) so
-            // the selected row is actually visible in the sidebar instead of
-            // hidden behind a collapsed card.
-            if isWideLayout, let sid = selectedSessionId,
-               let fid = sessions.first(where: { $0.id == sid })?.folderId,
-               collapsedFolderIds.contains(fid) {
-                toggleFolderCollapsed(fid)
-            }
             didInitialLoad = true
             fetchAlarmsIfNeeded()
-            await refreshRemoteDeviceSessions()
         }
         .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidFetchChanges)) { _ in
             // [T-ios-state-publish-offmain-crash] cloud-sync fetch fires off-main;
@@ -1122,16 +692,7 @@ struct ContentView: View {
                 refreshSessionList()
             }
         }
-        // [T-ios-session-list-equatable-jank] Keep the id→session lookup cache
-        // in sync with `sessions`. Rebuilding here (on actual list mutation)
-        // instead of per body-eval is what removes the per-frame Dictionary.==
-        // / ChatSession.== diff from the scroll transaction.
-        .onChange(of: sessions) { _ in
-            rebuildSessionsByIdCache()
-        }
         .onChange(of: selectedSessionId) { newValue in
-            // [T-home-list-perf-diag] iPad / wide navigation marker.
-            if isWideLayout { HomeListPerf.nav("selection \(newValue == nil ? "home" : "chat")") }
             // [T-crash-breadcrumbs] Split-layout selection, hashed.
             CrashBreadcrumbs.record("nav.select", detail: newValue.map { CrashBreadcrumbs.hash8($0) } ?? "none")
             // [T-ios-session-switch-attributegraph-race] Hosting-view race
@@ -1193,11 +754,6 @@ struct ContentView: View {
             if newValue == nil, case .ensuringHome = QuickActionWorkflow.shared.state {
                 QuickActionWorkflow.shared.markHome()
             }
-            // [T-ios-search-focus-sticky] iPad split: selecting a session (or
-            // new chat) with an empty search drops the sticky search bar.
-            if newValue != nil {
-                dismissSearchIfEmptyOnNavigate()
-            }
             // [T-ios-session-coldload-listsessions-block] Only refresh the list
             // when LEAVING a real session — that outgoing session's preview may
             // have changed while the user was inside it. Entering never changes
@@ -1219,8 +775,6 @@ struct ContentView: View {
             // [T-crash-breadcrumbs] Navigation depth; back at the root the
             // current page is the home list (a chat page records its own).
             CrashBreadcrumbs.record("nav", detail: "depth=\(navigationPath.count)")
-            // [T-home-list-perf-diag] iPhone push / pop marker.
-            HomeListPerf.nav("depth=\(navigationPath.count)")
             // [T-nav-stack-diag] Every change, with the running sessions and
             // whether the app itself wrote this path (see NavDiag).
             NavDiag.observe(navigationPath, currentTarget: currentStackSessionId)
@@ -1287,13 +841,6 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak outgoingVm] in
                     outgoingVm?.setSuspendedForTransition(false)
                 }
-            }
-            // [T-ios-search-focus-sticky] iPhone stack: pushing into a session
-            // (or new chat) with an empty search drops the sticky search bar.
-            // Only on push (path non-empty) — popping back must NOT clear an
-            // active search the user is returning to.
-            if !navigationPath.isEmpty {
-                dismissSearchIfEmptyOnNavigate()
             }
             if navigationPath.isEmpty {
                 currentStackSessionId = nil
@@ -1437,7 +984,7 @@ struct ContentView: View {
                     // legitimate. Resign whatever UIKit resurrected during the
                     // background snapshot pass so its stale keyboard inset can't
                     // inflate the window's bottom safe area.
-                    if !searchFocused, navigationPath.isEmpty, selectedSessionId == nil {
+                    if navigationPath.isEmpty, selectedSessionId == nil {
                         UIApplication.shared.sendAction(
                             #selector(UIResponder.resignFirstResponder),
                             to: nil, from: nil, for: nil)
@@ -1457,23 +1004,11 @@ struct ContentView: View {
     // ContentView+*.swift files need is declared here, in the order it had
     // when ContentView was a single file.
 
-    // Used by ContentView+RemoteSessions.swift.
-    let syncLog = AppLogger(category: "RemoteSync")
-
     // Used by ContentView+EmptyState.swift.
     @StateObject var providerStore = ProviderConfigStore.shared
     @State var showAddProvider = false
     @State var showSelectModels = false
     @State var showRestoreBackup = false
 
-    // Used by ContentView+FAB.swift (and the search field focus).
-    @State var fabDidDrag = false
-    @FocusState var searchFocused: Bool
 
-    @State var searchDragOffset: CGFloat = 0
-    @State var searchDidDrag = false
-
-    /// Namespace tying the search FAB and the expanded search bar together as one
-    /// glass fragment, so the two morph instead of cross-fading (iOS 26+).
-    @Namespace var fabGlassNamespace
 }

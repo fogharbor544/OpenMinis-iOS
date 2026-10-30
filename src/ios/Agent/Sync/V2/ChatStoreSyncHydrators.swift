@@ -93,14 +93,14 @@ enum ChatStoreSyncHydrators {
         )
         h.register(
             recordType: "SubAgentV3",
-            builder: { id in await buildSubAgentV3(id: id) },
-            merger: { record in await mergeSubAgentV3(record: record) },
+            builder: { id in try await buildSubAgentV3(id: id) },
+            merger: { record in try await mergeSubAgentV3(record: record) },
             deletionApplier: { id in await deleteSubAgentV3(id: id) }
         )
         h.register(
             recordType: "EnvVarItem",
-            builder: { id in await buildEnvVarItem(id: id) },
-            merger: { record in await mergeEnvVarItem(record: record) },
+            builder: { id in try await buildEnvVarItem(id: id) },
+            merger: { record in try await mergeEnvVarItem(record: record) },
             deletionApplier: { id in await applyEnvVarItemDeletion(id: id) }
         )
         // [T-envvar-disable] Enabled / disabled state, its own record type.
@@ -115,20 +115,6 @@ enum ChatStoreSyncHydrators {
             builder: { id in await buildDevice(id: id) },
             merger: { record in await mergeDevice(record: record) }
         )
-        // SyncCore loads dirty rows with v2Only: true, so the hydrator
-        // must register under the V2-suffixed name; otherwise lookup
-        // misses and the row keeps requeueing forever without ever
-        // hitting buildSoul. (Audit found: register("Soul") combined
-        // with v2-only dirty-row reader silently dropped every Soul
-        // push for the entire history of the v2 sync engine — the
-        // dashboard's NOT_FOUND-on-SoulV2 traffic is the downstream
-        // symptom because the schema was never auto-created.)
-        h.register(
-            recordType: "SoulV2",
-            builder: { _ in await buildSoul() },
-            merger: { record in await mergeSoul(record: record) }
-        )
-
         logger.info("[SyncCore] ChatStoreSyncHydrators registered: \(SyncCoreHydrators.shared.registeredRecordTypes.count) types")
     }
 
@@ -603,7 +589,7 @@ enum ChatStoreSyncHydrators {
     /// at build time and base64-encoded into the record so a peer that
     /// hasn't yet received the matching iCloud Keychain sync entry still
     /// gets the value.
-    private static func buildEnvVarItem(id: String) async -> PortableRecord? {
+    private static func buildEnvVarItem(id: String) async throws -> PortableRecord? {
         let entry = await MainActor.run { EnvVarStore.shared.entry(id: id) }
         guard let entry else {
             // Local entry gone — caller (SyncCore) treats nil as "drop
@@ -616,6 +602,14 @@ enum ChatStoreSyncHydrators {
         }
         let value = EnvVarStore.loadValueSync(forKey: entry.key) ?? ""
         let valueB64 = Data(value.utf8).base64EncodedString()
+        let ownerBotJSON: String?
+        do {
+            ownerBotJSON = try BotWorkspaceStore.shared.capabilityOwnerJSON(for: entry.ownerBotId)
+        } catch {
+            BotWorkspaceStore.shared.errorMessage = error.localizedDescription
+            logger.error("[SyncCore] EnvVarItem owner export failed: \(error.localizedDescription)")
+            throw error
+        }
         let synced = SyncedEnvVar(
             id: entry.id,
             key: entry.key,
@@ -623,7 +617,8 @@ enum ChatStoreSyncHydrators {
             note: entry.note,
             createdAt: entry.createdAt,
             updatedAt: Date(),
-            ownerBotId: entry.ownerBotId
+            ownerBotId: entry.ownerBotId,
+            ownerBotJSON: ownerBotJSON
         )
         return SyncableTypeRegistry.shared.metadata(for: "EnvVarItem")?.buildPortable(synced)
     }
@@ -631,7 +626,7 @@ enum ChatStoreSyncHydrators {
     /// Apply an inbound per-variable record. Adds-or-replaces the entry
     /// in env-vars.json by id, decodes valueB64 → Keychain. LWW
     /// resolution by updatedAt happens in EnvVarStore.applyRemoteItem.
-    private static func mergeEnvVarItem(record: PortableRecord) async {
+    private static func mergeEnvVarItem(record: PortableRecord) async throws {
         guard let id = stringField(record, "entryId") else {
             logger.warning("[SyncCore] mergeEnvVarItem: missing entryId field")
             return
@@ -671,6 +666,15 @@ enum ChatStoreSyncHydrators {
                   let s = String(data: data, encoding: .utf8) else { return "" }
             return s
         }()
+        do {
+            try BotWorkspaceStore.shared.restoreCapabilityOwner(
+                botID: optionalStringField(record, "ownerBotId"),
+                json: optionalStringField(record, "ownerBotJSON"))
+        } catch {
+            BotWorkspaceStore.shared.errorMessage = error.localizedDescription
+            logger.error("[SyncCore] EnvVarItem owner restore failed: \(error.localizedDescription)")
+            throw error
+        }
         await MainActor.run {
             EnvVarStore.shared.applyRemoteItem(
                 id: id, key: key, value: value, note: note,
@@ -774,70 +778,6 @@ enum ChatStoreSyncHydrators {
             default:           return nil
             }
         }
-    }
-
-    // MARK: - Soul (SOUL.md singleton)
-
-    /// Build the outbound SoulV2 record from the on-disk SOUL.md file.
-    /// Returns nil when the file is missing (e.g. first launch before
-    /// ensureExists has run) so we don't push an empty record and clobber
-    /// peer copies.
-    private static func buildSoul() async -> PortableRecord? {
-        let url = await MainActor.run { SoulStore.fileURL }
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path) else {
-            logger.info("[SyncCore] buildSoul: SOUL.md missing on disk, skipping push")
-            return nil
-        }
-        // [T-soul-icon-sidecar] The icon's bytes now live in SOUL.icon.png and
-        // the frontmatter holds only the filename — but the wire format is
-        // deliberately UNCHANGED, still one self-contained `contentMarkdown`
-        // blob with the icon inlined as base64. Two reasons: no CloudKit
-        // schema change, and a peer running a build that predates the sidecar
-        // still receives a working icon instead of a dangling filename that
-        // means nothing in its own container.
-        //
-        // So read through SoulStore (which folds the sidecar back in) rather
-        // than shipping the raw file, whose `icon: "SOUL.icon.png"` would
-        // arrive as an unresolvable reference.
-        guard let file = await MainActor.run(body: { SoulStore.load() }) else {
-            logger.info("[SyncCore] buildSoul: SOUL.md unreadable, skipping push")
-            return nil
-        }
-        let text = await MainActor.run { SoulStore.serializedForWire(file) }
-        // Use the file's mtime as updatedAt so a peer's older snapshot
-        // can't clobber a locally newer edit just because clocks drift.
-        //
-        // [T-soul-icon-sidecar] Take the LATER of SOUL.md and the icon
-        // sidecar. `SoulStore.save` rewrites SOUL.md on every change so its
-        // mtime normally already moves, but the record's payload now depends
-        // on two files: if the sidecar is ever the only one to change, an
-        // mtime read from SOUL.md alone would date the push to before the edit
-        // it carries and let a peer's older copy win LWW.
-        let iconURL = await MainActor.run { SoulStore.iconFileURL }
-        let mtime: Date = {
-            func modified(_ u: URL) -> Date? {
-                (try? fm.attributesOfItem(atPath: u.path))?[.modificationDate] as? Date
-            }
-            let dates = [modified(url), modified(iconURL)].compactMap { $0 }
-            return dates.max() ?? Date()
-        }()
-        let synced = SyncedSoul(contentMarkdown: text, updatedAt: mtime)
-        return SyncableTypeRegistry.shared.metadata(for: "SoulV2")?.buildPortable(synced)
-    }
-
-    /// Apply an inbound SoulV2 record. LWW-by-updatedAt against the local
-    /// file mtime is implemented inside SoulStore.applyRemoteContent.
-    private static func mergeSoul(record: PortableRecord) async {
-        guard let text = stringField(record, "contentMarkdown") else {
-            logger.warning("[SyncCore] mergeSoul: missing contentMarkdown field")
-            return
-        }
-        let updatedAt = dateField(record, "updatedAt") ?? record.updatedAt
-        await MainActor.run {
-            SoulStore.applyRemoteContent(text, remoteUpdatedAt: updatedAt)
-        }
-        logger.info("[SyncCore] applied SoulV2 (\(text.count) chars, updatedAt=\(updatedAt))")
     }
 
     // MARK: - Field accessors
@@ -1305,8 +1245,16 @@ enum ChatStoreSyncHydrators {
 
     /// Outbound. nil when the definition no longer exists locally (deleted
     /// between the markDirty and the push) — the caller drops the dirty row.
-    private static func buildSubAgentV3(id: String) async -> PortableRecord? {
+    private static func buildSubAgentV3(id: String) async throws -> PortableRecord? {
         guard let def = SubAgentStore.shared.subAgent(id: id) else { return nil }
+        let ownerBotJSON: String?
+        do {
+            ownerBotJSON = try BotWorkspaceStore.shared.capabilityOwnerJSON(for: def.ownerBotId)
+        } catch {
+            BotWorkspaceStore.shared.errorMessage = error.localizedDescription
+            logger.error("[SyncCore] SubAgentV3 owner export failed: \(error.localizedDescription)")
+            throw error
+        }
         let synced = SyncedSubAgentV3(
             id: def.id,
             name: def.name,
@@ -1317,7 +1265,8 @@ enum ChatStoreSyncHydrators {
             isBuiltIn: def.isBuiltIn ? 1 : 0,
             sortOrder: def.sortOrder,
             updatedAt: def.updatedAt,
-            ownerBotId: def.ownerBotId
+            ownerBotId: def.ownerBotId,
+            ownerBotJSON: ownerBotJSON
         )
         return SyncableTypeRegistry.shared
             .metadata(for: "SubAgentV3")?
@@ -1336,7 +1285,7 @@ enum ChatStoreSyncHydrators {
     /// deterministic rule as before — newer updatedAt wins, ties break on the
     /// lexicographically smaller id, so both devices independently reach the
     /// same winner and stop re-uploading rival rosters.
-    private static func mergeSubAgentV3(record: PortableRecord) async {
+    private static func mergeSubAgentV3(record: PortableRecord) async throws {
         let id = record.id.id
         // [T-icloud-record-delete-resurrection] Same guard the provider mergers
         // use: an agent just deleted here must not be re-inserted by a
@@ -1370,6 +1319,18 @@ enum ChatStoreSyncHydrators {
         let before = store.subAgents
         let merged = SubAgentRoster.merge(local: before, remote: [incoming]) {
             logger.info("[v3] mergeSubAgentV3: \($0)")
+        }
+        // Do not create an owner for a record discarded by the roster merge.
+        if let accepted = merged.first(where: { $0.id == incoming.id }),
+           accepted.ownerBotId == incoming.ownerBotId {
+            do {
+                try BotWorkspaceStore.shared.restoreCapabilityOwner(
+                    botID: incoming.ownerBotId, json: optionalStringField(record, "ownerBotJSON"))
+            } catch {
+                BotWorkspaceStore.shared.errorMessage = error.localizedDescription
+                logger.error("[SyncCore] SubAgentV3 owner restore failed: \(error.localizedDescription)")
+                throw error
+            }
         }
         guard merged != before else {
             logger.info("[v3] mergeSubAgentV3 SKIPPED (local newer or identical) id=\(id.prefix(8))")

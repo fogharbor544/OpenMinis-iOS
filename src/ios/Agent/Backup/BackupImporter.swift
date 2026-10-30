@@ -205,8 +205,21 @@ actor BackupImporter {
         progress?(AppLocalized("Preparing…"))
         try preflight(manifest: manifest, options: options)
 
-        let wanted = options.categories
-            ?? Set(manifest.categories.keys.compactMap(BackupCategory.init(rawValue:)))
+        let wanted = BackupCategory.includingAgentOwners(options.categories
+            ?? Set(manifest.categories.keys.compactMap(BackupCategory.init(rawValue:))))
+        guard !options.duplicateSessionsInsteadOfMerging else {
+            throw ImportError.unreadablePackage("Keeping duplicate conversations is not supported. Restore by stable ID instead.")
+        }
+        guard wanted.allSatisfy({ manifest.categories[$0.rawValue] != nil }) else {
+            throw ImportError.unreadablePackage("The selected data requires an Agents and Memory section that is missing from this backup.")
+        }
+        var restoreOptions = options
+        restoreOptions.categories = wanted
+        if wanted.contains(.agents) {
+            _ = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
+            let active = await MainActor.run { Array(SessionActivityTracker.shared.activeSessions) }
+            guard active.isEmpty else { throw ImportError.sessionsRunning(active) }
+        }
 
         // Index the package's file tree once; every file-carrying category
         // filters this rather than re-reading the index per category.
@@ -239,9 +252,21 @@ actor BackupImporter {
             progress?(String(format: AppLocalized("Restoring %@…"), category.localizedName))
             var snapshot: BackupRollbackSnapshot?
             do {
-                snapshot = try snapshotForRollback(category: category, staging: staging)
+                if category == .agents,
+                   let chats = report.categories.first(where: { $0.category == BackupCategory.chats.rawValue }),
+                   chats.failed != nil || chats.unreadable > 0 || chats.missingBlobs > 0 {
+                    throw ImportError.unreadablePackage("Agent restore stopped because conversation restoration was incomplete.")
+                }
+                if [.providers, .environmentVariables].contains(category),
+                   report.categories.contains(where: { $0.category == BackupCategory.agents.rawValue && $0.failed != nil }) {
+                    throw ImportError.unreadablePackage("Private configuration was not restored because agent restoration failed.")
+                }
+                // Agents use their own durable two-store journal, not an empty file snapshot.
+                if category != .agents {
+                    snapshot = try snapshotForRollback(category: category, staging: staging)
+                }
                 var cat = try await importCategory(category, root: root, fileIndex: fileIndex,
-                                                   options: options)
+                                                   options: restoreOptions)
                 cat.sizeSkippedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "size" }.count
                 // [review S9] Same treatment for iCloud placeholders the export
@@ -266,6 +291,7 @@ actor BackupImporter {
 
         progress?(AppLocalized("Reloading stores…"))
         await reloadStores(for: wanted)
+        if wanted.contains(.agents) { report.warnings += await agentDependencyWarnings() }
 
         report.duration = Date().timeIntervalSince(started)
         logger.info("[Restore] done id=\(manifest.backupId) imported=\(report.totalImported) updated=\(report.totalUpdated) skipped=\(report.totalSkipped)")
@@ -443,7 +469,7 @@ actor BackupImporter {
         //
         // A category missing from this list is silently skipped, which is how
         // this one would have failed had it simply been appended to the enum.
-        let order: [BackupCategory] = [.chats, .sharedFiles, .skills, .soul,
+        let order: [BackupCategory] = [.chats, .sharedFiles, .skills, .agents,
                                        .providers, .environmentVariables,
                                        .mcpServers, .voiceCorrections]
         return order.filter { wanted.contains($0) }

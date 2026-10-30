@@ -1,6 +1,86 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Kept Existing": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kept Existing"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "保留本地项"
+        }
+      }
+    }
+  },
+  "Agents and Memory": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agents and Memory"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "智能体与记忆"
+        }
+      }
+    }
+  },
+  "Exporting agents and memory…": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Exporting agents and memory…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在导出智能体与记忆…"
+        }
+      }
+    }
+  },
+  "Agent definitions and memory are included with chats, providers or environment variables. Select all categories for a device migration.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent definitions and memory are included with chats, providers or environment variables. Select all categories for a device migration."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "选择聊天、服务商或环境变量时，会同时备份智能体配置与记忆。换机时请勾选全部类别。"
+        }
+      }
+    }
+  },
+  "Restore matches stable IDs. Existing agent settings are kept, except the untouched default commander. Newer memories are merged. Chats, providers and environment variables also restore agent ownership.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Restore matches stable IDs. Existing agent settings are kept, except the untouched default commander. Newer memories are merged. Chats, providers and environment variables also restore agent ownership."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "按固定 ID 恢复。保留本地已有智能体设置，未修改的默认指挥官除外；合并较新的记忆。恢复聊天、服务商和环境变量时，会同时恢复智能体归属。"
+        }
+      }
+    }
+  },
   "搜索 Bot、群聊及消息": {
     "localizations": {
       "en": {

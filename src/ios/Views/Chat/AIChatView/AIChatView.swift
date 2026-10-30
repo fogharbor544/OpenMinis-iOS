@@ -369,7 +369,6 @@ struct AIChatView: View {
     /// [T-codex-fast-mode] Codex Fast Mode toggle ("..." menu, OpenAI OAuth
     /// only). Same key OpenAIProvider reads at request-build time; @AppStorage
     /// so the toolbar (menu checkmark + nav bolt badge) re-renders on flip.
-    @AppStorage(OpenAIProvider.fastModeDefaultsKey) var codexFastModeEnabled: Bool = false
     /// [T-codex-speed-tier] The tier key. Both keys are observed so the menu
     /// and the badge follow a value written by either (SpeedTierSettings
     /// writes both; a value from the old Bool alone still reads as Fast).

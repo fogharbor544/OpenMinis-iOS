@@ -219,7 +219,13 @@ Validation: 11 touched Swift sources match baseline grammar, generated harness g
 
 ## Authorized cloud build and IPA delivery (2026-10-30)
 1. Verify target and all pending changes (complete): existing private darkyuanbao06 remote; retain codex/bot-single-chat.
-2. Commit/push all current project changes and dispatch full workflow (in progress).
+2. Commit/push all current project changes and dispatch full workflow (complete).
 3. Follow tests and Debug device build; repair real failures and retry as needed.
 4. Download successful unsigned IPA, verify archive and report exact revision/run.
 User now explicitly authorizes commits, pushes, cloud builds and download. No signing requested. Native git/gh with keyring access required; sandbox gh falsely reports invalid tokens.
+
+### Cloud delivery complete
+- App revision d839804: run41037513427 device-build SUCCESS (Debug arm64, unsigned IPA packaged/uploaded). Source job failed only at unsupported macOS XCTMain runner.
+- Test-only repair 3b54e72: run41038602235 SUCCESS; all source/regression steps including archive, capability transport and format/inbound passed. No application-source difference from the built revision.
+- Downloaded build/cloud/41037513427/OpenMinis-unsigned.ipa (100708665 bytes). ZIP CRC and Mach-O arm64 validation passed; verification.json contains SHA256 and revision evidence.
+- Complete local signing and real-device testing remain user-owned and unverified. Final documentation-only commit does not require rebuilding unchanged application code.

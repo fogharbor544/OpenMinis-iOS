@@ -1135,12 +1135,14 @@ enum DebugRPCChat {
             vm = cached
             await vm.loadSession()
         } else {
+            // Bot-only app: a new debug chat is a commander conversation.
             vm = ViewModelCache.shared.createDraft()
             vm.sessionSource = "debug"
         }
 
         if isNewSession {
-            await vm.ensureSessionReturningId()
+            let sid = await vm.ensureSessionReturningId()
+            BotWorkspaceStore.shared.adoptIntoCommander(sessionIDs: [sid])
         }
 
         // Apply model selection on the session BEFORE send().

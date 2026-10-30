@@ -123,10 +123,9 @@ extension ContentView {
                 runForceSyncOnSelection(singleSession: sid)
             case .forcePull(let sid):
                 runForcePullOnSession(sid)
-            case .select(let sid):
-                isSelecting = true
-                selectedIds = [sid]
-                scrollToId = sid
+            case .select:
+                // Multi-select belonged to the retired conversation list.
+                break
             case .moveToFolder(let sid):
                 let filed = sessions.first(where: { $0.id == sid })?.isFiled ?? false
                 folderPickerRequest = FolderPickerRequest(

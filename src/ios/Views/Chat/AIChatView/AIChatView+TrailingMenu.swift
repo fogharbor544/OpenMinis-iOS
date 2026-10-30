@@ -158,7 +158,29 @@ extension AIChatView {
         case .clear: showClearChatConfirm = true
         case .scheduledTasks: showBotScheduledTasks = true
         case .files: showFileBrowser = true
+        case .tokenUsage: showTokenUsage = true
+        case .forceSync: runForceSync()
+        case .forcePull: showForcePullConfirm = true
         }
+    }
+
+    /// The old "..." menu's switches for the Bot profile, built from the same
+    /// state and setters as `trailingMenuButton` so both behave the same.
+    var botChatControls: BotChatControls {
+        let menu = trailingMenuButton
+        var iCloud = false
+        if #available(iOS 17.0, *) { iCloud = iCloudSyncEnabled }
+        return BotChatControls(
+            speakEnabled: menu.speakEnabled, setSpeakEnabled: menu.setSpeakEnabled,
+            keepAwakeEnabled: menu.keepAwakeEnabled, setKeepAwake: menu.setKeepAwake,
+            screenSaverNowEnabled: menu.screenSaverNowEnabled, setScreenSaverNow: menu.setScreenSaverNow,
+            showsKeepAwake: !ProcessInfo.processInfo.isiOSAppOnMac,
+            showEnhancedCacheToggle: menu.showEnhancedCacheToggle,
+            enhancedCacheEnabled: menu.enhancedCacheEnabled, setEnhancedCache: menu.setEnhancedCache,
+            showFastModeToggle: menu.showFastModeToggle, showUltrafast: menu.showUltrafast,
+            speedTier: menu.speedTier, setSpeedTier: menu.setSpeedTier,
+            showsICloudActions: iCloud,
+            iCloudActionsDisabled: !menu.hasSession || menu.isForcePulling)
     }
 
     /// [T-multi-select-share] Opens the share picker over this chat's messages as they

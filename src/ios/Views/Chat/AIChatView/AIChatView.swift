@@ -1149,7 +1149,9 @@ struct AIChatView: View {
         .sheet(isPresented: $showBotProfile, onDismiss: runPendingBotChatAction) {
             NavigationStack {
                 if let sid = cached.vm.sessionId, let bot = botWorkspace.bot(forSession: sid) {
-                    BotProfileView(botID: bot.id, sessionID: sid) { action in pendingBotChatAction = action }
+                    BotProfileView(botID: bot.id, sessionID: sid,
+                                   onChatAction: { action in pendingBotChatAction = action },
+                                   chatControls: botChatControls)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showBotProfile = false } } }
                 }
             }

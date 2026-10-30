@@ -16,31 +16,41 @@ struct HelperSettingsView: View {
 
     @AppStorage(AgentToolSwitch.agents.key) private var agentsEnabled: Bool = AgentToolSwitch.agents.defaultValue
     @ObservedObject private var store = SubAgentStore.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
+    /// Set from a Bot's profile page: lists only that Bot's private sub agents
+    /// and defaults new ones to it. nil = the global management page.
+    var scopeBotID: String? = nil
     @State private var editorTarget: SubAgentEditorTarget?
     @State private var editMode: EditMode = .inactive
 
-    private var roster: [SubAgentDefinition] { store.subAgents }
+    private var roster: [SubAgentDefinition] {
+        guard let scopeBotID else { return store.subAgents }
+        return store.subAgents.filter { $0.ownerBotId == scopeBotID }
+    }
+    private var globalCount: Int { store.subAgents.filter { $0.ownerBotId == nil }.count }
 
     var body: some View {
         Form {
-            Section {
-                // No leading icon here, unlike the same switch on Settings ›
-                // Tools: that page lists several tools and the glyph tells them
-                // apart, while this page is already the sub agents page — the
-                // icon would only repeat the title it sits next to.
-                Toggle(isOn: $agentsEnabled) {
-                    // [T-sub-agents-ga] The orange "Exp" badge that sat beside
-                    // the title is gone with the experimental status, and so is
-                    // the HStack that existed only to hold it.
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(AppLocalized("Sub Agents"))
-                        Text(SubAgentDefinition.toolName)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+            if scopeBotID == nil {
+                Section {
+                    // No leading icon here, unlike the same switch on Settings ›
+                    // Tools: that page lists several tools and the glyph tells them
+                    // apart, while this page is already the sub agents page — the
+                    // icon would only repeat the title it sits next to.
+                    Toggle(isOn: $agentsEnabled) {
+                        // [T-sub-agents-ga] The orange "Exp" badge that sat beside
+                        // the title is gone with the experimental status, and so is
+                        // the HStack that existed only to hold it.
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(AppLocalized("Sub Agents"))
+                            Text(SubAgentDefinition.toolName)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                } footer: {
+                    Text(AppLocalized("Delegate self-contained sub-tasks to a sub agent that works in its own hidden session and reports back. The same tool also lets the assistant check on or stop what it started. Several agents can run at once, so a large fan-out uses correspondingly more of your quota. On by default; when off, it is not offered to the model at all."))
                 }
-            } footer: {
-                Text(AppLocalized("Delegate self-contained sub-tasks to a sub agent that works in its own hidden session and reports back. The same tool also lets the assistant check on or stop what it started. Several agents can run at once, so a large fan-out uses correspondingly more of your quota. On by default; when off, it is not offered to the model at all."))
             }
 
             Section {
@@ -60,20 +70,28 @@ struct HelperSettingsView: View {
                 .onMove(perform: move)
 
                 Button {
-                    editorTarget = SubAgentEditorTarget(definition: nil)
+                    editorTarget = SubAgentEditorTarget(definition: nil, defaultOwnerBotID: scopeBotID)
                 } label: {
                     Label(AppLocalized("Add Sub Agent"), systemImage: "plus.circle")
                 }
                 .disabled(!store.canAddSubAgent)
             } header: {
                 HStack {
-                    Text(AppLocalized("Sub Agents"))
+                    if let scopeBotID {
+                        Text("\(workspace.bot(scopeBotID)?.name ?? "") 专属")
+                    } else {
+                        Text(AppLocalized("Sub Agents"))
+                    }
                     Spacer()
                     if roster.count > 1 { EditButton().font(.caption) }
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(AppLocalized("The assistant picks a sub agent by its description, so write the description as “when to use this”. Order is the order it sees them in."))
+                    if let scopeBotID {
+                        Text("只列出专属于 \(workspace.bot(scopeBotID)?.name ?? "") 的子代理。另有 \(globalCount) 个「全部 Bot」可用的子代理，在 设置 › 子代理 中管理。")
+                    } else {
+                        Text(AppLocalized("The assistant picks a sub agent by its description, so write the description as “when to use this”. Order is the order it sees them in."))
+                    }
                     if !store.canAddSubAgent {
                         Text(String(format: AppLocalized("You can define up to %d sub agents."), SubAgentLimits.maxCount))
                             .foregroundStyle(.secondary)
@@ -90,7 +108,7 @@ struct HelperSettingsView: View {
         .navigationTitle(AppLocalized("Sub Agents"))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editorTarget) { target in
-            SubAgentEditorView(existing: target.definition)
+            SubAgentEditorView(existing: target.definition, defaultOwnerBotID: target.defaultOwnerBotID)
         }
     }
 
@@ -119,6 +137,12 @@ struct HelperSettingsView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
+            if scopeBotID == nil {
+                Text(scopeLabel(def))
+                    .font(.caption2)
+                    .foregroundStyle(def.ownerBotId == nil ? Color.secondary : Color.accentColor)
+                    .lineLimit(1)
+            }
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -131,6 +155,11 @@ struct HelperSettingsView: View {
         return AppLocalized("Auto")
     }
 
+    private func scopeLabel(_ def: SubAgentDefinition) -> String {
+        guard let owner = def.ownerBotId else { return "全部 Bot" }
+        return "仅 \(workspace.bot(owner)?.name ?? owner)"
+    }
+
     private func delete(at offsets: IndexSet) {
         for idx in offsets {
             let def = roster[idx]
@@ -140,8 +169,15 @@ struct HelperSettingsView: View {
     }
 
     private func move(from source: IndexSet, to destination: Int) {
-        var ids = roster.map(\.id)
-        ids.move(fromOffsets: source, toOffset: destination)
+        // Reorder within the visible subset, keeping hidden definitions in place.
+        var visible = roster.map(\.id)
+        visible.move(fromOffsets: source, toOffset: destination)
+        var queue = visible[...]
+        let visibleSet = Set(visible)
+        let ids = store.subAgents.map { def -> String in
+            guard visibleSet.contains(def.id), let next = queue.popFirst() else { return def.id }
+            return next
+        }
         store.reorderSubAgents(ids)
     }
 }
@@ -150,15 +186,18 @@ struct HelperSettingsView: View {
 /// plus a payload, so presentation is driven by the value's identity.
 struct SubAgentEditorTarget: Identifiable {
     let definition: SubAgentDefinition?
+    var defaultOwnerBotID: String? = nil
     var id: String { definition?.id ?? "new" }
 }
 
 /// Add / edit one sub agent. [T-sub-agents-v1]
 struct SubAgentEditorView: View {
     let existing: SubAgentDefinition?
+    var defaultOwnerBotID: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = SubAgentStore.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
     /// [T-subagent-own-store] The model-group picker reads provider
     /// configuration, which is a different store from the roster. Observed so
     /// the picker refreshes when groups change.
@@ -169,6 +208,8 @@ struct SubAgentEditorView: View {
     @State private var instructions = ""
     @State private var modelGroupId: String?
     @State private var thinkingOverride: ThinkingLevel?
+    /// "" = every Bot; otherwise the Bot id.
+    @State private var ownerBotID = ""
     @State private var didSeed = false
 
     private var isBuiltIn: Bool { existing?.isBuiltIn ?? false }
@@ -188,6 +229,23 @@ struct SubAgentEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    if isBuiltIn {
+                        LabeledContent("适用 Bot", value: "全部 Bot")
+                    } else {
+                        Picker("适用 Bot", selection: $ownerBotID) {
+                            Text("全部 Bot").tag("")
+                            Divider()
+                            ForEach(workspace.data.bots) { bot in Text(bot.name).tag(bot.id) }
+                        }
+                    }
+                } header: {
+                    Text("适用范围")
+                } footer: {
+                    Text(isBuiltIn ? "内置子代理是所有未指定名称委派的默认目标，固定对全部 Bot 可用。"
+                         : "选择具体 Bot 后，只有它能调用这个子代理。")
+                }
+
                 // [T-sub-agents-v1] The built-in's name and description are
                 // fixed. They are what the delegating model reads to decide
                 // what to hand over, and it is the fallback every unnamed
@@ -358,12 +416,16 @@ struct SubAgentEditorView: View {
     private func seed() {
         guard !didSeed else { return }
         didSeed = true
-        guard let existing else { return }
+        guard let existing else {
+            ownerBotID = defaultOwnerBotID ?? ""
+            return
+        }
         name = existing.name
         descriptionText = existing.description
         instructions = existing.instructions
         modelGroupId = existing.modelGroupId
         thinkingOverride = existing.thinkingLevelOverride
+        ownerBotID = existing.ownerBotId ?? ""
     }
 
     private func save() {
@@ -379,7 +441,8 @@ struct SubAgentEditorView: View {
             modelGroupId: modelGroupId,
             thinkingLevelOverride: thinkingOverride,
             isBuiltIn: isBuiltIn,
-            sortOrder: existing?.sortOrder ?? 0
+            sortOrder: existing?.sortOrder ?? 0,
+            ownerBotId: isBuiltIn || ownerBotID.isEmpty ? nil : ownerBotID
         )
         store.upsertSubAgent(def)
         dismiss()

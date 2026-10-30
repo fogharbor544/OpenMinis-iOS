@@ -856,7 +856,8 @@ actor BackupExporter {
                 modelGroupId: def.modelGroupId,
                 thinkingLevelOverride: def.thinkingLevelOverride?.rawValue,
                 sortOrder: def.sortOrder,
-                updatedAt: def.updatedAt
+                updatedAt: def.updatedAt,
+                ownerBotId: def.ownerBotId
             )
             try writer.write(BackupRecordEnvelope(t: "SubAgentV1", d: record))
             written += 1
@@ -959,7 +960,8 @@ actor BackupExporter {
             let store = EnvVarStore.shared
             return store.entries.map {
                 EnvVarBackupEntry(id: $0.id, key: $0.key, createdAt: $0.createdAt,
-                                  note: $0.note, enabled: store.isEnabled(id: $0.id))
+                                  note: $0.note, enabled: store.isEnabled(id: $0.id),
+                                  ownerBotId: $0.ownerBotId)
             }
         }
         guard !entries.isEmpty else { return nil }

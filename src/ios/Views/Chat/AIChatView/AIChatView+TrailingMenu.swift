@@ -59,7 +59,7 @@ extension AIChatView {
             showUltrafast: activeModelSupportsUltrafast,
             keepAwakeEnabled: keepAwakeThisChat,
             screenSaverNowEnabled: screenSaverNowThisChat,
-            onEditBot: { editingBot = vm.sessionId.flatMap { botWorkspace.bot(forSession: $0) } },
+            onScheduledTasks: { showBotScheduledTasks = true },
             // [T-chat-menu-compact-entry] Same effect as the /compact slash
             // command (AIChatViewModel+SlashCommands case "compact").
             onCompact: { vm.compactAll() },
@@ -69,7 +69,7 @@ extension AIChatView {
             onOpenTerminal: { showTerminal = true },
             onOpenBrowser: { showBrowserSheet = true },
             onBrowseFiles: { showFileBrowser = true },
-            onMemories: { showSessionMemory = true },
+            onEnvironmentVariables: { showEnvironmentVariables = true },
             setSpeakEnabled: { enabled in
                 cached.vm.speakEnabled = enabled
                 // Keep the persisted "Read replies" preference in lockstep.
@@ -143,6 +143,21 @@ extension AIChatView {
             ChatNavMenuBarItemInstaller(menu: trailingMenuButton)
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+        }
+    }
+
+    /// Runs what the Bot profile's 会话 section requested, after its sheet is
+    /// gone so the next sheet/alert/search bar can present on this page.
+    func runPendingBotChatAction() {
+        guard let action = pendingBotChatAction else { return }
+        pendingBotChatAction = nil
+        switch action {
+        case .search: vm.chatSearch.activate(prefill: nil)
+        case .share: openSharePicker(selecting: nil)
+        case .compact: vm.compactAll()
+        case .clear: showClearChatConfirm = true
+        case .scheduledTasks: showBotScheduledTasks = true
+        case .files: showFileBrowser = true
         }
     }
 

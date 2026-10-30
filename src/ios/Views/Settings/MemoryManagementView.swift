@@ -13,10 +13,8 @@ struct MemoryManagementView: View {
     var body: some View {
         List {
             Section("Bot Memories") {
-                ForEach(bots.data.bots) { bot in
-                    NavigationLink(bot.name) { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }
-                }
-                NavigationLink("Shared Materials") { BotMemoryView(owner: "shared", title: String(localized: "Shared Materials")) }
+                Text("请在首页长按 Bot，选择编辑，再打开长期记忆。")
+                NavigationLink("共享记忆") { BotMemoryView(owner: "shared", title: "共享记忆") }
             }
             Section("Group Memories") {
                 ForEach(bots.data.rooms) { room in

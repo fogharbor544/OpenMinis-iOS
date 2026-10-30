@@ -9,8 +9,8 @@ with tempfile.TemporaryDirectory(prefix='minis-room-tests-') as temp:
     temp = Path(temp)
     store = (root / 'Views/ContentView/Bots/BotWorkspaceStore.swift').read_text(encoding='utf-8')
     # Redirect the singleton's file to this test's disposable directory.
-    store = store.replace('static let shared = BotWorkspaceStore()',
-                          'static let shared = BotWorkspaceStore(fileURL: URL(fileURLWithPath: CommandLine.arguments[1]))')
+    store = store.replace('let store = BotWorkspaceStore()',
+                          'let store = BotWorkspaceStore(fileURL: URL(fileURLWithPath: CommandLine.arguments[1]))')
     source = temp / 'Store.swift'
     source.write_text(store, encoding='utf-8')
     binary = temp / 'room-tests'

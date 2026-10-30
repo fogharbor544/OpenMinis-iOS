@@ -364,6 +364,23 @@ extension AIChatViewModel {
         guard remoteDeviceId == nil, let parentSid = sessionId else {
             return reject("no_parent_session", "This session cannot spawn helpers.")
         }
+        let delegatedBot: BotProfile?
+        if let rawBotID = args["bot_id"] {
+            guard let botID = rawBotID as? String, !botID.isEmpty,
+                  requestedAgentName?.isEmpty ?? true else {
+                return reject("invalid_bot", "Supply one bot_id and omit agent.")
+            }
+            let workspace = BotWorkspaceStore.shared
+            guard workspace.bot(forSession: parentSid)?.isCommander == true,
+                  let bot = workspace.bot(botID), !bot.isCommander else {
+                return reject("invalid_bot", "Only the commander can assign tasks to an existing team Bot other than itself.")
+            }
+            if let roomID = workspace.owner(forSession: parentSid)?.roomId,
+               workspace.room(roomID)?.members.contains(botID) != true {
+                return reject("invalid_bot", "Group delegation is limited to this group's members.")
+            }
+            delegatedBot = bot
+        } else { delegatedBot = nil }
         // [T-sub-agents-queue] Position of this call among the delegations of
         // THIS assistant message. The dispatcher runs them concurrently, so
         // this is the only stable place to count. Past the per-turn allowance
@@ -424,9 +441,10 @@ extension AIChatViewModel {
         registry.reserveChildStart(key: toolUseId, parent: parentSid)
         defer { registry.releaseChildStart(key: toolUseId) }
         // Resolved before the model, because a pinned Model Group on the
-        // definition overrides the requested tier.
-        let roster = SubAgentStore.shared.subAgents
-        guard let subAgent = SubAgentRoster.resolve(name: requestedAgentName, in: roster) else {
+        // definition overrides the requested tier. Another Bot's private
+        // definitions are not reachable from this conversation.
+        let roster = SubAgentStore.shared.roster(forSession: parentSid)
+        guard let subAgent = delegatedBot.map({ $0.delegationDefinition }) ?? SubAgentRoster.resolve(name: requestedAgentName, in: roster) else {
             let known = roster.map(\.name).joined(separator: ", ")
             return reject("unknown_agent", "No sub agent named \"\(requestedAgentName ?? "")\". Available: \(known). Omit `agent` to use the general one.")
         }
@@ -435,6 +453,10 @@ extension AIChatViewModel {
         guard let resolution = SubAgentModelResolver.resolve(subAgent: subAgent, parent: self,
                                                             choice: modelChoice) else {
             return reject("no_model", "No model is configured for a helper to run on.")
+        }
+
+        if delegatedBot != nil && resolution.modelGroupUnavailable {
+            return reject("no_model", "The assigned Bot's model group is unavailable. Configure its model group before retrying.")
         }
 
         // ── Child session ────────────────────────────────────────────────
@@ -447,6 +469,11 @@ extension AIChatViewModel {
             parentToolUseId: toolUseId
         )
         let childId = session.id
+        if let bot = delegatedBot,
+           !BotWorkspaceStore.shared.registerDelegation(sessionID: childId, botID: bot.id,
+                roomID: BotWorkspaceStore.shared.owner(forSession: parentSid)?.roomId) {
+            return reject("storage", "Unable to save Bot task ownership; the task was not started.")
+        }
         ProviderConfigStore.shared.setBinding(
             SessionModelBinding(sessionId: childId, primarySource: resolution.source), for: childId)
         let appliedThinking = Self.seedChildThinkingLevel(
@@ -480,10 +507,7 @@ extension AIChatViewModel {
                                           subAgentId: subAgent.id,
                                           subAgentName: subAgent.name,
                                           subAgentInstructions: subAgent.instructions)
-        // No long-term memory for helpers (design §4.3 drops memory_write;
-        // flipping the session toggle drops both tools AND the memory
-        // injection so prompt and tool list stay consistent — see report).
-        child.memoryEnabled = false
+        // helperConfig gates memory tools/injection without changing the Bot's shared memory setting.
         child.suppressGeneralCompletionNotification = true
         // Shared browser: same tab set as the parent (T-p2-shared-workspace).
         child.browserTabPool = browserTabPool
@@ -1644,10 +1668,15 @@ extension AIChatViewModel {
         if agentName?.isEmpty ?? true {
             agentName = await Self.persistedAgentName(toolUseId: toolUseId, sessionId: parentSid)
         }
-        let roster = SubAgentStore.shared.subAgents
+        let roster = SubAgentStore.shared.roster(forSession: parentSid)
         var subAgent = roster.first { $0.isBuiltIn } ?? SubAgentDefinition.makeBuiltIn()
         var namedAgentMissing: String?
-        if let agentName, !agentName.isEmpty {
+        if let owner = BotWorkspaceStore.shared.owner(forSession: childId) {
+            guard let bot = BotWorkspaceStore.shared.bot(owner.botId), !bot.isCommander else {
+                return "the assigned Bot no longer exists"
+            }
+            subAgent = bot.delegationDefinition
+        } else if let agentName, !agentName.isEmpty {
             if let named = roster.first(where: { $0.name == agentName }) {
                 subAgent = named
             } else {
@@ -1662,6 +1691,10 @@ extension AIChatViewModel {
 
         guard let resolution = SubAgentModelResolver.resolve(subAgent: subAgent, parent: self) else {
             return "no model is configured to run it on"
+        }
+
+        if BotWorkspaceStore.shared.owner(forSession: childId) != nil && resolution.modelGroupUnavailable {
+            return "the assigned Bot's model group is unavailable"
         }
 
         // ── Slot / queue, exactly as a fresh delegation ──────────────────
@@ -1691,7 +1724,6 @@ extension AIChatViewModel {
         let (child, fresh) = ViewModelCache.shared.getOrCreate(for: childId, kind: .child)
         if fresh || child.messages.isEmpty { await child.loadSession() }
         child.sessionSource = sessionSource
-        child.memoryEnabled = false
         child.suppressGeneralCompletionNotification = true
         child.browserTabPool = browserTabPool
 
@@ -1778,5 +1810,14 @@ extension AIChatViewModel {
                                   minutes: Self.helperDefaultMinutes, title: title,
                                   startedAt: Date(), msgIdx: 0, blockIdx: 0, converted: false)
         return nil
+    }
+}
+
+@MainActor
+private extension BotProfile {
+    var delegationDefinition: SubAgentDefinition {
+        SubAgentDefinition(id: id, name: name, description: String(instructions.prefix(200)),
+            instructions: instructions,
+            modelGroupId: modelGroupId ?? ProviderConfigStore.shared.defaultPrimaryGroupId)
     }
 }

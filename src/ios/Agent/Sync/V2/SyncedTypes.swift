@@ -525,6 +525,8 @@ struct SyncedSubAgentV3: Syncable {
     var isBuiltIn: Int
     var sortOrder: Int
     var updatedAt: Date
+    /// Bot that owns a private definition; nil = global. Optional for older peers.
+    var ownerBotId: String? = nil
 
     static let syncMetadata: SyncTypeMetadata<SyncedSubAgentV3> = {
         typealias F = FieldDescriptor<SyncedSubAgentV3>
@@ -541,6 +543,7 @@ struct SyncedSubAgentV3: Syncable {
                 F.int("isBuiltIn",               \SyncedSubAgentV3.isBuiltIn),
                 F.int("sortOrder",               \SyncedSubAgentV3.sortOrder),
                 F.date("updatedAt",              \SyncedSubAgentV3.updatedAt),
+                F.optionalString("ownerBotId",   \SyncedSubAgentV3.ownerBotId),
             ],
             conflictPolicy: .lastWriteWinsByField(\SyncedSubAgentV3.updatedAt),
             version: 1
@@ -555,6 +558,7 @@ struct SyncedEnvVar: Syncable {
     var note: String       // human description; "" when omitted
     var createdAt: Date
     var updatedAt: Date
+    var ownerBotId: String? = nil  // nil = global
 
     static let syncMetadata: SyncTypeMetadata<SyncedEnvVar> = {
         typealias F = FieldDescriptor<SyncedEnvVar>
@@ -569,6 +573,7 @@ struct SyncedEnvVar: Syncable {
                 F.string("note",      \SyncedEnvVar.note),
                 F.date("createdAt",   \SyncedEnvVar.createdAt),
                 F.date("updatedAt",   \SyncedEnvVar.updatedAt),
+                F.optionalString("ownerBotId", \SyncedEnvVar.ownerBotId),
             ],
             conflictPolicy: .lastWriteWinsByField(\SyncedEnvVar.updatedAt),
             version: 1

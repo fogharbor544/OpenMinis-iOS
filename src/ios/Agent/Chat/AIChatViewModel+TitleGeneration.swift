@@ -255,36 +255,11 @@ extension AIChatViewModel {
 
     // MARK: - [T-titlegen-folder-dedup] Shared folder-suggestion flow
 
-    /// Single source of truth for the folder-OFFER side, shared by every
-    /// title-generation entry point (auto after first turn, manual
-    /// regenerate, any future one): reads the auto-grouping toggle, applies
-    /// the unfiled requirement, and formats the deduped
-    /// `"name — description"` context lines. Two hand-copied versions of
-    /// this had already drifted apart in shape — do not inline a third.
-    ///
-    /// `requireUnfiled` also skips asking the model for a folder at all when
-    /// the session is filed: the answer could never be applied
-    /// (setFolderIfUnfiled's `WHERE folder_id IS NULL` guard), so offering
-    /// would only waste an output slot.
+    /// Bot/group navigation replaces automatic filing into legacy conversation folders.
+    /// Keep the title-generation callers' result shape, but never offer or move folders.
     static func buildFolderOfferContext(sessionId: String, requireUnfiled: Bool) async
         -> (folderNames: [String], folderContext: [String], offering: Bool) {
-        guard UserDefaults.standard.bool(forKey: "autoGroupingEnabled") else { return ([], [], false) }
-        if requireUnfiled {
-            guard let session = await ChatStore.shared.getSession(sessionId),
-                  session.folderId == nil else { return ([], [], false) }
-        }
-        var names: [String] = []
-        var context: [String] = []
-        var seen = Set<String>()
-        for f in await ChatStore.shared.listFolders() where seen.insert(f.name.lowercased()).inserted {
-            names.append(f.name)
-            if let d = f.desc, !d.isEmpty {
-                context.append("\"\(f.name)\" — \(d)")
-            } else {
-                context.append("\"\(f.name)\"")
-            }
-        }
-        return (names, context, true)
+        ([], [], false)
     }
 
     /// Single source of truth for the folder-APPLY side: existing folders

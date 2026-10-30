@@ -27,7 +27,8 @@ extension ContentView {
                                  onOpenBrowser: { activeToolSheet = .browser },
                                  onBrowserSettings: { activeToolSheet = .browserManagement },
                                  onOpenSettings: { activeToolSheet = .settings },
-                                 onOpenConversation: { switchToSession($0) })
+                                 onOpenConversation: { switchToSession($0) },
+                                 sessions: sessions)
             }
         }
         // Hardware ⌘F → focus search, available while the session list is on

@@ -91,6 +91,21 @@ final class SubAgentStore: ObservableObject {
         subAgents.first { $0.id == id }
     }
 
+    /// What a conversation owned by `botId` may delegate to: global definitions plus its own.
+    func roster(forBot botId: String?) -> [SubAgentDefinition] {
+        subAgents.filter { $0.isAvailable(toBot: botId) }
+    }
+
+    /// Roster for a chat session, resolved through the Bot that owns it.
+    func roster(forSession sessionId: String?) -> [SubAgentDefinition] {
+        roster(forBot: sessionId.flatMap { BotWorkspaceStore.shared.owner(forSession: $0)?.botId })
+    }
+
+    /// Removes a deleted Bot's private definitions (the confirmation names this).
+    func removeSubAgents(ownedBy botId: String) {
+        for def in subAgents where def.ownerBotId == botId { removeSubAgent(id: def.id) }
+    }
+
     /// Whether another definition already uses this name.
     ///
     /// Folded through `SubAgentRoster.nameKey`, the same key the sync merge and

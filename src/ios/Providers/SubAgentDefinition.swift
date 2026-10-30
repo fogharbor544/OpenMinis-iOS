@@ -99,6 +99,9 @@ struct SubAgentDefinition: Identifiable, Codable, Hashable {
     let isBuiltIn: Bool
     var sortOrder: Int
     var updatedAt: Date
+    /// nil = every Bot may delegate to it; otherwise only the Bot with this id.
+    /// Optional so rosters written before the field existed decode as global.
+    var ownerBotId: String?
 
     init(id: String = UUID().uuidString,
          name: String,
@@ -108,7 +111,8 @@ struct SubAgentDefinition: Identifiable, Codable, Hashable {
          thinkingLevelOverride: ThinkingLevel? = nil,
          isBuiltIn: Bool = false,
          sortOrder: Int = 0,
-         updatedAt: Date = Date()) {
+         updatedAt: Date = Date(),
+         ownerBotId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -118,6 +122,12 @@ struct SubAgentDefinition: Identifiable, Codable, Hashable {
         self.isBuiltIn = isBuiltIn
         self.sortOrder = sortOrder
         self.updatedAt = updatedAt
+        self.ownerBotId = ownerBotId
+    }
+
+    /// Whether a conversation owned by `botId` (nil = not a Bot conversation) may use it.
+    func isAvailable(toBot botId: String?) -> Bool {
+        ownerBotId == nil || ownerBotId == botId
     }
 
     /// The built-in general sub agent, inserted by `ensureBuiltIn` when absent.
@@ -226,6 +236,8 @@ enum SubAgentRoster {
         // A custom definition must not claim the built-in flag: `isBuiltIn`
         // drives "cannot delete" in the UI, and a synced row could assert it.
         builtIn = builtIn.clamped()
+        // The built-in is the fallback of every unnamed delegation, so it is never Bot-scoped.
+        builtIn.ownerBotId = nil
         var out: [SubAgentDefinition] = [builtIn]
         for (i, def) in list.enumerated() {
             var d = def.clamped()

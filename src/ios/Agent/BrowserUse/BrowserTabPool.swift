@@ -1722,6 +1722,7 @@ final class BrowserTabPool: ObservableObject {
     /// Collect all known URLs (live tabs + savedURLs) and write to disk.
     private func persistURLs() {
         guard let sessionId else { return }
+        persistPreviewIfChanged(sessionId: sessionId)
         var allURLs = savedURLs
         for tab in tabs {
             let url = tab.manager.currentURL
@@ -1789,5 +1790,52 @@ final class BrowserTabPool: ObservableObject {
     nonisolated static func deletePersistedData(for sessionId: String) {
         let url = storeURL(for: sessionId)
         try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: previewURL(for: sessionId))
+    }
+
+    // MARK: - Profile preview
+
+    /// Last screenshot shown on a Bot's profile card. Kept beside the tab JSON
+    /// so the card renders without creating a WKWebView just to preview.
+    nonisolated static func previewURL(for sessionId: String) -> URL {
+        storeURL(for: sessionId).deletingPathExtension().appendingPathExtension("preview.jpg")
+    }
+
+    /// Preview image, its page URL and when it was captured; nil when never browsed.
+    nonisolated static func loadPreview(for sessionId: String) -> (image: UIImage, pageURL: String?, capturedAt: Date)? {
+        let url = previewURL(for: sessionId)
+        guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { return nil }
+        let capturedAt = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? Date()
+        var pageURL: String?
+        if let raw = try? Data(contentsOf: storeURL(for: sessionId)),
+           let persisted = try? JSONDecoder().decode(PersistedTabs.self, from: raw) {
+            pageURL = persisted.tabURLs[persisted.selectedTabId] ?? persisted.tabURLs.values.first
+        }
+        return (image, pageURL, capturedAt)
+    }
+
+    /// Identity of the screenshot last written, so repeated persists skip re-encoding.
+    private static var persistedPreviewIDs: [String: ObjectIdentifier] = [:]
+
+    /// Writes the active tab's latest screenshot, downscaled, when it changed.
+    func persistPreviewIfChanged(sessionId: String) {
+        guard let image = activeManager?.lastScreenshot ?? tabs.lazy.compactMap({ $0.manager.lastScreenshot }).first else { return }
+        let identity = ObjectIdentifier(image)
+        guard Self.persistedPreviewIDs[sessionId] != identity else { return }
+        let width: CGFloat = 360
+        let scale = min(1, width / max(image.size.width, 1))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        let thumbnail = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        guard let data = thumbnail.jpegData(compressionQuality: 0.7) else { return }
+        do {
+            try data.write(to: Self.previewURL(for: sessionId), options: .atomic)
+            Self.persistedPreviewIDs[sessionId] = identity
+        } catch {
+            logger.error("Failed to persist browser preview: \(error.localizedDescription)")
+        }
     }
 }

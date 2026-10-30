@@ -281,20 +281,6 @@ struct AppearanceSettingsView: View {
                 Text("选择启动时显示 Bot 与群组，或恢复上次会话。")
             }
 
-            // Auto-grouping default is OFF on principle: it costs nothing
-            // extra (it rides the title-generation call), but it moves user
-            // data without being asked — a behavior the user must opt into.
-            // No pendingSettingsReopen dance here: that exists only because
-            // appLanguage rebuilds the root via .id(); a plain toggle has no
-            // such side effect.
-            Section {
-                Toggle("Auto-Grouping", isOn: autoGroupingBinding)
-            } header: {
-                Text("Grouping")
-            } footer: {
-                Text("When a chat's title is first generated, also file it into a matching existing group. Runs once per chat, only uses groups you already created, and leaves the chat ungrouped when nothing matches.")
-            }
-
             Section {
                 Picker(AppLocalized("Return Key"), selection: $returnKeyBehavior) {
                     Text(AppLocalized("Newline")).tag(0)
@@ -515,15 +501,7 @@ struct AppearanceSettingsView: View {
         .background(InteractivePopGestureDisabler())
     }
 
-    /// UserDefaults-backed binding (not @AppStorage: the key is read at
-    /// title-generation time in AIChatViewModel, so a plain defaults write is
-    /// the single source of truth).
-    private var autoGroupingBinding: Binding<Bool> {
-        Binding(
-            get: { UserDefaults.standard.bool(forKey: "autoGroupingEnabled") },
-            set: { UserDefaults.standard.set($0, forKey: "autoGroupingEnabled") }
-        )
-    }
+
 }
 
 /// Disables the navigation controller's interactive pop gesture on the hosting page

@@ -13,12 +13,16 @@ struct EnvVarEntry: Identifiable, Codable {
     /// Optional human-readable description of what this variable is for. Empty
     /// string when omitted. Stored in the JSON metadata file; not secret.
     var note: String
+    /// nil = put into every shell; otherwise only shells of this Bot's conversations.
+    var ownerBotId: String?
 
-    init(id: String = UUID().uuidString, key: String, createdAt: Date = Date(), note: String = "") {
+    init(id: String = UUID().uuidString, key: String, createdAt: Date = Date(), note: String = "",
+         ownerBotId: String? = nil) {
         self.id = id
         self.key = key
         self.createdAt = createdAt
         self.note = note
+        self.ownerBotId = ownerBotId
     }
 
     // Custom decoder so older entries without a `note` field still load.
@@ -28,6 +32,11 @@ struct EnvVarEntry: Identifiable, Codable {
         self.key = try c.decode(String.self, forKey: .key)
         self.createdAt = try c.decode(Date.self, forKey: .createdAt)
         self.note = (try? c.decode(String.self, forKey: .note)) ?? ""
+        self.ownerBotId = try c.decodeIfPresent(String.self, forKey: .ownerBotId)
+    }
+
+    func isAvailable(toBot botId: String?) -> Bool {
+        ownerBotId == nil || ownerBotId == botId
     }
 }
 
@@ -83,9 +92,11 @@ struct EnvVarBackupEntry: Codable, Equatable {
     var createdAt: Date
     var note: String
     var enabled: Bool
+    var ownerBotId: String?
 
-    init(id: String, key: String, createdAt: Date, note: String, enabled: Bool) {
+    init(id: String, key: String, createdAt: Date, note: String, enabled: Bool, ownerBotId: String? = nil) {
         self.id = id; self.key = key; self.createdAt = createdAt; self.note = note; self.enabled = enabled
+        self.ownerBotId = ownerBotId
     }
 
     init(from decoder: Decoder) throws {
@@ -95,6 +106,7 @@ struct EnvVarBackupEntry: Codable, Equatable {
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         note = (try? c.decode(String.self, forKey: .note)) ?? ""
         enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+        ownerBotId = try c.decodeIfPresent(String.self, forKey: .ownerBotId)
     }
 }
 // END EnvVarStateBook
@@ -446,7 +458,24 @@ final class EnvVarStore: ObservableObject {
 
     // MARK: - Public API
 
-    func add(key: String, value: String, note: String = "") {
+    /// Names must be unique across global and every Bot's private variables.
+    /// Returns the scope label of the variable already using `key`, or nil when free.
+    func scopeOfExistingKey(_ key: String, excluding id: String?) -> String? {
+        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard let holder = entries.first(where: { $0.key == normalized && $0.id != id }) else { return nil }
+        return holder.ownerBotId.flatMap { BotWorkspaceStore.shared.bot($0)?.name } ?? "全部 Bot"
+    }
+
+    func entries(ownedBy botId: String) -> [EnvVarEntry] {
+        entries.filter { $0.ownerBotId == botId }
+    }
+
+    /// Removes a deleted Bot's private variables (the confirmation names this).
+    func deleteEntries(ownedBy botId: String) {
+        for entry in entries(ownedBy: botId) { delete(id: entry.id) }
+    }
+
+    func add(key: String, value: String, note: String = "", ownerBotId: String? = nil) {
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !trimmedKey.isEmpty, Self.isValidKey(trimmedKey) else { return }
 
@@ -463,7 +492,7 @@ final class EnvVarStore: ObservableObject {
             logger.error("Add env var aborted — Keychain write failed for \(trimmedKey)")
             return
         }
-        let entry = EnvVarEntry(key: trimmedKey, note: note)
+        let entry = EnvVarEntry(key: trimmedKey, note: note, ownerBotId: ownerBotId)
         entries.append(entry)
         saveEntries()
         markEntryDirty(entryId: entry.id, operation: "upsert")
@@ -472,7 +501,9 @@ final class EnvVarStore: ObservableObject {
 
     /// Update an entry. Pass `note: nil` to leave the existing note untouched
     /// (used by the deep-link overwrite path which only updates the value).
-    func update(id: String, key: String, value: String, note: String? = nil) {
+    /// `ownerBotId: .some(x)` changes the scope; omitted keeps the current one.
+    func update(id: String, key: String, value: String, note: String? = nil,
+                ownerBotId: String?? = .none) {
         guard let idx = entries.firstIndex(where: { $0.id == id }) else { return }
 
         let oldKey = entries[idx].key
@@ -495,6 +526,7 @@ final class EnvVarStore: ObservableObject {
         }
         entries[idx].key = trimmedKey
         if let note { entries[idx].note = note }
+        if let ownerBotId { entries[idx].ownerBotId = ownerBotId }
         if oldKey != trimmedKey, stateBook.record(id) != nil {
             // [T-envvar-disable] Keyed by id, so a rename keeps the state;
             // only the diagnostic name follows.
@@ -608,7 +640,7 @@ final class EnvVarStore: ObservableObject {
 
     func applyRemoteItem(
         id: String, key: String, value: String, note: String,
-        createdAt: Date, updatedAt: Date
+        createdAt: Date, updatedAt: Date, ownerBotId: String? = nil
     ) {
         if let idx = entries.firstIndex(where: { $0.id == id }) {
             // Local entry exists — LWW by updatedAt. We don't track a
@@ -623,6 +655,7 @@ final class EnvVarStore: ObservableObject {
             let keyChanged = existing.key != key
             entries[idx].key = key
             entries[idx].note = note
+            entries[idx].ownerBotId = ownerBotId
             // Don't overwrite createdAt — keep the earliest timestamp
             // we've ever seen for this id.
             if existing.createdAt > createdAt { entries[idx].createdAt = createdAt }
@@ -641,7 +674,7 @@ final class EnvVarStore: ObservableObject {
             logger.info("[EnvVarStore] applyRemoteItem UPDATE id=\(id.prefix(8)) key=\(key)")
         } else {
             // New entry from a peer.
-            let entry = EnvVarEntry(id: id, key: key, createdAt: createdAt, note: note)
+            let entry = EnvVarEntry(id: id, key: key, createdAt: createdAt, note: note, ownerBotId: ownerBotId)
             entries.append(entry)
             if !value.isEmpty {
                 Self.saveValue(value, forKey: key)
@@ -672,7 +705,9 @@ final class EnvVarStore: ObservableObject {
     }
 
     /// Returns all env vars as a dictionary for injection into shell execution.
-    nonisolated func allAsDict() -> [String: String] {
+    /// `sessionId` scopes Bot-private variables to that Bot's conversations; a
+    /// shell with no session (the global terminal) only sees global variables.
+    nonisolated func allAsDict(forSession sessionId: String? = nil) -> [String: String] {
         var dict: [String: String] = [:]
         // Read entries from the JSON file directly (avoid MainActor requirement)
         let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
@@ -684,7 +719,8 @@ final class EnvVarStore: ObservableObject {
         // [T-envvar-disable] A disabled variable is not put into any
         // environment. Its Keychain value is untouched.
         let book = Self.loadStateBook()
-        for entry in entries where book.isEnabled(entry.id) {
+        let botId = sessionId.flatMap(BotWorkspaceStore.ownerBotIdSync(forSession:))
+        for entry in entries where book.isEnabled(entry.id) && entry.isAvailable(toBot: botId) {
             if let val = Self.loadValue(forKey: entry.key) {
                 dict[entry.key] = val
             }

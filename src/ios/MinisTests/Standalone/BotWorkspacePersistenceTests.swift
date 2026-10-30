@@ -71,6 +71,23 @@ struct BotWorkspacePersistenceTests {
         let restoredIcons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"))
         precondition(restoredIcons.bot(custom.id)?.iconImageData == Data([1, 2, 3]))
         precondition(Set(restoredIcons.data.bots.compactMap(\.iconSymbol)).count == BotProfile.builtinIcons.count)
+        let team = BotWorkspaceStore(fileURL: root.appendingPathComponent("commander.json"))
+        precondition(team.ensureCommander() && team.ensureCommander())
+        precondition(team.data.bots.count == 1 && team.data.bots[0].name == "指挥官")
+        var commander = team.data.bots[0]
+        commander.name = "我的队长"
+        precondition(team.save(commander))
+        let savedTeam = BotWorkspaceStore(fileURL: root.appendingPathComponent("commander.json"))
+        precondition(savedTeam.ensureCommander())
+        precondition(savedTeam.data.bots.count == 1 && savedTeam.data.bots[0].name == "我的队长")
+        precondition(savedTeam.data.bots[0].isCommander)
+        precondition(savedTeam.save(reviewer))
+        precondition(savedTeam.registerDelegation(sessionID: "task-1", botID: reviewer.id, roomID: nil))
+        precondition(savedTeam.bot(forSession: "task-1")?.id == reviewer.id)
+        precondition(savedTeam.bot(reviewer.id)?.sessionId == nil)
+        precondition(!savedTeam.registerDelegation(sessionID: "bad", botID: "missing", roomID: nil))
+        precondition(!savedTeam.registerDelegation(sessionID: "bad", botID: reviewer.id, roomID: "missing"))
+        precondition(!broken.ensureCommander())
         print("PASS: Bot/room persistence, order, session mapping, deletion preservation, interrupted rounds and corrupt-store protection")
     }
 }

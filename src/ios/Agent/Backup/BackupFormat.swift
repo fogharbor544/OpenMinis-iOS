@@ -408,6 +408,8 @@ struct BackupSubAgentRecord: Codable {
     var thinkingLevelOverride: String?
     var sortOrder: Int
     var updatedAt: Date
+    /// nil = global; optional so packages written before Bot scoping still decode.
+    var ownerBotId: String? = nil
 }
 
 struct BackupThinkingRuleRecord: Codable {

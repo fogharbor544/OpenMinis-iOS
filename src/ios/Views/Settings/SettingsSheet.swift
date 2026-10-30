@@ -93,6 +93,9 @@ struct SettingsSheet: View {
                 }
 
                 Section("Agent Runtime") {
+                    NavigationLink("Agent 工具") { ToolsSettingsView() }
+                    NavigationLink("子代理") { HelperSettingsView() }
+                    NavigationLink("环境变量") { EnvironmentVariablesView() }
                     NavigationLink { SkillsManagementView() } label: { Label("Skills", systemImage: "puzzlepiece.extension") }
                     NavigationLink { MCPIntegrationsView() } label: { Label("MCP Integrations", systemImage: "square.stack.3d.up") }
                 }
@@ -109,6 +112,20 @@ struct SettingsSheet: View {
                                 .foregroundStyle(.white)
                                 .frame(width: 21, height: 21)
                                 .background(.blue, in: Circle())
+                        }
+                    }
+                    // Moved here from the Bot home list (was "Shared Materials").
+                    NavigationLink {
+                        BotMemoryView(owner: "shared", title: "共享记忆")
+                    } label: {
+                        Label {
+                            Text("共享记忆")
+                        } icon: {
+                            Image(systemName: "brain")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white)
+                                .frame(width: 21, height: 21)
+                                .background(.pink, in: Circle())
                         }
                     }
                     NavigationLink {

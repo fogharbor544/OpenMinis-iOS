@@ -222,7 +222,8 @@ extension AIChatViewModel {
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user on the block in the tool bar and in the transcript (e.g. 'Survey repo test layout', 'Check on the research agent'). Use the same language as the user."),
                     "action": AgentToolParam(type: .string, description: "\"delegate\" (default): start a sub agent on `task`. \"status\": report this conversation's sub agents — state (queued/running/done/cancelled/failed/interrupted), current tool, elapsed, model, finished results; `job_id` for one, omit for all. \"steer\": course-correct a RUNNING one without stopping it (see `message`). \"cancel\": stop the one named by `job_id`; its partial result is still posted back. \"resume\": restart runs the app lost when it was killed (they report `interrupted`); `job_id`/`child_session_id` for one, omit both for all.", enumValues: ["delegate", "status", "steer", "cancel", "resume"]),
                     "task": AgentToolParam(type: .string, description: "action=delegate only, required. The complete, self-contained brief: goal, success criteria, relevant paths/URLs, constraints, and exactly what to return. The sub agent sees nothing else."),
-                    "agent": AgentToolParam(type: .string, description: "action=delegate only. Which sub agent runs this task. Pick the one whose description matches the work; omit it to use the general one.", enumValues: SubAgentStore.shared.subAgents.map(\.name)),
+                    "bot_id": AgentToolParam(type: .string, description: "action=delegate only. Commander Bot only: assign to a Bot ID from the team roster, using its instructions, model group and capabilities. Mutually exclusive with agent. Use wait=true when you need its result to finish the user's request."),
+                    "agent": AgentToolParam(type: .string, description: "action=delegate only. Which sub agent runs this task. Pick the one whose description matches the work; omit it to use the general one.", enumValues: SubAgentStore.shared.roster(forSession: sessionId).map(\.name)),
                     "model_choice": AgentToolParam(type: .string, description: "action=delegate only, and only when the chosen sub agent is set to Auto — one the user pinned to a group ignores it. DEFAULT TO \"same_as_me\". The user picked the model this conversation runs on, and that choice covers the work you delegate from it: a sub agent on a different model can cost far more, or be far weaker, than what they chose, and they never see it happen. Only depart from it when the task itself gives you a specific reason, judged by what the task demands and not by how long it will take. \"same_as_me\" (default): this conversation's model — anything continuing the work at hand, and every case where you are unsure. \"default_model\": the user's strongest group — only when this task clearly needs more capability than the current model, e.g. multi-step reasoning, design judgment, ambiguous requirements where a wrong answer is expensive. \"sub_model\": the user's light group — only when the task is clearly mechanical and well-bounded, verifiable at a glance (collecting files against a list, format conversion, fixed commands, lookups).", enumValues: ["same_as_me", "default_model", "sub_model"]),
                     "context": AgentToolParam(type: .string, description: "action=delegate only. Optional raw material to hand over verbatim (file excerpts, error output, a list of paths). Appended to the task."),
                     "max_minutes": AgentToolParam(type: .integer, description: "action=delegate only. Wall-clock budget in minutes (default 10, maximum 60). The sub agent is stopped when it runs out and whatever it produced so far is returned with status=timeout."),
@@ -237,7 +238,7 @@ extension AIChatViewModel {
                 // Schema cannot express here. The dispatcher rejects a delegate
                 // call with no task.
                 required: ["tool_title"],
-                propertyOrdering: ["tool_title", "action", "task", "agent", "model_choice", "context", "max_minutes", "wait", "progress_report", "job_id", "message", "child_session_id"]
+                propertyOrdering: ["tool_title", "action", "task", "bot_id", "agent", "model_choice", "context", "max_minutes", "wait", "progress_report", "job_id", "message", "child_session_id"]
             ))
         }
 
@@ -267,9 +268,10 @@ extension AIChatViewModel {
     /// Cost is bounded by SubAgentLimits (10 × (40 + 200) chars, ~800 tokens at
     /// the maximum), with a defensive prefix(200) here in case a definition
     /// reached storage through some path that skipped the clamp.
+    /// Only global definitions and the ones private to this conversation's Bot.
     @MainActor
-    static func subAgentRosterSection() -> String {
-        let roster = SubAgentStore.shared.subAgents
+    static func subAgentRosterSection(sessionId: String?) -> String {
+        let roster = SubAgentStore.shared.roster(forSession: sessionId)
         guard !roster.isEmpty else { return "" }
         let store = ProviderConfigStore.shared
         var lines = ["Available sub agents (pass the name as \(SubAgentDefinition.toolName).agent):"]

@@ -395,7 +395,7 @@ class ISHTerminalViewModel: ObservableObject {
 
         // Inject user-defined environment variables
         stepStart = CFAbsoluteTimeGetCurrent()
-        let customEnv = EnvVarStore.shared.allAsDict()
+        let customEnv = EnvVarStore.shared.allAsDict(forSession: sessionId)
         // [T-envvar-disable] Always assign, even when empty. With the old
         // `if !customEnv.isEmpty` guard, deleting or disabling the last
         // variable left the kernel holding the previous environment, so the

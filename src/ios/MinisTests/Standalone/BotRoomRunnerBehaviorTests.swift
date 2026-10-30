@@ -11,11 +11,17 @@ import Foundation
 }
 enum Submission: Equatable { case accepted, queued, rejected(String) }
 enum Origin { case job(jobId: String) }
+struct TestBlock {
+    enum Kind { case text, thinking, toolUse }
+    var kind: Kind
+    var content: String
+}
 struct TestMessage {
     enum Role { case assistant }
     var id = UUID()
     var role = Role.assistant
     var content: String
+    var blocks: [TestBlock] = []
     var error: String?
 }
 struct QueuedPrompt { var id: String }
@@ -23,6 +29,8 @@ struct QueuedPrompt { var id: String }
     static var prompts: [String] = []
     static var hold = false
     static var fail = false
+    static var plainReply = false
+    static var toolOnly = false
     var isProcessing = false
     var isCompacting = false
     var messages: [TestMessage] = []
@@ -33,6 +41,7 @@ struct QueuedPrompt { var id: String }
     func submitProgrammaticPrompt(_ text: String, origin: Origin, silent: Bool, bypassContextPrompt: Bool) -> Submission {
         Self.prompts.append(text)
         isProcessing = true
+        errorMessage = nil
         return .accepted
     }
     func awaitProgrammaticTurn(queuedPromptId: String?) async -> Bool {
@@ -40,7 +49,15 @@ struct QueuedPrompt { var id: String }
         defer { isProcessing = false }
         if Task.isCancelled { return false }
         if Self.fail { errorMessage = "Injected runtime failure" }
-        else { messages.append(TestMessage(content: "Reply \(Self.prompts.count)")) }
+        else if Self.plainReply { messages.append(TestMessage(content: "Plain reply")) }
+        else if Self.toolOnly { messages.append(TestMessage(content: "", blocks: [TestBlock(kind: .toolUse, content: "Not a public reply")])) }
+        else {
+            messages.append(TestMessage(content: "", blocks: [
+                TestBlock(kind: .thinking, content: "Private reasoning must not be shared"),
+                TestBlock(kind: .toolUse, content: "Internal tool payload"),
+                TestBlock(kind: .text, content: "Reply \(Self.prompts.count)")
+            ]))
+        }
         return true
     }
 }
@@ -79,6 +96,7 @@ extension BotWorkspaceStore {
         precondition(messages.map(\.speaker) == [String(localized: "You"), "Alpha", "Beta"])
         precondition(AIChatViewModel.prompts.count == 2)
         precondition(AIChatViewModel.prompts[1].contains("Alpha: Reply 1"))
+        precondition(messages[1].text == "Reply 1" && messages[2].text == "Reply 2")
         precondition(messages[1].sessionId == "\(room.id)/\(a.id)")
         precondition(store.room(room.id)?.interrupted == false)
         runner.send("Only Beta", roomID: room.id, recipient: b.id)
@@ -104,6 +122,18 @@ extension BotWorkspaceStore {
         await finish()
         precondition(AIChatViewModel.prompts.count == 5)
         precondition(store.room(room.id)?.messages.last?.text == String(localized: "The Bot conversation is locked."))
+        SessionLockStore.shared.locked = false
+        AIChatViewModel.hold = false
+        AIChatViewModel.plainReply = true
+        runner.send("Plain message compatibility", roomID: room.id, recipient: b.id)
+        await finish()
+        precondition(store.room(room.id)?.messages.last?.text == "Plain reply")
+        AIChatViewModel.plainReply = false
+        AIChatViewModel.toolOnly = true
+        runner.send("No public text", roomID: room.id, recipient: b.id)
+        await finish()
+        precondition(store.room(room.id)?.messages.last?.text == String(localized: "The Bot finished without a text reply. Open its conversation to inspect the result."))
+        precondition(!store.room(room.id)!.messages.contains { $0.text.contains("Not a public reply") })
         print("PASS: shipping group runner ordered handoff, recipient selection, duplicate submission, failure, cancellation and locked-session refusal")
     }
 }

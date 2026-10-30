@@ -397,7 +397,12 @@ struct AIChatView: View {
     @State var hasInjectedShareContent = false
     @State var showModelPicker = false
     @State var showThinkingLevelSheet = false
-    @State var showSessionMemory = false
+    @State var showBotScheduledTasks = false
+    /// Bot profile sheet, opened from the header name/avatar and the trailing button.
+    @State var showBotProfile = false
+    /// Action the profile asked for; run once its sheet has dismissed.
+    @State var pendingBotChatAction: BotChatAction?
+    @State var showEnvironmentVariables = false
     @State var showEnhancedCacheAlert = false
     @State var showTokenUsage = false
     // [T-ios-json-open-provider-import-prompt] A shared/opened JSON file that
@@ -486,7 +491,6 @@ struct AIChatView: View {
     @State var titlePillSession: ChatSession?
     /// Session being edited via the title-pill tap. Drives the SessionEditSheet.
     @State var titlePillEditSession: ChatSession?
-    @State var editingBot: BotProfile?
     @ObservedObject var botWorkspace = BotWorkspaceStore.shared
     var soulName: String {
         vm.sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "OpenMinis"
@@ -781,6 +785,8 @@ struct AIChatView: View {
                 }
         }
         .navigationBarTitleDisplayMode(.inline)
+        // Bot chats show only the back chevron (no previous-page title), like the reference.
+        .toolbarRole(currentBot != nil ? .editor : .automatic)
         // [T-ios-navbar-toolbar-host] The ENTIRE toolbar now lives inside an
         // equatable-gated host child. Root cause of the mid-streaming "..."
         // menu refresh (4th attempt, this one from instrumentation): with
@@ -801,16 +807,22 @@ struct AIChatView: View {
         // .background position — the gate silently never engaged. EquatableView
         // wrapping is the only guaranteed path to ==.
         .background(
-            ChatToolbarHost(key: chatToolbarKey, showsTrailing: !ChatNavMenuBarItem.isEnabled, title: {
+            ChatToolbarHost(key: chatToolbarKey, showsTrailing: currentBot != nil || !ChatNavMenuBarItem.isEnabled, title: {
                 chatNavPrincipalContent
             }, trailing: {
-                trailingMenu
+                if currentBot != nil {
+                    // Bot chats: the former "..." actions live in the profile's 会话 section.
+                    Button { showBotProfile = true } label: { Image(systemName: "person.text.rectangle") }
+                        .accessibilityLabel("Bot 资料")
+                } else {
+                    trailingMenu
+                }
             })
             .equatable()
         )
         // [T-ios-navbar-menu-baritem] Outside the equatable host on purpose:
         // its update pass is what refreshes the menu's action closures.
-        .background(navBarMenuInstaller)
+        .background { if currentBot == nil { navBarMenuInstaller } }
         .sheet(item: $titlePillEditSession) { session in
             SessionEditSheet(session: session) { newTitle, newCategory in
                 Task {
@@ -1118,9 +1130,35 @@ struct AIChatView: View {
                   target.sessionId == vm.sessionId else { return }
             openSharePicker(selecting: target.messageId)
         }
-        .sheet(item: $editingBot) { BotProfileEditor(profile: $0) }
-        .sheet(isPresented: $showSessionMemory) {
-            SessionMemoryView(vm: cached.vm)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let sid = cached.vm.sessionId, let bot = botWorkspace.bot(forSession: sid) {
+                BotRunStatusView(botID: bot.id, sessionID: sid)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.vertical, 6)
+                    .background(.bar)
+            }
+        }
+        .sheet(isPresented: $showBotScheduledTasks) {
+            NavigationStack {
+                if let sid = cached.vm.sessionId, let bot = botWorkspace.bot(forSession: sid) {
+                    ScheduledTasksManagementView(botID: bot.id)
+                        .toolbar { Button("Done") { showBotScheduledTasks = false } }
+                }
+            }
+        }
+        .sheet(isPresented: $showBotProfile, onDismiss: runPendingBotChatAction) {
+            NavigationStack {
+                if let sid = cached.vm.sessionId, let bot = botWorkspace.bot(forSession: sid) {
+                    BotProfileView(botID: bot.id, sessionID: sid) { action in pendingBotChatAction = action }
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showBotProfile = false } } }
+                }
+            }
+        }
+        .sheet(isPresented: $showEnvironmentVariables) {
+            NavigationStack {
+                EnvironmentVariablesView()
+                    .toolbar { Button("Done") { showEnvironmentVariables = false } }
+            }
         }
         .sheet(isPresented: $showMoveToSheet) {
             BotConversationPicker(excludedSessionID: vm.sessionId) { targetId in

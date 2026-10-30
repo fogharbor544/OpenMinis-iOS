@@ -35,6 +35,11 @@ struct BotProfile: Identifiable, Codable {
     var skillOverrides: [String: Bool]?
     var connectorOverrides: [String: Bool]?
     var memoryEnabled: Bool?
+    /// Non-nil while pinned to the top of the home list; the date orders pinned rows.
+    var pinnedAt: Date?
+
+    static let commanderID = "builtin.commander"
+    var isCommander: Bool { id == Self.commanderID }
 
     static let builtinIcons = SessionCategory.all.map(\.icon)
 }
@@ -62,6 +67,7 @@ struct BotRoom: Identifiable, Codable {
     var messages: [BotRoomMessage] = []
     var interrupted = false
     var memoryEnabled: Bool?
+    var pinnedAt: Date?
 }
 
 struct BotWorkspaceData: Codable {
@@ -72,7 +78,11 @@ struct BotWorkspaceData: Codable {
 
 @MainActor
 final class BotWorkspaceStore: ObservableObject {
-    static let shared = BotWorkspaceStore()
+    static let shared: BotWorkspaceStore = {
+        let store = BotWorkspaceStore()
+        store.ensureCommander()
+        return store
+    }()
     @Published private(set) var data = BotWorkspaceData()
     @Published var errorMessage: String?
     var pendingSessions: [String: Task<String, Error>] = [:]
@@ -80,8 +90,7 @@ final class BotWorkspaceStore: ObservableObject {
     private var unreadable = false
 
     init(fileURL: URL? = nil) {
-        self.fileURL = fileURL ?? FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MinisChat/bot-workspace.json")
+        self.fileURL = fileURL ?? Self.defaultFileURL
         do {
             if FileManager.default.fileExists(atPath: self.fileURL.path) {
                 data = try JSONDecoder().decode(BotWorkspaceData.self, from: Data(contentsOf: self.fileURL))
@@ -91,6 +100,51 @@ final class BotWorkspaceStore: ObservableObject {
 
     func bot(_ id: String) -> BotProfile? { data.bots.first { $0.id == id } }
     func room(_ id: String) -> BotRoom? { data.rooms.first { $0.id == id } }
+
+    nonisolated static var defaultFileURL: URL {
+        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MinisChat/bot-workspace.json")
+    }
+
+    /// Owner lookup for nonisolated shell paths (env injection). Reads the
+    /// persisted file, which `persist` writes before publishing `data`.
+    nonisolated static func ownerBotIdSync(forSession sessionId: String) -> String? {
+        struct Owners: Decodable { var sessionOwners: [String: BotSessionOwner] = [:] }
+        guard let raw = try? Data(contentsOf: defaultFileURL),
+              let decoded = try? JSONDecoder().decode(Owners.self, from: raw) else { return nil }
+        return decoded.sessionOwners[sessionId]?.botId
+    }
+
+    func setPinned(_ pinned: Bool, botID: String) {
+        guard var bot = bot(botID) else { return }
+        bot.pinnedAt = pinned ? Date() : nil
+        _ = save(bot)
+    }
+
+    func setPinned(_ pinned: Bool, roomID: String) {
+        guard var room = room(roomID) else { return }
+        room.pinnedAt = pinned ? Date() : nil
+        _ = save(room)
+    }
+
+    @discardableResult
+    func ensureCommander() -> Bool {
+        guard bot(BotProfile.commanderID) == nil else { return true }
+        var commander = BotProfile(name: "指挥官", instructions: "理解用户目标，识别合适的团队成员，拆解并分配任务，核对执行结果后向用户汇总。没有适合的成员时自行完成。", iconSymbol: "star.circle.fill", skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
+        commander.id = BotProfile.commanderID
+        var next = data
+        next.bots.insert(commander, at: 0)
+        return persist(next)
+    }
+
+    /// Delegations have isolated histories but retain the selected Bot's capability ownership.
+    @discardableResult
+    func registerDelegation(sessionID: String, botID: String, roomID: String?) -> Bool {
+        guard bot(botID) != nil, roomID == nil || room(roomID!)?.members.contains(botID) == true else { return false }
+        var next = data
+        next.sessionOwners[sessionID] = BotSessionOwner(botId: botID, roomId: roomID)
+        return persist(next)
+    }
 
     func newBot() -> BotProfile {
         let counts = Dictionary(grouping: data.bots.filter { $0.iconImageData == nil },

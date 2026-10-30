@@ -2,24 +2,6 @@ import SwiftUI
 import PhotosUI
 
 private struct BotChatTarget: Identifiable { var id: String }
-private struct BotMemoryTarget: Identifiable { var id: String; var title: String }
-
-/// Floating control surface for the workspace bottom bar: Liquid Glass on
-/// iOS 26+, a material fill below. `contentShape` keeps the whole drawn shape
-/// tappable, because glass alone contributes no hit region.
-private struct BotFloatingSurface<S: Shape>: ViewModifier {
-    let shape: S
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: shape).contentShape(shape)
-        } else {
-            content
-                .background(.regularMaterial, in: shape)
-                .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 2)
-                .contentShape(shape)
-        }
-    }
-}
 
 struct BotWorkspaceView: View {
     var embedded = false
@@ -29,6 +11,10 @@ struct BotWorkspaceView: View {
     var onBrowserSettings: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenConversation: ((String) -> Void)?
+    /// The home screen's already-loaded session list. Row previews read from it
+    /// so this view adds no store reads of its own: ContentView's refresh is
+    /// already throttled, cooldown-gated and deferred during scrolling.
+    var sessions: [ChatSession] = []
     @ObservedObject private var store = BotWorkspaceStore.shared
     @ObservedObject private var runner = BotRoomRunner.shared
     @Environment(\.dismiss) private var dismiss
@@ -45,10 +31,9 @@ struct BotWorkspaceView: View {
     @State private var savedNewBot: BotProfile?
     @State private var openingBotID: String?
     @State private var failedBot: BotProfile?
-    @State private var deletingBot: BotProfile?
-    @State private var deletingRoom: BotRoom?
-    @State private var memoryTarget: BotMemoryTarget?
     @ObservedObject private var memory = BotMemoryStore.shared
+    @State private var profileBot: BotChatTarget?
+    @State private var profileRoom: BotChatTarget?
 
     private var opening: Bool { openingBotID != nil }
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -67,8 +52,58 @@ struct BotWorkspaceView: View {
         }
     }
 
-    private var workspaceContent: some View {
+    /// One row of the mixed home list. Pinned rows first (latest pin on top),
+    /// then everything else by last activity, like the reference chat list.
+    private enum HomeItem: Identifiable {
+        case bot(BotProfile)
+        case room(BotRoom)
+        var id: String {
+            switch self {
+            case .bot(let bot): return "bot:\(bot.id)"
+            case .room(let room): return "room:\(room.id)"
+            }
+        }
+        var pinnedAt: Date? {
+            switch self {
+            case .bot(let bot): return bot.pinnedAt
+            case .room(let room): return room.pinnedAt
+            }
+        }
+    }
+
+    /// Each Bot's main conversation, keyed by session id. Built once per body pass.
+    private var botPreviews: [String: ChatSession] {
+        let ids = Set(store.data.bots.compactMap(\.sessionId))
+        guard !ids.isEmpty else { return [:] }
+        return Dictionary(sessions.lazy.filter { ids.contains($0.id) }.map { ($0.id, $0) }) { first, _ in first }
+    }
+
+    private func homeItems(_ previews: [String: ChatSession]) -> [HomeItem] {
+        let items = visibleBots.map(HomeItem.bot) + visibleRooms.map(HomeItem.room)
+        return items.sorted { lhs, rhs in
+            switch (lhs.pinnedAt, rhs.pinnedAt) {
+            case let (l?, r?): return l > r
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): return lastActivity(lhs, previews) > lastActivity(rhs, previews)
+            }
+        }
+    }
+
+    private func lastActivity(_ item: HomeItem, _ previews: [String: ChatSession]) -> Date {
+        switch item {
+        case .bot(let bot): return bot.sessionId.flatMap { previews[$0]?.updatedAt } ?? .distantPast
+        case .room(let room): return room.messages.last?.date ?? .distantPast
+        }
+    }
+
+    private var workspaceContent: some View { workspaceList(previews: botPreviews) }
+
+    private func workspaceList(previews: [String: ChatSession]) -> some View {
             List {
+                if showSearch {
+                    Section { searchField }
+                }
                 if store.errorMessage != nil || failedBot != nil {
                     Section {
                         Label {
@@ -88,37 +123,26 @@ struct BotWorkspaceView: View {
                 if isWorkspaceEmpty {
                     Section { emptyState.listRowBackground(Color.clear) }
                 }
-                if !visibleBots.isEmpty {
-                    Section("Bots") {
-                        ForEach(visibleBots) { bot in botRow(bot) }
+                ForEach(homeItems(previews)) { item in
+                    switch item {
+                    case .bot(let bot): botRow(bot, preview: bot.sessionId.flatMap { previews[$0] })
+                    case .room(let room): roomRow(room)
                     }
                 }
-                if !visibleRooms.isEmpty {
-                    Section("Groups") {
-                        ForEach(visibleRooms) { room in roomRow(room) }
-                    }
-                }
+                .listRowSeparator(.hidden)
                 if !trimmedQuery.isEmpty && searchedQuery == query && visibleBots.isEmpty && visibleRooms.isEmpty {
                     Label("没有找到匹配的 Bot、群聊或消息", systemImage: "magnifyingglass")
                         .foregroundStyle(.secondary)
                 }
-                if trimmedQuery.isEmpty {
-                    Section {
-                        NavigationLink { BotMemoryView(owner: "shared", title: "Shared Materials") } label: {
-                            Label("Shared Materials", systemImage: "folder")
-                        }
-                    } footer: {
-                        Text("点击 Bot 开始对话。技能和连接器在应用设置中管理，Bot 资料和群聊记录保存在此设备。")
-                    }
-                }
             }
+            .listStyle(.plain)
             .navigationTitle("Bots & Groups")
-            .safeAreaInset(edge: .bottom) { bottomBar }
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if let onOpenSettings { Button(action: onOpenSettings) { Image(systemName: "gear") }.accessibilityLabel("Settings") }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     Menu {
                         Button { onOpenTerminal?() } label: { Label("Shell Terminal", systemImage: "terminal") }
                         Button { onOpenRootfs?() } label: { Label("Rootfs Management", systemImage: "externaldrive") }
@@ -127,6 +151,10 @@ struct BotWorkspaceView: View {
                         Button { onBrowserSettings?() } label: { Label("Browser Settings", systemImage: "globe.badge.chevron.backward") }
                     } label: { Image(systemName: "terminal") }
                     .accessibilityLabel("工具")
+                    Button { showSearch ? closeSearch() : openSearch() } label: { Image(systemName: "magnifyingglass") }
+                        .disabled(isWorkspaceEmpty)
+                        .accessibilityLabel("搜索 Bot、群聊及消息")
+                    createMenu
                 }
             }
             .background {
@@ -143,25 +171,23 @@ struct BotWorkspaceView: View {
                 }
             }
             .sheet(item: $editingRoom) { BotRoomEditor(room: $0) }
-            .sheet(item: $memoryTarget) { target in
-                NavigationStack { BotMemoryView(owner: target.id, title: target.title).toolbar { Button("Done") { memoryTarget = nil } } }
+            .sheet(item: $profileBot) { target in
+                NavigationStack {
+                    BotProfileView(botID: target.id)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { profileBot = nil } } }
+                }
+            }
+            .sheet(item: $profileRoom) { target in
+                NavigationStack {
+                    BotRoomProfileView(roomID: target.id)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { profileRoom = nil } } }
+                }
             }
             .sheet(item: $chat) { target in
                 NavigationStack {
                     AIChatView(sessionId: target.id)
                         .id(target.id)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { chat = nil } } }
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                if let bot = store.bot(forSession: target.id) {
-                                    HStack {
-                                        NavigationLink { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) }
-                                        label: { Image(systemName: "brain") }
-                                        .accessibilityLabel("Memory")
-                                    }
-                                }
-                            }
-                        }
                         .safeAreaInset(edge: .bottom) {
                             if let entry = memory.lastSaved, entry.sourceSession == target.id, store.owner(forSession: target.id)?.memoryKey == entry.owner {
                                 HStack {
@@ -173,25 +199,6 @@ struct BotWorkspaceView: View {
                                 }.padding(8).background(.regularMaterial)
                             }
                         }
-                }
-            }
-            // Titles carry the data-loss explanation, so keep them visible on iPhone.
-            .confirmationDialog("Delete Bot and its memories? Shared access to its memories will be removed. Chat data is retained.", isPresented: Binding(get: { deletingBot != nil }, set: { if !$0 { deletingBot = nil } }), titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    if let deletingBot {
-                        do { try memory.forgetOwner("bot:\(deletingBot.id)"); store.deleteBot(deletingBot.id) }
-                        catch { store.errorMessage = error.localizedDescription }
-                    }
-                    deletingBot = nil
-                }
-            }
-            .confirmationDialog("Delete this group, its memories and shared transcript? Member chat data is retained.", isPresented: Binding(get: { deletingRoom != nil }, set: { if !$0 { deletingRoom = nil } }), titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    if let deletingRoom {
-                        do { try memory.forgetOwner("room:\(deletingRoom.id)"); store.deleteRoom(deletingRoom.id) }
-                        catch { store.errorMessage = error.localizedDescription }
-                    }
-                    deletingRoom = nil
                 }
             }
     }
@@ -216,120 +223,138 @@ struct BotWorkspaceView: View {
         .padding(.vertical, 28)
     }
 
-    private func botRow(_ bot: BotProfile) -> some View {
-        let locked = !runner.activeRooms.isEmpty
+    /// Shared row chrome: 54pt avatar, name + time on one line, preview below.
+    private func homeRow<Avatar: View, Status: View>(name: String, tag: String?, pinned: Bool, date: Date?,
+                                                     subtitle: String?, busy: Bool,
+                                                     @ViewBuilder avatar: () -> Avatar,
+                                                     @ViewBuilder status: () -> Status) -> some View {
+        HStack(spacing: 12) {
+            avatar()
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(name).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                    if let tag {
+                        Text(tag).font(.caption2.weight(.semibold)).foregroundStyle(.teal)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Color.teal.opacity(0.15), in: Capsule())
+                    }
+                    if pinned {
+                        Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityLabel("已置顶")
+                    }
+                    Spacer(minLength: 8)
+                    if busy { ProgressView().controlSize(.small) }
+                    else if let date { Text(Self.rowDate(date)).font(.footnote).foregroundStyle(.secondary) }
+                }
+                status()
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+        }
+        .frame(minHeight: 62)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Today → time, this week → weekday, else month/day (matches the reference list).
+    private static func rowDate(_ date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return date.formatted(date: .omitted, time: .shortened) }
+        if let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: Date())).day, days < 7 {
+            return date.formatted(.dateTime.weekday(.abbreviated))
+        }
+        return date.formatted(.dateTime.month(.defaultDigits).day())
+    }
+
+    private func botRow(_ bot: BotProfile, preview: ChatSession?) -> some View {
         let subtitle = botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
+            ?? preview?.lastMessage
             ?? bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
         return Button { open(bot) } label: {
-            HStack(spacing: 12) {
-                BotAvatar(profile: bot, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(bot.name).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                }
-                Spacer(minLength: 8)
-                if openingBotID == bot.id { ProgressView() }
-            }
-            .frame(minHeight: 52)
-            .contentShape(Rectangle())
-            .accessibilityElement(children: .combine)
+            homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: preview?.updatedAt,
+                    subtitle: subtitle, busy: openingBotID == bot.id,
+                    avatar: { BotAvatar(profile: bot, size: 54) },
+                    status: { BotRunStatusView(botID: bot.id, hidesWhenIdle: true) })
         }
+        .buttonStyle(.plain)
         .accessibilityHint("打开对话")
-        .accessibilityValue(openingBotID == bot.id ? Text("正在打开") : Text(""))
         .disabled(opening)
         .contextMenu {
-            Button { memoryTarget = BotMemoryTarget(id: "bot:\(bot.id)", title: bot.name) } label: { Label("Memory", systemImage: "brain") }
-            Button { editingBot = bot } label: { Label("Edit", systemImage: "pencil") }.disabled(locked)
-            Button(role: .destructive) { deletingBot = bot } label: { Label("Delete", systemImage: "trash") }.disabled(locked)
+            Button { profileBot = BotChatTarget(id: bot.id) } label: { Label("Bot 资料", systemImage: "person.text.rectangle") }
+            pinButton(pinned: bot.pinnedAt != nil, noun: "Bot") { store.setPinned(bot.pinnedAt == nil, botID: bot.id) }
         }
-        .swipeActions(edge: .leading) { Button("Edit") { editingBot = bot }.tint(.blue).disabled(locked) }
-        .swipeActions { Button("Delete", role: .destructive) { deletingBot = bot }.disabled(locked) }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            pinButton(pinned: bot.pinnedAt != nil, noun: "Bot") { store.setPinned(bot.pinnedAt == nil, botID: bot.id) }
+                .tint(.blue)
+        }
     }
 
     private func roomRow(_ room: BotRoom) -> some View {
         let running = runner.activeRooms.contains(room.id)
         let members = ListFormatter.localizedString(byJoining: room.members.compactMap { store.bot($0)?.name })
-        let subtitle = roomSnippets[room.id].flatMap { $0.isEmpty ? nil : $0 } ?? members
+        let last = room.messages.last
+        let subtitle = roomSnippets[room.id].flatMap { $0.isEmpty ? nil : $0 }
+            ?? last.map { "\($0.speaker)：\($0.text)" } ?? members
         return NavigationLink { BotRoomView(roomID: room.id) } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "person.2.fill")
-                    .font(.body)
-                    .foregroundStyle(.teal)
-                    .frame(width: 44, height: 44)
-                    .background(Color.teal.opacity(0.18), in: Circle())
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(room.name).font(.body.weight(.semibold)).lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                }
-                Spacer(minLength: 8)
-                if running { ProgressView() }
-            }
-            .frame(minHeight: 52)
+            homeRow(name: room.name, tag: "群聊", pinned: room.pinnedAt != nil, date: last?.date,
+                    subtitle: subtitle, busy: running,
+                    avatar: {
+                        Image(systemName: "person.2.fill")
+                            .font(.title3)
+                            .foregroundStyle(.teal)
+                            .frame(width: 54, height: 54)
+                            .background(Color.teal.opacity(0.18), in: Circle())
+                            .accessibilityHidden(true)
+                    },
+                    status: { EmptyView() })
         }
         .contextMenu {
-            Button { editingRoom = room } label: { Label("Edit", systemImage: "pencil") }.disabled(running)
-            Button(role: .destructive) { deletingRoom = room } label: { Label("Delete", systemImage: "trash") }.disabled(running)
+            Button { profileRoom = BotChatTarget(id: room.id) } label: { Label("群聊资料", systemImage: "person.2.badge.gearshape") }
+            pinButton(pinned: room.pinnedAt != nil, noun: "群聊") { store.setPinned(room.pinnedAt == nil, roomID: room.id) }
         }
-        .swipeActions(edge: .leading) { Button("Edit") { editingRoom = room }.tint(.blue).disabled(running) }
-        .swipeActions { Button("Delete", role: .destructive) { deletingRoom = room }.disabled(running) }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            pinButton(pinned: room.pinnedAt != nil, noun: "群聊") { store.setPinned(room.pinnedAt == nil, roomID: room.id) }
+                .tint(.blue)
+        }
     }
 
-    private var bottomBar: some View {
-        HStack(spacing: 12) {
-            if showSearch {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                    TextField("搜索 Bot、群聊及消息", text: $query)
-                        .focused($searchFocused)
-                        .autocorrectionDisabled()
-                        .submitLabel(.search)
-                    Button { closeSearch() } label: {
-                        Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.secondary)
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭搜索")
-                }
-                .padding(.leading, 18).padding(.trailing, 6)
-                .frame(minHeight: 56)
-                .modifier(BotFloatingSurface(shape: Capsule()))
-                .transition(.opacity)
-            } else {
-                if !isWorkspaceEmpty {
-                    Button { openSearch() } label: {
-                        Image(systemName: "magnifyingglass").font(.title3.weight(.medium)).foregroundStyle(.primary)
-                            .frame(width: 56, height: 56)
-                            .modifier(BotFloatingSurface(shape: Circle()))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("搜索 Bot、群聊及消息")
-                }
-                Spacer()
-            }
-            Menu {
-                Button { editingBot = store.newBot() } label: { Label("创建 Bot", systemImage: "person.crop.circle.badge.plus") }
-                Button { editingRoom = BotRoom(name: "", members: []) } label: {
-                    // A second Text renders as the menu item's subtitle.
-                    Label("创建群聊", systemImage: "person.2")
-                    if store.data.bots.count < 2 { Text("至少需要 2 个 Bot") }
-                }
-                .disabled(store.data.bots.count < 2)
-            } label: {
-                Image(systemName: "plus").font(.title2.weight(.semibold)).foregroundStyle(.white)
-                    .frame(width: 56, height: 56)
-                    .background(Color.accentColor, in: Circle())
-                    .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                    .contentShape(Circle())
-            }
-            .accessibilityLabel("创建 Bot 或群聊")
+    private func pinButton(pinned: Bool, noun: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(pinned ? "取消置顶" : "置顶此 \(noun)", systemImage: pinned ? "pin.slash.fill" : "pin.fill")
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+    }
+
+    private var createMenu: some View {
+        Menu {
+            Button { editingBot = store.newBot() } label: { Label("创建 Bot", systemImage: "person.crop.circle.badge.plus") }
+            Button { editingRoom = BotRoom(name: "", members: []) } label: {
+                // A second Text renders as the menu item's subtitle.
+                Label("创建群聊", systemImage: "person.2")
+                if store.data.bots.count < 2 { Text("至少需要 2 个 Bot") }
+            }
+            .disabled(store.data.bots.count < 2)
+        } label: {
+            Image(systemName: "plus")
+        }
+        .accessibilityLabel("创建 Bot 或群聊")
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField("搜索 Bot、群聊及消息", text: $query)
+                .focused($searchFocused)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            Button { closeSearch() } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭搜索")
+        }
+        .transition(.opacity)
     }
 
     private func openSearch() {
@@ -452,18 +477,10 @@ struct BotProfileEditor: View {
                         Text("Default Model Group").tag("")
                         ForEach(providers.modelGroups) { group in Text(group.name).tag(group.id) }
                     }
+                    NavigationLink("长期记忆") { BotMemoryView(owner: "bot:\(profile.id)", title: profile.name) }
                     Toggle("启用此 Bot 的长期记忆", isOn: Binding(get: { profile.memoryEnabled ?? true }, set: { profile.memoryEnabled = $0 }))
                 } footer: {
                     Text("技能和连接器请在应用设置中管理。模型组作为首次打开 Bot 的默认值。")
-                }
-                Section {
-                    NavigationLink("Agent 工具") { ToolsSettingsView() }
-                    NavigationLink("子代理") { HelperSettingsView() }
-                    NavigationLink("长期记忆") { BotMemoryView(owner: "bot:\(profile.id)", title: profile.name) }
-                    NavigationLink("定时任务") { ScheduledTasksManagementView(botID: profile.id) }
-                    NavigationLink("环境变量") { EnvironmentVariablesView() }
-                } header: { Text("Agent 运行时") } footer: {
-                    Text("工具、子代理和环境变量沿用应用共享配置；记忆与定时任务仅显示此 Bot 的内容。")
                 }
                 if let error = store.errorMessage {
                     Section { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) }
@@ -516,7 +533,7 @@ struct BotProfileEditor: View {
     }
 }
 
-private struct BotRoomEditor: View {
+struct BotRoomEditor: View {
     @State var room: BotRoom
     @ObservedObject private var store = BotWorkspaceStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -917,5 +934,65 @@ struct BotCapabilitySettingsView: View {
             bot.connectorOverrides = overrides
         }
         _ = workspace.save(bot)
+    }
+}
+
+/// Reads the existing runtime tracker without creating/loading conversations just for list rows.
+struct BotRunStatusView: View {
+    let botID: String
+    var sessionID: String? = nil
+    /// Home rows show the status only while something is happening, so an
+    /// idle list reads like the reference: name, time and last message.
+    var hidesWhenIdle = false
+    @ObservedObject private var activity = SessionActivityTracker.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
+
+    private var sessionIDs: Set<String> {
+        if let sessionID { return [sessionID] }
+        return Set(workspace.data.sessionOwners.filter { $0.value.botId == botID }.map(\.key))
+    }
+
+    private var status: (text: String, symbol: String, running: Bool) {
+        let ids = sessionIDs
+        let running = ids.intersection(activity.activeSessions)
+        if !running.isEmpty {
+            let tools = running.compactMap { activity.sessionToolInfo[$0] }
+            if let tool = tools.filter({ !$0.toolName.isEmpty }).max(by: { $0.lastActivity < $1.lastActivity }) {
+                return (tool.toolStatus.isEmpty ? "正在执行工具" : tool.toolStatus, "wrench.and.screwdriver", true)
+            }
+            return ("正在回复", "ellipsis", true)
+        }
+        if !ids.isDisjoint(with: activity.delegatingSessions) { return ("正在等待子任务", "person.2", true) }
+        if !ids.isDisjoint(with: activity.scheduledSessions) { return ("等待定时任务", "clock", false) }
+        let models = ids.compactMap { ViewModelCache.shared.get(for: $0) }
+        // completedAt records when a loop ended, including interruption. Inspect the
+        // latest conversation's outcome first; an old failed chat must not mask a newer success.
+        if let latestModel = models.max(by: {
+            ($0.messages.last?.timestamp ?? .distantPast) < ($1.messages.last?.timestamp ?? .distantPast)
+        }) {
+            let reply = latestModel.messages.last(where: { $0.role == .assistant })
+            if latestModel.errorMessage != nil || reply?.error != nil {
+                return ("运行出错", "exclamationmark.triangle", false)
+            }
+            if latestModel.canResume { return ("已停止，可继续", "pause.circle", false) }
+            if reply?.completedAt != nil { return ("回复已完成", "checkmark.circle", false) }
+        }
+        return ("空闲", "circle", false)
+    }
+
+    var body: some View {
+        let value = status
+        // Errors stay visible on home rows; only quiet states are hidden there.
+        let isQuiet = !value.running && value.symbol != "exclamationmark.triangle"
+        if !(hidesWhenIdle && isQuiet) {
+            HStack(spacing: 5) {
+                if value.running { ProgressView().controlSize(.mini) }
+                else { Image(systemName: value.symbol) }
+                Text(value.text).lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(value.running ? Color.green : .secondary)
+            .accessibilityElement(children: .combine)
+        }
     }
 }

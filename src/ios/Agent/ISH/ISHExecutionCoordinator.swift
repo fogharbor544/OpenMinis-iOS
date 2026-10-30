@@ -327,7 +327,11 @@ actor ISHExecutionCoordinator {
         let effectiveTimeout = timeout ?? 300 // 5 minute default
 
         // Load user-defined env vars (nonisolated, reads from disk + Keychain)
-        let customEnv = EnvVarStore.shared.allAsDict()
+        // Bot-private variables follow the issuing conversation's Bot; a plain sub agent
+        // runs in its parent's workspace and inherits the parent Bot's scope.
+        // A delegated Bot task owns its child session; anything else uses the workspace session.
+        let ownerHasBot = ownerId.map { BotWorkspaceStore.ownerBotIdSync(forSession: $0) != nil } ?? false
+        let customEnv = EnvVarStore.shared.allAsDict(forSession: ownerHasBot ? ownerId : sessionId)
 
         // Feed the command as a script via stdin pipe to /bin/sh.
         // This avoids shell quoting issues with multi-line or special-char commands.

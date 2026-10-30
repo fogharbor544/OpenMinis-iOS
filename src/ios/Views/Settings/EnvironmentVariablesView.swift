@@ -5,6 +5,10 @@ struct EnvironmentVariablesView: View {
     @StateObject private var store = EnvVarStore.shared
     @StateObject private var privacy = EnvVarPrivacyStore.shared
     @ObservedObject private var deepLink = DeepLinkCoordinator.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
+    /// Set from a Bot's profile page: lists only that Bot's private variables
+    /// and defaults new ones to it. nil = the global management page.
+    var scopeBotID: String? = nil
     @State private var searchText = ""
     @State private var showingAddSheet = false
     @State private var editingEntry: EnvVarEntry?
@@ -19,22 +23,29 @@ struct EnvironmentVariablesView: View {
     @State private var deepLinkValue: String?
     @State private var highlightEnabledFor: String?
 
+    private var scopedEntries: [EnvVarEntry] {
+        guard let scopeBotID else { return store.entries }
+        return store.entries(ownedBy: scopeBotID)
+    }
+
     private var filteredEntries: [EnvVarEntry] {
         if searchText.isEmpty {
-            return store.entries
+            return scopedEntries
         }
-        return store.entries.filter { $0.key.localizedCaseInsensitiveContains(searchText) }
+        return scopedEntries.filter { $0.key.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
         List {
-            Section {
-                Toggle("Privacy Mode", isOn: $privacy.enabled)
-            } footer: {
-                Text("When enabled, any environment variable value that appears in shell-execute output is replaced with a masked form (e.g. `sk-1********ajhks`) before reaching the model. Values shorter than 8 characters become all `*`. The user-visible output in chat is unchanged.")
+            if scopeBotID == nil {
+                Section {
+                    Toggle("Privacy Mode", isOn: $privacy.enabled)
+                } footer: {
+                    Text("When enabled, any environment variable value that appears in shell-execute output is replaced with a masked form (e.g. `sk-1********ajhks`) before reaching the model. Values shorter than 8 characters become all `*`. The user-visible output in chat is unchanged.")
+                }
             }
 
-            if store.entries.isEmpty {
+            if scopedEntries.isEmpty {
                 Section {
                     VStack(spacing: 8) {
                         Image(systemName: "terminal")
@@ -51,10 +62,16 @@ struct EnvironmentVariablesView: View {
                     .padding(.vertical, 20)
                 }
             } else {
-                ForEach(filteredEntries) { entry in
-                    envVarRow(entry)
+                Section {
+                    ForEach(filteredEntries) { entry in
+                        envVarRow(entry)
+                    }
+                    .onDelete(perform: deleteEntries)
+                } footer: {
+                    if let scopeBotID {
+                        Text("只列出 \(workspace.bot(scopeBotID)?.name ?? "") 专属的变量，它们只注入这个 Bot 的对话。全局变量在 设置 › 环境变量 中管理。")
+                    }
                 }
-                .onDelete(perform: deleteEntries)
             }
         }
         .listStyle(.insetGrouped)
@@ -71,8 +88,9 @@ struct EnvironmentVariablesView: View {
             }
         }
         .sheet(isPresented: $showingAddSheet) {
-            EnvVarFormSheet(mode: .add, initialKey: prefillKey, initialValue: prefillValue, initialNote: prefillNote) { key, value, note, _ in
-                store.add(key: key, value: value, note: note)
+            EnvVarFormSheet(mode: .add, initialKey: prefillKey, initialValue: prefillValue, initialNote: prefillNote,
+                            initialOwnerBotID: scopeBotID) { key, value, note, _, owner in
+                store.add(key: key, value: value, note: note, ownerBotId: owner)
             }
             .onDisappear {
                 prefillKey = ""
@@ -108,8 +126,10 @@ struct EnvironmentVariablesView: View {
                 initialNote: entry.note,
                 initialEnabled: store.isEnabled(id: entry.id),
                 highlightEnabled: highlightEnabledFor == entry.id,
-                onSave: { key, value, note, enabled in
-                    store.update(id: entry.id, key: key, value: value, note: note)
+                initialOwnerBotID: entry.ownerBotId,
+                editingID: entry.id,
+                onSave: { key, value, note, enabled, owner in
+                    store.update(id: entry.id, key: key, value: value, note: note, ownerBotId: .some(owner))
                     if let enabled { store.setEnabled(id: entry.id, enabled) }
                 },
                 onDelete: {
@@ -145,6 +165,10 @@ struct EnvironmentVariablesView: View {
                     }
                     if isDuplicate {
                         EnvVarBadge(text: AppLocalized("Duplicate name"), color: .orange)
+                    }
+                    if scopeBotID == nil {
+                        EnvVarBadge(text: entry.ownerBotId.map { "仅 \(workspace.bot($0)?.name ?? $0)" } ?? "全部 Bot",
+                                    color: entry.ownerBotId == nil ? .secondary : .accentColor)
                     }
                 }
                 Text(isRevealed ? currentValue : String(repeating: "\u{2022}", count: min(currentValue.count, 20)))
@@ -237,27 +261,52 @@ private struct EnvVarFormSheet: View {
     var initialEnabled: Bool? = nil
     /// Call out the switch (a deep link landed on a disabled variable).
     var highlightEnabled: Bool = false
-    /// key, value, note, enabled (nil in add mode).
-    let onSave: (String, String, String, Bool?) -> Void
+    /// Bot the variable is private to; nil = every Bot.
+    var initialOwnerBotID: String? = nil
+    /// The entry being edited, excluded from the duplicate-name check.
+    var editingID: String? = nil
+    /// key, value, note, enabled (nil in add mode), owner Bot (nil = global).
+    let onSave: (String, String, String, Bool?, String?) -> Void
     var onDelete: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var store = EnvVarStore.shared
+    @ObservedObject private var workspace = BotWorkspaceStore.shared
     @State private var key = ""
     @State private var value = ""
     @State private var note = ""
     @State private var enabled = true
+    /// "" = every Bot.
+    @State private var ownerBotID = ""
     @State private var showingDeleteConfirm = false
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable { case key, value, note }
 
+    /// Scope already using this name. Names are unique across every scope.
+    private var duplicateScope: String? {
+        store.scopeOfExistingKey(key, excluding: editingID)
+    }
+
     private var isValid: Bool {
-        EnvVarStore.isValidKey(key)
+        EnvVarStore.isValidKey(key) && duplicateScope == nil
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("适用 Bot", selection: $ownerBotID) {
+                        Text("全部 Bot").tag("")
+                        Divider()
+                        ForEach(workspace.data.bots) { bot in Text(bot.name).tag(bot.id) }
+                    }
+                } header: {
+                    Text("适用范围")
+                } footer: {
+                    Text("选择具体 Bot 后，这个变量只注入该 Bot 对话的 Shell。")
+                }
+
                 Section {
                     TextField("NAME", text: Binding(
                         get: { key },
@@ -272,7 +321,10 @@ private struct EnvVarFormSheet: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    if !key.isEmpty && !isValid {
+                    if let duplicateScope {
+                        Text("已存在同名变量 \(key)（\(duplicateScope)）。变量名不能重复，请修改名称。")
+                            .foregroundStyle(.red)
+                    } else if !key.isEmpty && !EnvVarStore.isValidKey(key) {
                         Text("Must start with a letter and contain only letters, digits, and underscores.")
                             .foregroundStyle(.red)
                     }
@@ -349,7 +401,8 @@ private struct EnvVarFormSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .add ? "Add" : "Save") {
                         onSave(key, value, note.trimmingCharacters(in: .whitespacesAndNewlines),
-                               initialEnabled == nil ? nil : enabled)
+                               initialEnabled == nil ? nil : enabled,
+                               ownerBotID.isEmpty ? nil : ownerBotID)
                         dismiss()
                     }
                     .disabled(!isValid)
@@ -372,6 +425,7 @@ private struct EnvVarFormSheet: View {
             value = initialValue
             note = initialNote
             enabled = initialEnabled ?? true
+            ownerBotID = initialOwnerBotID ?? ""
         }
         // Use .task instead of onAppear+DispatchQueue: the wait is cancellable
         // (sheet dismissed mid-animation cancels cleanly) and we can resign any

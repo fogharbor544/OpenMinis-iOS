@@ -65,7 +65,12 @@ final class BotRoomRunner: ObservableObject {
                     guard await vm.awaitProgrammaticTurn(queuedPromptId: queuedID) else { throw CancellationError() }
                     try Task.checkCancellation()
                     let replies = vm.messages.filter { !oldIDs.contains($0.id) && $0.role == .assistant }
-                    let answer = replies.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n")
+                    // Live assistant output is held in blocks; content is only the legacy/plain fallback.
+                    // Share text only, never reasoning or tool payloads.
+                    let answer = replies.map { reply in
+                        let text = reply.blocks.filter { $0.kind == .text }.map(\.content).joined(separator: "\n\n")
+                        return (text.isEmpty ? reply.content : text).trimmingCharacters(in: .whitespacesAndNewlines)
+                    }.filter { !$0.isEmpty }.joined(separator: "\n\n")
                     if let failure = vm.errorMessage ?? replies.compactMap(\.error).last {
                         throw BotWorkspaceError.rejected(failure)
                     }

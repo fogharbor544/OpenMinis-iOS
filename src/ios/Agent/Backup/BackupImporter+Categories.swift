@@ -476,7 +476,8 @@ extension BackupImporter {
                     .flatMap { ThinkingLevel.parse($0) },  // Android writes "HIGH"
                 isBuiltIn: false,
                 sortOrder: r.sortOrder,
-                updatedAt: r.updatedAt
+                updatedAt: r.updatedAt,
+                ownerBotId: r.ownerBotId
             )
         }
         let merged = SubAgentRoster.merge(local: before, remote: incoming) {
@@ -640,7 +641,7 @@ extension BackupImporter {
                 // The secrets importer may already have written this key's
                 // value into the Keychain; keep it rather than blanking it.
                 let value = EnvVarStore.loadValueSync(forKey: entry.key) ?? ""
-                store.add(key: entry.key, value: value, note: entry.note)
+                store.add(key: entry.key, value: value, note: entry.note, ownerBotId: entry.ownerBotId)
                 if !entry.enabled,
                    let created = store.entries.first(where: { $0.key == entry.key.uppercased() }) {
                     store.setEnabled(id: created.id, false)

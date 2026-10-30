@@ -40,6 +40,18 @@ extension ChatStore {
     struct SearchResult { let session: ChatSession; let matchSnippet: String? }
     func searchSessions(query: String) -> [SearchResult] { [] }
 }
+extension TestSession {
+    var lastMessage: String? { nil }
+}
+// BotProfileView.swift is type-checked by its own app build; the home list only presents it.
+struct BotProfileView: View {
+    let botID: String
+    var body: some View { EmptyView() }
+}
+struct BotRoomProfileView: View {
+    let roomID: String
+    var body: some View { EmptyView() }
+}
 
 func AppLocalized(_ value: String) -> String { value }
 @MainActor final class SessionMenuActionChannel: ObservableObject {}
@@ -67,6 +79,28 @@ struct ScheduledTasksManagementView: View {
 }
 @MainActor final class AIChatViewModel: ObservableObject {
     var botMemoryOwner: BotSessionOwner? = nil
+    var errorMessage: String?
+    var canResume = false
+    var messages: [TestStatusMessage] = []
+}
+struct TestStatusMessage {
+    enum Role { case assistant }
+    var role: Role = .assistant
+    var timestamp = Date()
+    var completedAt: Date?
+    var error: String?
+}
+@MainActor final class ViewModelCache {
+    static let shared = ViewModelCache()
+    func get(for id: String) -> AIChatViewModel? { nil }
+}
+@MainActor final class SessionActivityTracker: ObservableObject {
+    static let shared = SessionActivityTracker()
+    var activeSessions: Set<String> = []
+    var delegatingSessions: Set<String> = []
+    var scheduledSessions: Set<String> = []
+    struct Info { var toolName = ""; var toolStatus = ""; var lastActivity = Date() }
+    var sessionToolInfo: [String: Info] = [:]
 }
 enum SyncV2Bootstrap { static var isEnabled = false }
 @MainActor final class SyncCore {

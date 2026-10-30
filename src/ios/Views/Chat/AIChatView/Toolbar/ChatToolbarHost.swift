@@ -123,6 +123,8 @@ struct NavTitleKey: Equatable {
 /// ToolbarContent builder — never re-runs.
 struct ChatToolbarKey: Equatable {
     let navTitle: NavTitleKey
+    /// Bot chats swap the title for avatar + name and the "..." for a profile button.
+    var botID: String? = nil
     let messagesEmpty: Bool
     let hasSession: Bool
     let isForcePulling: Bool
@@ -272,7 +274,7 @@ private struct ChatTrailingMenu: View, Equatable {
     /// [T-always-on-now] "Use Screen Saver" is on for this chat.
     let screenSaverNowEnabled: Bool
 
-    let onEditBot: () -> Void
+    let onScheduledTasks: () -> Void
     let onCompact: () -> Void
     let onClearChat: () -> Void
     let onForceSync: () -> Void
@@ -280,7 +282,7 @@ private struct ChatTrailingMenu: View, Equatable {
     let onOpenTerminal: () -> Void
     let onOpenBrowser: () -> Void
     let onBrowseFiles: () -> Void
-    let onMemories: () -> Void
+    let onEnvironmentVariables: () -> Void
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
     let setSpeedTier: (SpeedTier) -> Void
@@ -314,8 +316,8 @@ private struct ChatTrailingMenu: View, Equatable {
         }()
         #endif
         return Menu {
-            Button { onEditBot() } label: {
-                Label(AppLocalized("Edit Bot"), systemImage: "square.and.pencil")
+            Button { onScheduledTasks() } label: {
+                Label(AppLocalized("定时任务"), systemImage: "clock")
             }
 
             Divider()
@@ -358,15 +360,13 @@ private struct ChatTrailingMenu: View, Equatable {
             }
 
             Button { onBrowseFiles() } label: {
-                Label(AppLocalized("Files"), systemImage: "folder")
+                Label(AppLocalized("打开文件"), systemImage: "folder")
             }
 
             Divider()
 
-            if memoryEnabled {
-                Button { onMemories() } label: {
-                    Label(AppLocalized("Memory"), systemImage: "brain.head.profile")
-                }
+            Button { onEnvironmentVariables() } label: {
+                Label(AppLocalized("环境变量"), systemImage: "terminal")
             }
 
             Toggle(isOn: Binding(
@@ -506,7 +506,7 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
     /// [T-always-on-now] "Use Screen Saver" is on for this chat.
     let screenSaverNowEnabled: Bool
 
-    let onEditBot: () -> Void
+    let onScheduledTasks: () -> Void
     let onCompact: () -> Void
     let onClearChat: () -> Void
     let onForceSync: () -> Void
@@ -514,7 +514,7 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
     let onOpenTerminal: () -> Void
     let onOpenBrowser: () -> Void
     let onBrowseFiles: () -> Void
-    let onMemories: () -> Void
+    let onEnvironmentVariables: () -> Void
     let setSpeakEnabled: (Bool) -> Void
     let setEnhancedCache: (Bool) -> Void
     let setSpeedTier: (SpeedTier) -> Void
@@ -630,8 +630,8 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
         var groups: [UIMenuElement] = []
 
         groups.append(UIMenu(options: .displayInline, children: [
-            UIAction(title: AppLocalized("Edit Bot"),
-                     image: UIImage(systemName: "square.and.pencil")) { _ in coordinator.parent.onEditBot() },
+            UIAction(title: AppLocalized("定时任务"),
+                     image: UIImage(systemName: "clock")) { _ in coordinator.parent.onScheduledTasks() },
             UIAction(title: AppLocalized("Share Chat…"),
                      image: UIImage(systemName: "square.and.arrow.up"),
                      attributes: key.messagesEmpty ? [.disabled] : []) { _ in coordinator.parent.onShare() },
@@ -672,15 +672,13 @@ struct ChatTrailingMenuButton: UIViewRepresentable {
                      image: UIImage(systemName: "terminal")) { _ in coordinator.parent.onOpenTerminal() },
             UIAction(title: AppLocalized("Open Browser"),
                      image: UIImage(systemName: "globe")) { _ in coordinator.parent.onOpenBrowser() },
-            UIAction(title: AppLocalized("Files"),
+            UIAction(title: AppLocalized("打开文件"),
                      image: UIImage(systemName: "folder")) { _ in coordinator.parent.onBrowseFiles() },
         ]))
 
         var sessionGroup: [UIMenuElement] = []
-        if key.memoryEnabled {
-            sessionGroup.append(UIAction(title: AppLocalized("Memory"),
-                                         image: UIImage(systemName: "brain.head.profile")) { _ in coordinator.parent.onMemories() })
-        }
+        sessionGroup.append(UIAction(title: AppLocalized("环境变量"),
+                                     image: UIImage(systemName: "terminal")) { _ in coordinator.parent.onEnvironmentVariables() })
         sessionGroup.append(UIAction(title: AppLocalized("Speak Responses"),
                                      image: UIImage(systemName: "speaker.wave.2"),
                                      state: key.speakEnabled ? .on : .off) { _ in

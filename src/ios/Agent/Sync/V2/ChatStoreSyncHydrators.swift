@@ -622,7 +622,8 @@ enum ChatStoreSyncHydrators {
             valueB64: valueB64,
             note: entry.note,
             createdAt: entry.createdAt,
-            updatedAt: Date()
+            updatedAt: Date(),
+            ownerBotId: entry.ownerBotId
         )
         return SyncableTypeRegistry.shared.metadata(for: "EnvVarItem")?.buildPortable(synced)
     }
@@ -673,7 +674,8 @@ enum ChatStoreSyncHydrators {
         await MainActor.run {
             EnvVarStore.shared.applyRemoteItem(
                 id: id, key: key, value: value, note: note,
-                createdAt: createdAt, updatedAt: updatedAt
+                createdAt: createdAt, updatedAt: updatedAt,
+                ownerBotId: optionalStringField(record, "ownerBotId")
             )
         }
         logger.info("[SyncCore] applied EnvVarItem id=\(id.prefix(8)) key=\(key)")
@@ -1314,7 +1316,8 @@ enum ChatStoreSyncHydrators {
             thinkingLevelOverride: def.thinkingLevelOverride?.rawValue,
             isBuiltIn: def.isBuiltIn ? 1 : 0,
             sortOrder: def.sortOrder,
-            updatedAt: def.updatedAt
+            updatedAt: def.updatedAt,
+            ownerBotId: def.ownerBotId
         )
         return SyncableTypeRegistry.shared
             .metadata(for: "SubAgentV3")?
@@ -1360,7 +1363,8 @@ enum ChatStoreSyncHydrators {
                 .flatMap { ThinkingLevel.parse($0) },
             isBuiltIn: (intField(record, "isBuiltIn") ?? 0) != 0,
             sortOrder: intField(record, "sortOrder") ?? 0,
-            updatedAt: dateField(record, "updatedAt") ?? Date()
+            updatedAt: dateField(record, "updatedAt") ?? Date(),
+            ownerBotId: optionalStringField(record, "ownerBotId")
         )
         let store = SubAgentStore.shared
         let before = store.subAgents

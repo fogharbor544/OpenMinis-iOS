@@ -72,6 +72,7 @@ extension AIChatView {
     var chatToolbarKey: ChatToolbarKey {
         ChatToolbarKey(
             navTitle: navTitleKey,
+            botID: currentBot?.id,
             messagesEmpty: vm.messages.isEmpty,
             hasSession: vm.sessionId != nil,
             isForcePulling: isForcePulling,
@@ -86,6 +87,12 @@ extension AIChatView {
             keepAwakeEnabled: keepAwakeThisChat,
             screenSaverNowEnabled: screenSaverNowThisChat
         )
+    }
+
+    /// The Bot that owns this conversation, if any. Its chats keep the normal
+    /// title + model selector; the name row opens the Bot profile.
+    var currentBot: BotProfile? {
+        vm.sessionId.flatMap { botWorkspace.bot(forSession: $0) }
     }
 
     /// [T-codex-fast-mode] True when the session's active model can use Fast
@@ -241,7 +248,7 @@ extension AIChatView {
         // unchanged and the top-clip fix does not regress.
         return VStack(spacing: legacyLayout ? -3 : -2) {
             Button {
-                if let sid = vm.sessionId, let bot = botWorkspace.bot(forSession: sid) { editingBot = bot }
+                if currentBot != nil { showBotProfile = true }
                 else if let s = titlePillSession { titlePillEditSession = s }
             } label: {
                 // [T-navbar-title-size 2026-05-18] iOS 18 and below render
@@ -292,7 +299,8 @@ extension AIChatView {
                     .padding(.top, legacyLayout ? 0 : 2)
             }
             .buttonStyle(.plain)
-            .disabled(!canEditTitle)
+            .disabled(currentBot == nil && !canEditTitle)
+            .accessibilityHint(currentBot != nil ? Text("打开 Bot 资料") : Text(""))
 
             // [T-navbar-group-provider-gap 2026-07-25] Legacy row gap 1 → -1:
             // on iOS 16-18 the provider·model line (row 2) sat flush against

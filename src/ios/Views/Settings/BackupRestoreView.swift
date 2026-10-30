@@ -462,7 +462,7 @@ struct BackupRestoreView: View {
         } header: {
             Text("Restore")
         } footer: {
-            Text("Merge: items are matched by id. Existing items are only replaced when the backup's copy is newer. Nothing is deleted.")
+            Text("Restore matches stable IDs. Existing agent settings are kept, except the untouched default commander. Newer memories are merged. Chats, providers and environment variables also restore agent ownership.")
         }
     }
 
@@ -532,11 +532,14 @@ struct BackupRestoreView: View {
 
     private func reportSection(_ r: BackupImporter.Report) -> some View {
         Section {
+            ForEach(Array(r.warnings.enumerated()), id: \.offset) { _, warning in
+                restoreNotice(Text(warning))
+            }
             LabeledContent("Restored", value: "\(r.totalImported)")
             if r.totalUpdated > 0 { LabeledContent("Updated", value: "\(r.totalUpdated)") }
             // "Skipped" is the expected outcome for anything already present,
             // so it is labelled as such rather than looking like a failure.
-            LabeledContent("Already up to date", value: "\(r.totalSkipped)")
+            LabeledContent("Kept Existing", value: "\(r.totalSkipped)")
             if r.totalUnreadable > 0 {
                 LabeledContent("Unreadable", value: "\(r.totalUnreadable)")
             }
@@ -765,9 +768,13 @@ struct BackupRestoreView: View {
 
     private func binding(for category: BackupCategory) -> Binding<Bool> {
         Binding(
-            get: { selected.contains(category) },
+            get: { BackupCategory.includingAgentOwners(selected).contains(category) },
             set: { on in
-                if on { selected.insert(category) } else { selected.remove(category) }
+                if on { selected.insert(category) }
+                else {
+                    selected.remove(category)
+                    if category == .agents { selected.subtract([.chats, .providers, .environmentVariables]) }
+                }
             })
     }
 

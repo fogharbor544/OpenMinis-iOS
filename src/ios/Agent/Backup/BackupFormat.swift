@@ -4,7 +4,7 @@ enum BackupFormat {
     /// Format major version. A reader that doesn't recognise it must refuse the
     /// package and tell the user to update (§2.2 rule 1) — never attempt a
     /// best-effort parse.
-    static let current = "minisbak/1"
+    static let current = "minisbak/2"
 
     /// File extension registered to the app for "open to import".
     static let fileExtension = "minisbak"
@@ -24,7 +24,7 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     case chats
     case sharedFiles = "shared_files"
     case skills
-    case soul
+    case agents
     case providers
     case mcpServers = "mcp_servers"
     case voiceCorrections = "voice_corrections"
@@ -41,17 +41,18 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     /// Default checkbox state on the backup screen (§3 table).
     var defaultsOn: Bool { true }
 
+    /// These categories can reference Bot IDs even when no private capability exists.
+    static func includingAgentOwners(_ selected: Set<BackupCategory>) -> Set<BackupCategory> {
+        selected.isDisjoint(with: [.chats, .providers, .environmentVariables])
+            ? selected : selected.union([.agents])
+    }
+
     /// Categories a NEW backup may include.
     ///
-    /// [2026-08-15] Voice Corrections is excluded: the feature isn't mature
-    /// enough to back up yet. Deliberately a filter on the export side rather
-    /// than deleting the case — the enum value is part of the wire format, and
-    /// packages already exist that contain a `voice_corrections` section.
-    /// Removing it outright would make those sections undecodable and silently
-    /// drop data the user already backed up. So: not written into new
-    /// packages, still restored from old ones.
+    /// Voice corrections remain opt-in for explicit callers, not part of the
+    /// default device-transfer surface.
     static var backupable: [BackupCategory] {
-        allCases.filter { $0 != .voiceCorrections && $0 != .soul }
+        allCases.filter { $0 != .voiceCorrections }
     }
 
     /// Categories that stream file trees through the blob store, i.e. the ones
@@ -59,7 +60,7 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     var carriesFileTree: Bool {
         switch self {
         case .chats, .sharedFiles, .skills: return true
-        case .soul, .providers, .mcpServers, .voiceCorrections,
+        case .agents, .providers, .mcpServers, .voiceCorrections,
              .environmentVariables: return false
         }
     }
@@ -74,7 +75,7 @@ extension BackupCategory {
         case .chats: return AppLocalized("Chats")
         case .sharedFiles: return AppLocalized("Shared Files")
         case .skills: return AppLocalized("Skills")
-        case .soul: return AppLocalized("Persona")
+        case .agents: return AppLocalized("Agents and Memory")
         case .providers: return AppLocalized("Providers")
         case .mcpServers: return AppLocalized("MCP Servers")
         case .voiceCorrections: return AppLocalized("Voice Corrections")
@@ -131,24 +132,18 @@ struct BackupManifest: Codable {
         case manifestMac = "manifest_mac"
     }
 
-    /// [review S1] Hand-written so the tolerance §2.2 rule 2 promises is real.
-    ///
-    /// Swift's SYNTHESIZED Decodable ignores struct default values and throws
-    /// `keyNotFound` for any missing non-optional key — verified. The previous
-    /// code therefore rejected an entire package if a writer omitted, say,
-    /// `limits.skipped_files`, while this file's own comment claimed missing
-    /// fields got defaults. Only `format` is genuinely required; everything
-    /// else falls back so an older or newer same-major writer still imports.
+    /// Identity and category scope are required. Ancillary display metadata
+    /// remains optional for future same-major writers.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        format = try c.decodeIfPresent(String.self, forKey: .format) ?? BackupFormat.current
-        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
+        format = try c.decode(String.self, forKey: .format)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
         snapshotAt = try c.decodeIfPresent(Date.self, forKey: .snapshotAt)
         app = try c.decodeIfPresent(AppInfo.self, forKey: .app)
             ?? AppInfo(platform: "unknown", version: "?", build: "?")
         deviceName = try c.decodeIfPresent(String.self, forKey: .deviceName) ?? "Unknown device"
-        backupId = try c.decodeIfPresent(String.self, forKey: .backupId) ?? UUID().uuidString
-        categories = try c.decodeIfPresent([String: CategoryStat].self, forKey: .categories) ?? [:]
+        backupId = try c.decode(String.self, forKey: .backupId)
+        categories = try c.decode([String: CategoryStat].self, forKey: .categories)
         limits = try c.decodeIfPresent(Limits.self, forKey: .limits) ?? .unlimited
         encryption = try c.decodeIfPresent(Encryption.self, forKey: .encryption)
         integrity = try c.decodeIfPresent([String: String].self, forKey: .integrity) ?? [:]

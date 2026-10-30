@@ -103,9 +103,9 @@ extension AIChatView {
     /// through), or the genuine Codex OAuth route (.openAI + OAuth + no
     /// custom base) — and the model id must contain "gpt" (mirrors the
     /// official fast catalog: gpt-5.6-sol/terra/luna, gpt-5.5, gpt-5.4).
-    /// [T-codex-speed-tier] The chosen tier (tier key, else the legacy Bool).
+    /// [T-codex-speed-tier] The chosen tier, or Standard when unset.
     private var storedSpeedTier: SpeedTier {
-        SpeedTier(rawValue: speedTierRaw) ?? (codexFastModeEnabled ? .fast : .standard)
+        SpeedTier(rawValue: speedTierRaw) ?? .standard
     }
 
     /// [T-codex-speed-tier] Ultrafast is offered on top of Fast only for a

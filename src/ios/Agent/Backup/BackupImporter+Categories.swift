@@ -48,7 +48,6 @@ extension BackupImporter {
         let liveDirs: [URL]
         switch category {
         case .sharedFiles: liveDirs = [AIChatViewModel.minisSharedPersistentDir]
-        case .soul: liveDirs = [AIChatViewModel.minisMemoryPersistentDir]
         case .mcpServers: liveDirs = [MCPStore.syncFileURL.deletingLastPathComponent()]
         // [review B3] Providers had NO rollback at all. It is a single JSON
         // file rather than a directory, so it is snapshotted via a dedicated
@@ -56,7 +55,7 @@ extension BackupImporter {
         case .providers: liveDirs = []
         // Environment variables merge into the live store rather than
         // replacing a file, so there is nothing to snapshot.
-        case .chats, .skills, .voiceCorrections, .environmentVariables:
+        case .chats, .skills, .agents, .voiceCorrections, .environmentVariables:
             liveDirs = []
         }
 
@@ -128,7 +127,7 @@ extension BackupImporter {
         case .chats: return try await importChats(root: root, fileIndex: fileIndex, options: options)
         case .sharedFiles: return try importSharedFiles(root: root, fileIndex: fileIndex)
         case .skills: return try await importSkills(root: root, fileIndex: fileIndex)
-        case .soul: return try await importSoul(root: root)
+        case .agents: return try await importAgents(root: root, options: options)
         case .providers: return try await importProviders(root: root)
         case .mcpServers: return try await importMCPServers(root: root)
         case .voiceCorrections: return try await importVoiceCorrections(root: root)
@@ -138,6 +137,73 @@ extension BackupImporter {
     }
 
     // MARK: - Chats
+
+    private func importAgents(root: URL, options: Options) async throws -> CategoryReport {
+        var archive = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
+        if options.categories?.contains(.chats) != true {
+            archive = try BotWorkspaceArchive.capture(workspace: archive.workspace, memories: archive.memories,
+                                                       sessionIDs: [], includesHistory: false)
+        }
+        for sid in archive.workspace.sessionOwners.keys {
+            guard await ChatStore.shared.getSession(sid) != nil else {
+                throw BotWorkspaceError.rejected("An agent conversation is missing after restoring chats.")
+            }
+        }
+        let incoming = archive
+        return try await MainActor.run {
+            guard SessionActivityTracker.shared.activeSessions.isEmpty && BotRoomRunner.shared.activeRooms.isEmpty else {
+                throw BotWorkspaceError.rejected("Stop running agents and groups before restoring.")
+            }
+            let store = BotWorkspaceStore.shared
+            guard store.pendingSessions.isEmpty else {
+                throw BotWorkspaceError.rejected("Wait for agent conversation creation to finish before restoring.")
+            }
+            try BotWorkspaceTransfer.recover(workspace: store, memory: .shared, journal: BotWorkspaceTransfer.recoveryURL)
+            let before = store.data
+            let oldMemory = try BotMemoryStore.shared.entries()
+            try BotWorkspaceTransfer.apply(incoming, workspace: store, memory: .shared, journal: BotWorkspaceTransfer.recoveryURL)
+            let newBots = Set(incoming.workspace.bots.map(\.id)).subtracting(before.bots.map(\.id)).count
+            let newRooms = Set(incoming.workspace.rooms.map(\.id)).subtracting(before.rooms.map(\.id)).count
+            let newMemory = Set(incoming.memories.map(\.id)).subtracting(oldMemory.map(\.id)).count
+            var report = CategoryReport(category: BackupCategory.agents.rawValue)
+            report.imported = newBots + newRooms + newMemory
+            report.updated += incoming.workspace.bots.filter { bot in
+                before.bots.contains { $0.id == bot.id && $0 != store.bot(bot.id) }
+            }.count
+            report.updated += incoming.workspace.rooms.filter { room in
+                before.rooms.contains { $0.id == room.id && $0 != store.room(room.id) }
+            }.count
+            let currentMemory = try BotMemoryStore.shared.entries()
+            let oldByID = Dictionary(uniqueKeysWithValues: oldMemory.map { ($0.id, $0) })
+            let currentByID = Dictionary(uniqueKeysWithValues: currentMemory.map { ($0.id, $0) })
+            report.updated += incoming.memories.filter { entry in
+                oldByID[entry.id] != nil && oldByID[entry.id] != currentByID[entry.id]
+            }.count
+            report.skipped = incoming.workspace.bots.count + incoming.workspace.rooms.count + incoming.memories.count - report.imported - report.updated
+            return report
+        }
+    }
+
+    func agentDependencyWarnings() async -> [String] {
+        await MainActor.run {
+            var warnings: [String] = []
+            let skills = Set(SkillStore.shared.skills.map(\.id))
+            let connectors = Set(MCPStore.shared.servers.map(\.id))
+            for bot in BotWorkspaceStore.shared.data.bots {
+                let group = bot.modelGroupId ?? ProviderConfigStore.shared.defaultPrimaryGroupId
+                if group.flatMap({ ProviderConfigStore.shared.group(for: $0) }) == nil {
+                    warnings.append("Agent '\(bot.name)' needs a model group that was not restored.")
+                }
+                if (bot.skillOverrides ?? [:]).contains(where: { $0.value && !skills.contains($0.key) }) {
+                    warnings.append("Agent '\(bot.name)' has enabled skills that were not restored.")
+                }
+                if (bot.connectorOverrides ?? [:]).contains(where: { $0.value && !connectors.contains($0.key) }) {
+                    warnings.append("Agent '\(bot.name)' has enabled connectors that were not restored.")
+                }
+            }
+            return warnings
+        }
+    }
 
     private func importChats(root: URL, fileIndex: [BackupFileIndexEntry],
                              options: Options) async throws -> CategoryReport {
@@ -329,53 +395,6 @@ extension BackupImporter {
         return report
     }
 
-    // MARK: - Memory & Soul
-
-    private func importSoul(root: URL) async throws -> CategoryReport {
-        var report = CategoryReport(category: BackupCategory.soul.rawValue)
-        let fm = FileManager.default
-        let src = root.appendingPathComponent("data/soul", isDirectory: true)
-        guard fm.fileExists(atPath: src.path) else { return report }
-        let dst = AIChatViewModel.minisMemoryPersistentDir
-        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-
-        // [T-soul-icon-sidecar] Mirror the exporter: the icon sidecar is not a
-        // .md file but must restore with the persona it belongs to.
-        for name in (try? fm.contentsOfDirectory(atPath: src.path)) ?? []
-        where name == "SOUL.md" || name == SoulIconImage.sidecarName {
-            let from = src.appendingPathComponent(name)
-            let to = dst.appendingPathComponent(name)
-
-            // Identical content is a skip, not an import.
-            //
-            // mtime cannot decide this: ZIP timestamps have 2-second
-            // resolution and extraction does not preserve the original mtime
-            // at all, so the package copy's date is meaningless. Restoring a
-            // package onto the device that produced it was reporting all five
-            // memory files as freshly "imported" — a report the user would
-            // read as "5 files changed" when nothing did. These files are
-            // small (a few KB), so hashing them is cheap and exact.
-            if let localData = try? Data(contentsOf: to),
-               let pkgData = try? Data(contentsOf: from),
-               localData == pkgData {
-                report.skipped += 1
-                continue
-            }
-            try? fm.removeItem(at: to)
-            do {
-                try fm.copyItem(at: from, to: to)
-                report.imported += 1
-            } catch {
-                report.unreadable += 1
-            }
-        }
-
-        // SOUL.md is cached in memory; a raw file write leaves that cache stale
-        // until something else refreshes it.
-        await MainActor.run { SoulStore.refreshCache() }
-        return report
-    }
-
     // MARK: - Providers
 
     private func importProviders(root: URL) async throws -> CategoryReport {
@@ -431,6 +450,8 @@ extension BackupImporter {
             let outcome = await Self.importSubAgents(agents)
             report.imported += outcome.written
             report.skipped += outcome.skipped
+            report.unreadable += outcome.unreadable
+            report.failed = outcome.failure
         }
 
         // §3.3: credentials belong to this category and restore with it.
@@ -460,11 +481,22 @@ extension BackupImporter {
     @MainActor
     private static func importSubAgents(
         _ agents: [BackupSubAgentRecord]
-    ) async -> (written: Int, skipped: Int) {
+    ) async -> (written: Int, skipped: Int, unreadable: Int, failure: String?) {
         let store = SubAgentStore.shared
         let before = store.subAgents
-        let incoming = agents.map { r in
-            SubAgentDefinition(
+        var unreadable = 0
+        var failure: String?
+        let incoming: [SubAgentDefinition] = agents.compactMap { r in
+            do {
+                if let owner = r.ownerBotId, BotWorkspaceStore.shared.bot(owner) == nil {
+                    throw BotWorkspaceError.missingBot
+                }
+            } catch {
+                unreadable += 1
+                failure = error.localizedDescription
+                return nil
+            }
+            return SubAgentDefinition(
                 id: r.id,
                 name: r.name,
                 description: r.subAgentDescription,
@@ -485,7 +517,7 @@ extension BackupImporter {
         }
         let beforeIds = Set(before.map(\.id))
         let written = merged.filter { !beforeIds.contains($0.id) }.count
-        let skipped = max(0, agents.count - written)
+        let skipped = max(0, incoming.count - written)
         if merged != before {
             store.applyMergedFromSync(merged)
             // Push the restored roster to this device's peers, the same way a
@@ -493,7 +525,7 @@ extension BackupImporter {
             store.markAllDirty()
         }
         logger.info("[Restore] sub agents: \(written) applied, \(skipped) skipped (local newer or unchanged)")
-        return (written, skipped)
+        return (written, skipped, unreadable, failure)
     }
 
     /// [T-backup-thinking-rules] Merge restored thinking rules into the
@@ -630,11 +662,24 @@ extension BackupImporter {
 
         await MainActor.run {
             let store = EnvVarStore.shared
-            let existing = Set(store.entries.map(\.key))
             for entry in incoming {
+                let existing = store.entries.first { $0.key == entry.key }
                 // An existing variable of that name is left exactly as it is,
                 // its enabled state included (never overwrite).
-                guard !existing.contains(entry.key) else {
+                if let existing, existing.ownerBotId != entry.ownerBotId {
+                    report.skipped += 1
+                    continue
+                }
+                do {
+                    if let owner = entry.ownerBotId, BotWorkspaceStore.shared.bot(owner) == nil {
+                        throw BotWorkspaceError.missingBot
+                    }
+                } catch {
+                    report.unreadable += 1
+                    report.failed = error.localizedDescription
+                    continue
+                }
+                guard existing == nil else {
                     report.skipped += 1
                     continue
                 }
@@ -718,8 +763,7 @@ extension BackupImporter {
         case .chats: return AIChatViewModel.minisPersistentBase
         case .sharedFiles: return AIChatViewModel.minisSharedPersistentDir
         case .skills: return AIChatViewModel.minisSkillsPersistentDir
-        case .soul: return AIChatViewModel.minisMemoryPersistentDir
-        case .providers, .mcpServers, .voiceCorrections, .environmentVariables:
+        case .agents, .providers, .mcpServers, .voiceCorrections, .environmentVariables:
             // These write single known files, not index-driven trees; give them
             // the app-group root so the check is still meaningful if one ever
             // starts using restoreFileTree.
@@ -911,7 +955,7 @@ extension BackupImporter {
         if categories.contains(.skills) {
             await MainActor.run { SkillStore.shared.reload() }
         }
-        if categories.contains(.chats) {
+        if categories.contains(.chats) || categories.contains(.agents) {
             // One batch signal is enough to refresh everything chat-related.
             await MainActor.run {
                 NotificationCenter.default.post(name: .cloudSyncDidFetchChanges, object: nil)

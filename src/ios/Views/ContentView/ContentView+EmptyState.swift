@@ -14,22 +14,6 @@ import SwiftUI
 extension ContentView {
     // MARK: - Empty State
 
-    /// [T-onboarding-hide-fab] Whether the floating New Chat / Search buttons
-    /// stay hidden because the first-run checklist owns the screen. The two are
-    /// mounted independently (checklist = list overlay, buttons = bottom safe
-    /// area inset), so without this the New Chat button floated over steps 1-2
-    /// before any provider or model existed - offering a chat that cannot run.
-    /// Hidden only until models are selected: from then on step 3's subtitle
-    /// ("Tap the button below to begin") points at that very button, and a
-    /// returning user with no chats lands on this same screen.
-    /// `showSearchBar` keeps an open search field from vanishing under it.
-    /// Not gated on `didInitialLoad`: the provider config is read synchronously
-    /// in ProviderConfigStore.init, so a set-up user never matches, and a first
-    /// launch no longer flashes the buttons while the (empty) list loads.
-    func hidesFABForOnboarding(listIsEmpty: Bool) -> Bool {
-        listIsEmpty && !showSearchBar && providerStore.modelGroups.isEmpty
-    }
-
     var emptyState: some View {
         let hasProviders = !providerStore.instances.isEmpty
         let hasGroups = !providerStore.modelGroups.isEmpty

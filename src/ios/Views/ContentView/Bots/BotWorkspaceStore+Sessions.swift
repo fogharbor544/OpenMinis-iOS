@@ -1,23 +1,6 @@
 import Foundation
 
 extension BotWorkspaceStore {
-    func adoptLegacyMemorySetting(for sessionID: String) async {
-        guard let owner = owner(forSession: sessionID) else { return }
-        if let roomID = owner.roomId {
-            guard let room = room(roomID), room.memoryEnabled == nil else { return }
-            let value = await ChatStore.shared.getMemoryEnabled(sessionId: room.sessions.values.sorted().first ?? sessionID)
-            guard var current = self.room(roomID), current.memoryEnabled == nil else { return }
-            current.memoryEnabled = value
-            _ = save(current)
-        } else {
-            guard let bot = bot(owner.botId), bot.memoryEnabled == nil else { return }
-            let value = await ChatStore.shared.getMemoryEnabled(sessionId: bot.sessionId ?? sessionID)
-            guard var current = self.bot(owner.botId), current.memoryEnabled == nil else { return }
-            current.memoryEnabled = value
-            _ = save(current)
-        }
-    }
-
     func copyCapabilities(to sessionID: String, from sourceID: String) {
         guard owner(forSession: sessionID) == nil else { return }
         for skill in SkillStore.shared.skills {
@@ -42,17 +25,6 @@ extension BotWorkspaceStore {
 
     private func prepareSession(botID: String, roomID: String?) async throws -> String {
         guard let profile = bot(botID) else { throw BotWorkspaceError.missingBot }
-        if profile.skillOverrides == nil || profile.connectorOverrides == nil {
-            var updated = profile
-            if let sid = profile.sessionId {
-                if updated.skillOverrides == nil { updated.skillOverrides = Dictionary(uniqueKeysWithValues: SkillStore.shared.skills.map { ($0.id, SkillStore.shared.isEnabledForSession($0.id, sessionId: sid)) }) }
-                if updated.connectorOverrides == nil { updated.connectorOverrides = Dictionary(uniqueKeysWithValues: MCPStore.shared.servers.map { ($0.id, MCPStore.shared.isEnabledForSession($0.id, sessionId: sid)) }) }
-            } else {
-                updated.skillOverrides = updated.skillOverrides ?? [:]
-                updated.connectorOverrides = updated.connectorOverrides ?? [:]
-            }
-            guard save(updated) else { throw BotWorkspaceError.storage }
-        }
         let saved = roomID.flatMap { room($0)?.sessions[botID] } ?? (roomID == nil ? profile.sessionId : nil)
         if let saved, await ChatStore.shared.getSession(saved) != nil { return saved }
         let providers = ProviderConfigStore.shared

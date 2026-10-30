@@ -54,22 +54,6 @@ struct BotRoomProfileView: View {
 }
 
 func AppLocalized(_ value: String) -> String { value }
-@MainActor final class SessionMenuActionChannel: ObservableObject {}
-struct MenuKey {
-    let sid: String
-    let pinned: Bool
-    let title: String?
-    let filed: Bool
-}
-struct SessionRow: View, Equatable {
-    let session: ChatSession
-    var body: some View { EmptyView() }
-}
-struct SessionContextMenu: View {
-    let key: MenuKey
-    let actions: SessionMenuActionChannel
-    var body: some View { EmptyView() }
-}
 struct ToolsSettingsView: View { var body: some View { EmptyView() } }
 struct HelperSettingsView: View { var body: some View { EmptyView() } }
 struct EnvironmentVariablesView: View { var body: some View { EmptyView() } }

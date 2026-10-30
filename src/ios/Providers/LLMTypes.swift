@@ -1234,13 +1234,10 @@ struct SessionInferenceConfig: Codable, Hashable {
     /// Convenience — true when thinking is enabled at any level.
     var thinkingEnabled: Bool { thinkingLevel.isEnabled }
 
-    // Backward-compatible decode: handle both old `thinkingEnabled: Bool` and new `thinkingLevel` key.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let raw = try container.decodeIfPresent(String.self, forKey: .thinkingLevel) {
             thinkingLevel = ThinkingLevel.decoded(raw)
-        } else if let enabled = try container.decodeIfPresent(Bool.self, forKey: .thinkingEnabled) {
-            thinkingLevel = enabled ? .medium : .off
         } else {
             thinkingLevel = .off
         }
@@ -1254,7 +1251,7 @@ struct SessionInferenceConfig: Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case thinkingLevel, thinkingEnabled
+        case thinkingLevel
     }
 }
 

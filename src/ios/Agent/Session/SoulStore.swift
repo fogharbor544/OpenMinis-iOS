@@ -942,12 +942,6 @@ enum SoulStore {
         try text.data(using: .utf8)?.write(to: url, options: .atomic)
         cachedMetadata = file.metadata
         NotificationCenter.default.post(name: .soulMdChanged, object: nil)
-        // Notify the V2 sync layer so SOUL.md changes propagate to the
-        // user's other devices. SoulStore is a singleton record on
-        // iCloud (recordId "soul"); the hydrator reads SOUL.md from
-        // disk when building the outbound portable, so the only thing
-        // we need to do here is enqueue it as dirty.
-        Task { await ChatStore.shared.markDirty(recordType: "SoulV2", recordId: "soul") }
     }
 
     /// Apply an inbound SOUL.md from iCloud without re-marking it dirty.

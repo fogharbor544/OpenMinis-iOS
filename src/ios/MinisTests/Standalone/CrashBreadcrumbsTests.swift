@@ -184,11 +184,6 @@ let cv = source("Views/ContentView/ContentView.swift")
 check("ContentView: navigation depth, split selection (hashed), sheets and the terminal cover",
       cv.contains("CrashBreadcrumbs.record(\"nav\", detail: \"depth=\\(navigationPath.count)\")")
       && cv.contains("CrashBreadcrumbs.hash8($0)") && cv.contains(".onChange(of: activeToolSheet)") && cv.contains("detail: \"terminal\")"))
-let sidebar = source("Views/ContentView/Sidebar/SidebarIdentityTracer.swift")
-let structure = sidebar.components(separatedBy: "enum SidebarStructureCrumb").last ?? ""
-check("sidebar structure breadcrumb is Release-safe and counts-only",
-      sidebar.contains("#endif\n\n// MARK: - [T-crash-breadcrumbs] Release-safe structure breadcrumb")
-      && structure.contains("groups.reduce(0) { $0 + $1.ids.count }") && !structure.contains("flatMap"))
 let list = source("Views/ContentView/ContentView+SessionList.swift")
 // The conversation lists that reported this breadcrumb were retired with
 // the Bot-only home; the home no longer renders sidebar groups at all.

@@ -59,7 +59,7 @@ extension ContentView {
         .task { await migrationSubtitleLoop() }
         // [T-ios-soul-name-sidebar-stale] Refresh the sidebar title from SOUL.md.
         // Moved here off the churny toolbar `titleLabel` Text (which rebuilds on
-        // every canOpenSync/soulName/migrationSubtitle/isSelecting change) for the
+        // every canOpenSync/soulName/migrationSubtitle change) for the
         // same reason as the migration timer above: this Group's identity is stable
         // across the sidebar's life, so the sink is never torn down mid-transaction
         // and can't drop a .soulMdChanged notification arriving during reconstruction.

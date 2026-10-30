@@ -2,7 +2,7 @@
 //  ContentView+SessionRefresh.swift
 //  Minis - home screen (session list, navigation, settings entry)
 //
-//  ContentView, session list refresh: reloading sessions and folders from
+//  ContentView, session list refresh: reloading sessions from
 //  ChatStore, coalesced and rate-limited, plus the deferred refresh after
 //  leaving a chat (kept off the incoming chat's load).
 //
@@ -76,12 +76,10 @@ extension ContentView {
             // Bot-only app: any top-level conversation without an owner (older
             // builds, Shortcuts/debug paths, iCloud from another device) is
             // filed under the commander so it stays reachable from the Bot list.
-            BotWorkspaceStore.shared.adoptIntoCommander(sessionIDs: sessions.map(\.id))
             // [T-ios-moveto-seed] Keep the picker's seed current: this refresh
             // runs on every list-affecting change, so the snapshot tracks the
             // sidebar rather than going stale after the first load.
             ViewModelCache.noteSessionsLoaded(sessions)
-            folders = await ChatStore.shared.listFolders()
             sessionRefreshInFlight = false
             lastRefreshFinishedAt = Date()
             if sessionRefreshPending {

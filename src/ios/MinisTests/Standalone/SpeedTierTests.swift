@@ -2,9 +2,7 @@
 // [T-codex-speed-tier] "Enable Fast Mode" → Speed tiers (Standard / Fast /
 // Ultrafast).
 //
-//   [1] storage migration, run against a real UserDefaults suite: the old Bool
-//       `codexFastModeEnabled == true` reads as Fast, the tier key wins once
-//       written, writes keep the Bool in step (downgrade-safe)
+//   [1] current tier storage, run against a real UserDefaults suite
 //   [2] Ultrafast whitelist (gpt-6-astra prefix only — [T-ultrafast-astra-only])
 //   [3] request `service_tier` per tier: none / "priority" / "ultrafast"; a
 //       non-whitelisted model falls back to "priority"; non-gpt ids get none
@@ -53,22 +51,16 @@ let d = UserDefaults(suiteName: suite)!
 defer { d.removePersistentDomain(forName: suite) }
 let S = SpeedTierSettings.self
 
-// [1] migration
+// [1] current storage
 out("EMPTY", S.storedTier(in: d).rawValue)
-d.set(true, forKey: S.legacyFastModeKey)
-out("LEGACY_TRUE", S.storedTier(in: d).rawValue)
-d.set(false, forKey: S.legacyFastModeKey)
-out("LEGACY_FALSE", S.storedTier(in: d).rawValue)
 S.setTier(.ultrafast, in: d)
-out("SET_ULTRA", "\(S.storedTier(in: d).rawValue)|\(d.bool(forKey: S.legacyFastModeKey))|\(d.string(forKey: S.tierDefaultsKey) ?? "nil")")
+out("SET_ULTRA", S.storedTier(in: d).rawValue)
 S.setTier(.standard, in: d)
-out("SET_STD", "\(S.storedTier(in: d).rawValue)|\(d.bool(forKey: S.legacyFastModeKey))")
+out("SET_STD", S.storedTier(in: d).rawValue)
 S.setTier(.fast, in: d)
-out("SET_FAST", "\(S.storedTier(in: d).rawValue)|\(d.bool(forKey: S.legacyFastModeKey))")
-d.set("warp9", forKey: S.tierDefaultsKey); d.set(true, forKey: S.legacyFastModeKey)
+out("SET_FAST", S.storedTier(in: d).rawValue)
+d.set("warp9", forKey: S.tierDefaultsKey)
 out("GARBAGE_TIER", S.storedTier(in: d).rawValue)
-d.set("standard", forKey: S.tierDefaultsKey); d.set(true, forKey: S.legacyFastModeKey)
-out("TIER_WINS", S.storedTier(in: d).rawValue)
 
 // [2] whitelist
 for id in ["gpt-6.1-sol", "GPT-6.1-Sol", "gpt-6.1-sol-2026-09-29", "gpt-6-astra", "gpt-6-astra-pro",
@@ -142,15 +134,12 @@ for line in output.split(separator: "\n") {
     r[String(line[..<eq])] = String(line[line.index(after: eq)...])
 }
 
-print("\n▶️  1. storage migration")
-check("nothing stored → Standard", r["EMPTY"] == "standard")
-check("MIGRATION: old switch on (Bool true) → Fast, same behaviour as before", r["LEGACY_TRUE"] == "fast")
-check("old switch off → Standard", r["LEGACY_FALSE"] == "standard")
-check("choosing Ultrafast writes the tier AND leaves the Bool on (an older build reads Fast)", r["SET_ULTRA"] == "ultrafast|true|ultrafast")
-check("choosing Standard turns the Bool off", r["SET_STD"] == "standard|false")
-check("choosing Fast turns the Bool on", r["SET_FAST"] == "fast|true")
-check("an unknown tier value falls back to the Bool", r["GARBAGE_TIER"] == "fast")
-check("a valid tier wins over the Bool", r["TIER_WINS"] == "standard")
+print("\n1. current storage")
+check("nothing stored uses Standard", r["EMPTY"] == "standard")
+check("Ultrafast persists", r["SET_ULTRA"] == "ultrafast")
+check("Standard persists", r["SET_STD"] == "standard")
+check("Fast persists", r["SET_FAST"] == "fast")
+check("unknown tier uses Standard", r["GARBAGE_TIER"] == "standard")
 
 print("\n▶️  2. Ultrafast whitelist")
 for id in ["gpt-6-astra", "gpt-6-astra-pro"] {
@@ -206,9 +195,8 @@ let agent = source("Providers/OpenAI/OpenAIAgentProvider.swift")
 let view = chatViewSource()
 let factory = source("Agent/Chat/AIChatViewModel+ProviderFactory.swift")
 let tiers = source("Providers/OpenAI/SpeedTier.swift")
-check("the legacy key is the old key (no silent reset for existing users)",
-      tiers.contains("static let legacyFastModeKey = \"codexFastModeEnabled\"")
-      && op.contains("static let fastModeDefaultsKey = SpeedTierSettings.legacyFastModeKey"))
+check("the retired Bool key is no longer used",
+      !tiers.contains("legacyFastModeKey") && !op.contains("static let fastModeDefaultsKey"))
 check("no request builder reads the old Bool directly any more",
       !op.contains("bool(forKey: Self.fastModeDefaultsKey)") && !agent.contains("bool(forKey: OpenAIProvider.fastModeDefaultsKey)"))
 let tierCall = "SpeedTierSettings.responsesServiceTier(\n            stored: SpeedTierSettings.storedTier(), modelId: model.id)"

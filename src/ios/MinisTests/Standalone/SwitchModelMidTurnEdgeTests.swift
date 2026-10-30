@@ -195,12 +195,12 @@ while let hit = fbCode.range(of: "ProviderConfigStore.shared.setBinding(binding,
 }
 check("no fallback setBinding ignores pendingModelSwitch (unguarded: \(unguardedSites))", unguardedSites == 0)
 
-print("\n▶️  C. source: fallback prompt rebuild keys skills/MCP like setup does (helper → parent session)")
+print("\n▶️  C. source: fallback prompt rebuild uses the same capability scope as setup")
 if let apply = body(of: "func applyFallbackSwitch()", in: vm).map(code) {
-    check("setup keys skills on helperConfig?.parentSessionId ?? sessionId",
-          vm.contains("if let sid = helperConfig?.parentSessionId ?? sessionId,\n           let skillFragment = SkillStore.shared.skillPromptFragment(for: sid)"))
+    check("setup keys skills on capabilitySessionId",
+          vm.contains("if let sid = capabilitySessionId,\n           let skillFragment = SkillStore.shared.skillPromptFragment(for: sid)"))
     check("applyFallbackSwitch uses the same key for skills/MCP",
-          apply.contains("helperConfig?.parentSessionId ?? sessionId"))
+          apply.contains("capabilitySessionId") && !apply.contains("helperConfig?.parentSessionId ?? sessionId"))
 } else { check("applyFallbackSwitch found", false) }
 
 print("\n▶️  D. invariants the next-request switch depends on")

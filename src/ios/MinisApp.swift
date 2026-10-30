@@ -349,6 +349,11 @@ struct MinisApp: App {
                     // and log it — previously nothing knew a restore had even
                     // been interrupted.
                     BackupRestoreJournal.reconcileAtLaunch()
+                    do {
+                        try BotWorkspaceTransfer.recover(workspace: .shared, memory: .shared, journal: BotWorkspaceTransfer.recoveryURL)
+                    } catch {
+                        BotWorkspaceStore.shared.errorMessage = "Agent restore recovery failed: \(error.localizedDescription)"
+                    }
                     // [review I6] Remove staging trees no marker points at.
                     // `defer` cleanup only runs when the process survives, so
                     // an export killed mid-flight used to leave hundreds of MB

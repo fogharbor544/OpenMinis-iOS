@@ -51,21 +51,6 @@ func chatStoreSource() -> String {
 }
 import SQLite3
 
-/// The home screen sources - Views/ContentView/ plus Views/Settings/SettingsSheet.swift
-/// and AppearanceSettingsView.swift, formerly the single file ContentView.swift -
-/// read as one text with the files in path order.
-func contentViewSource() -> String {
-    let ios = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    let dir = ios.appendingPathComponent("Views/ContentView")
-    var files = (FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
-        .filter { $0.pathExtension == "swift" }
-    files += ["Views/Settings/SettingsSheet.swift", "Views/Settings/AppearanceSettingsView.swift"]
-        .map { ios.appendingPathComponent($0) }
-    return files.sorted { $0.path < $1.path }
-        .compactMap { try? String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
-}
-
 var failures = 0
 func check(_ label: String, _ cond: Bool) {
     print(cond ? "  ✅ \(label)" : "  ❌ \(label)")
@@ -412,7 +397,6 @@ func between(_ s: String, _ a: String, _ b: String) -> String {
     return String(s[r1.upperBound..<r2.lowerBound])
 }
 let store = chatStoreSource()
-let view = contentViewSource()
 let me = (try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8)) ?? ""
 let appFn = between(store, "// BEGIN searchHitLine", "// END searchHitLine")
 check("searchHitLine port is byte-identical with ChatStore", !appFn.isEmpty && appFn == between(me, "// BEGIN searchHitLine", "// END searchHitLine"))
@@ -453,33 +437,6 @@ check("fallback scan is bounded per session and per search",
       appKeywords.contains("ORDER BY m.sort_order DESC LIMIT 20")
       && search.contains("var fallbackBudget = 40")
       && search.contains("if snippet == nil, matchedPartsJSON != nil, fallbackBudget > 0 {\n                fallbackBudget -= 1"))
-
-let schedule = between(view, "func scheduleSearch() {", "\n    }\n")
-check("snippet kept for title matches too", schedule.contains("if let snip = r.matchSnippet, !snip.isEmpty {")
-      && !schedule.contains("!r.titleMatched"))
-check("folder-name hits bring their members", schedule.contains("SearchKeywords.firstHit(in: $0.name, terms: terms) != nil")
-      && schedule.contains("ids.formUnion(sessions.filter { $0.folderId.map(folderHits.contains) == true }.map(\\.id))"))
-check("search state reset clears folder hits",
-      between(view, "func dismissSearch() {", "\n    }\n").contains("searchMatchedFolderIds = []"))
-check("expansion keys on results being on screen, not just typed text",
-      view.contains("var searchResultsActive: Bool { isSearching && searchMatchedIds != nil }"))
-check("folders forced open only while results are on screen; saved state untouched",
-      view.contains("g.isCollapsed = searchResultsActive ? false : collapsedFolderIds.contains(fid)")
-      && !between(view, "func scheduleSearch() {", "\n    }\n").contains("collapsedFolderIds ="))
-check("folder toggle is a no-op in a result set",
-      between(view, "func toggleFolderCollapsed(", "let willExpand").contains("guard !searchResultsActive else { return }"))
-check("memo key tracks the search state it depends on",
-      between(view, "struct SidebarGroupsMemoKey: Equatable {", "}").contains("let searchResultsActive: Bool")
-      && between(view, "struct SidebarGroupsMemoKey: Equatable {", "}").contains("let searchMatchedFolderIds: Set<String>"))
-check("non-search list: empty folders still padded in, exactly as before",
-      view.contains("if !isSearching {\n            for f in folders.sorted(by: { $0.updatedAt > $1.updatedAt }) where members[f.id] == nil {"))
-check("rows highlight the trimmed query, only while searching",
-      view.components(separatedBy: "highlightQuery: isSearching ? searchQuery : nil,").count - 1 == 2
-      && !view.contains("highlightQuery: isSearching ? searchText : nil"))
-check("folder header: name highlight and match count only in a result set",
-      view.contains("if searchResultsActive,\n                           SearchKeywords.firstHit(in: group.label, terms: SearchKeywords.terms(searchQuery)) != nil {")
-      && view.contains("if searchResultsActive {\n                            // In a result set the members are the matches.\n                            Text(\"\\(group.totalCount) matching chats\")"))
-check("\"%lld matching chats\" is in the string catalog", source("Localizable.xcstrings").contains("\"%lld matching chats\" : {"))
 
 // MARK: - [5] keywords
 
@@ -600,18 +557,10 @@ check("a title counts when it holds any keyword",
       search.contains("let titleMatched = title.map { SearchKeywords.firstHit(in: $0, terms: terms) != nil } ?? false"))
 check("the snippet looks for any keyword in each visible part, in the same part order",
       count(snip, "Self.searchHitLine(in:") == 3 && count(snip, ", terms: terms)") >= 3 && !snip.contains("query:"))
-let row = source("Views/ContentView/Sidebar/SessionRow.swift")
-check("rows highlight every keyword: title, snippet and preview go through the same ranges",
-      row.contains("SearchKeywords.firstHit(in: text, terms: SearchKeywords.terms(query)) != nil {")
-      && row.contains("for range in SearchKeywords.hitRanges(in: text, terms: SearchKeywords.terms(query)) {")
-      && !row.contains("text.range(of: query, options: .caseInsensitive"))
 let moveSheet = source("Views/Chat/AIChatView/Sheets/MoveToSessionSheet.swift")
 check("the move-to-session sheet searches and highlights the same way",
       moveSheet.contains("await ChatStore.shared.searchSessions(query: query)")
       && moveSheet.contains("for range in SearchKeywords.hitRanges(in: text, terms: SearchKeywords.terms(query)) {")
       && !moveSheet.contains("lower.range(of: lowerQ"))
-check("the search entry still does nothing for a blank field",
-      schedule.contains("let query = searchText.trimmingCharacters(in: .whitespaces)\n        guard !query.isEmpty else {"))
-
 print(failures == 0 ? "\n✅ ALL PASSED" : "\n❌ \(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -521,8 +521,6 @@ final class MCPStore: ObservableObject {
     func isEnabledForSession(_ serverId: String, sessionId: String) -> Bool {
         if let bot = BotWorkspaceStore.shared.bot(forSession: sessionId) {
             if let choices = bot.connectorOverrides { return choices[serverId] ?? (servers.first(where: { $0.id == serverId })?.enabled ?? false) }
-            // Read the former canonical Bot session only until its choices are saved on the Bot.
-            if let source = bot.sessionId, let value = dbSessionOverride(sessionId: source, serverId: serverId) { return value }
             return servers.first(where: { $0.id == serverId })?.enabled ?? false
         }
         if let override = dbSessionOverride(sessionId: sessionId, serverId: serverId) {
@@ -846,6 +844,5 @@ final class MCPStore: ObservableObject {
         AppLogger(category: "MCPStore").info("[Sync] external scan: \(changed.count) changed, \(removed.count) removed")
     }
 
-    // MARK: - Legacy whole-file record cleanup
 
 }

@@ -88,6 +88,75 @@ struct BotWorkspacePersistenceTests {
         precondition(!savedTeam.registerDelegation(sessionID: "bad", botID: "missing", roomID: nil))
         precondition(!savedTeam.registerDelegation(sessionID: "bad", botID: reviewer.id, roomID: "missing"))
         precondition(!broken.ensureCommander())
+
+        precondition(savedTeam.capabilitySessionID(for: "task-1", parentSessionID: "commander-chat") == "task-1")
+        precondition(savedTeam.capabilitySessionID(for: "ordinary-helper", parentSessionID: "commander-chat") == "commander-chat")
+        precondition(savedTeam.capabilitySessionID(for: "normal-chat", parentSessionID: nil) == "normal-chat")
+        precondition(savedTeam.capabilitySessionID(for: nil, parentSessionID: nil) == nil)
+        precondition(settingsReload.capabilitySessionID(for: "group-session", parentSessionID: "parent") == "group-session")
+
+        var portable = reviewer
+        portable.instructions = "Review the output"
+        portable.modelGroupId = "review-models"
+        portable.skillOverrides = ["docs": true]
+        portable.connectorOverrides = ["files": false]
+        portable.memoryEnabled = false
+        portable.sessionId = "source-private-chat"
+        portable.conversationIds = ["source-private-chat", "source-old-chat"]
+        portable.pinnedAt = Date()
+        precondition(savedTeam.save(portable))
+        let payload = try savedTeam.capabilityOwnerJSON(for: portable.id)
+        precondition(payload != nil && !payload!.contains("source-private-chat"))
+        let globalPayload = try savedTeam.capabilityOwnerJSON(for: nil)
+        precondition(globalPayload == nil)
+
+        let destinationURL = root.appendingPathComponent("capability-destination.json")
+        let destination = BotWorkspaceStore(fileURL: destinationURL)
+        try destination.restoreCapabilityOwner(botID: portable.id, json: payload)
+        try destination.restoreCapabilityOwner(botID: portable.id, json: payload)
+        precondition(destination.data.bots.count == 1)
+        let restored = BotWorkspaceStore(fileURL: destinationURL).bot(portable.id)!
+        precondition(restored.name == portable.name && restored.instructions == portable.instructions)
+        precondition(restored.modelGroupId == portable.modelGroupId)
+        precondition(restored.skillOverrides == portable.skillOverrides && restored.connectorOverrides == portable.connectorOverrides)
+        precondition(restored.memoryEnabled == false)
+        precondition(restored.sessionId == nil && restored.conversationIds.isEmpty && restored.pinnedAt == nil)
+        precondition(destination.data.sessionOwners.isEmpty && destination.data.rooms.isEmpty)
+
+        let unbound = BotWorkspaceStore(fileURL: root.appendingPathComponent("unbound-owner.json"))
+        let unsanitized = String(decoding: try JSONEncoder().encode(portable), as: UTF8.self)
+        try unbound.restoreCapabilityOwner(botID: portable.id, json: unsanitized)
+        precondition(unbound.bot(portable.id)?.sessionId == nil)
+        precondition(unbound.bot(portable.id)?.conversationIds.isEmpty == true)
+        precondition(unbound.bot(portable.id)?.pinnedAt == nil)
+        precondition(unbound.data.sessionOwners.isEmpty)
+
+        var local = restored
+        local.name = "Locally edited"
+        local.sessionId = "destination-chat"
+        precondition(destination.save(local))
+        try destination.restoreCapabilityOwner(botID: portable.id, json: payload)
+        precondition(destination.bot(portable.id)?.name == local.name)
+        precondition(destination.bot(portable.id)?.sessionId == local.sessionId)
+        // An old package needs no snapshot when its owner is already on this device.
+        try destination.restoreCapabilityOwner(botID: portable.id, json: nil)
+        try destination.restoreCapabilityOwner(botID: nil, json: nil)
+        do {
+            try destination.restoreCapabilityOwner(botID: "missing-owner", json: nil)
+            preconditionFailure("A missing owner must not be reported as restored")
+        } catch { precondition(destination.bot("missing-owner") == nil) }
+        do {
+            try destination.restoreCapabilityOwner(botID: "different-owner", json: payload)
+            preconditionFailure("A snapshot must match the capability owner")
+        } catch { precondition(destination.bot("different-owner") == nil) }
+        do {
+            try destination.restoreCapabilityOwner(botID: "missing-owner", json: "not JSON")
+            preconditionFailure("An invalid owner snapshot must fail")
+        } catch { precondition(destination.bot("missing-owner") == nil) }
+        do {
+            try broken.restoreCapabilityOwner(botID: portable.id, json: payload)
+            preconditionFailure("An unreadable workspace must not accept imported owners")
+        } catch { precondition(broken.bot(portable.id) == nil) }
         print("PASS: Bot/room persistence, order, session mapping, deletion preservation, interrupted rounds and corrupt-store protection")
     }
 }

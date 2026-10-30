@@ -66,7 +66,7 @@ actor BackupExporter {
              passphrase: String? = nil,
              snapshotAt: Date = Date(),
              allowResume: Bool = false) {
-            self.categories = categories
+            self.categories = BackupCategory.includingAgentOwners(categories)
             self.maxFileBytes = maxFileBytes
             self.includeCredentials = includeCredentials
             self.passphrase = passphrase
@@ -167,6 +167,7 @@ actor BackupExporter {
         // snapshot of the instant the user first pressed Create Backup, not
         // silently re-scope to now.
         var options = options
+        options.categories = BackupCategory.includingAgentOwners(options.categories)
         let resumed = options.allowResume ? Self.resumableRun(for: options) : nil
         let backupId: String
         if let resumed {
@@ -316,6 +317,9 @@ actor BackupExporter {
                     progress?(text)
                 }
             })
+        }
+        try await run(.agents, AppLocalized("Exporting agents and memory…")) {
+            try await exportAgents(dataDir: dataDir, includesHistory: options.categories.contains(.chats))
         }
         try await run(.sharedFiles, AppLocalized("Exporting shared files…")) {
             try exportSharedFiles(trees: trees)
@@ -702,33 +706,23 @@ actor BackupExporter {
         }
     }
 
-    // MARK: - Memory & Soul
+    // MARK: - Agents and memory
 
-    private func exportSoul(dataDir: URL) throws -> BackupManifest.CategoryStat {
-        let src = AIChatViewModel.minisMemoryPersistentDir
-        let dst = dataDir.appendingPathComponent("soul", isDirectory: true)
-        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-
-        var count = 0
-        var bytes: Int64 = 0
-        let names = (try? fm.contentsOfDirectory(atPath: src.path)) ?? []
-        // [T-soul-icon-sidecar] `.md` alone would silently drop SOUL.icon.png,
-        // so a restore would bring the persona back with its avatar missing —
-        // the frontmatter would still name a sidecar that no longer exists.
-        // The icon is the one non-Markdown file this directory holds; matching
-        // it by name rather than widening to every extension keeps stray files
-        // (editor swap files, .DS_Store) out of the package.
-        for name in names where name == "SOUL.md" || name == SoulIconImage.sidecarName {
-            let from = src.appendingPathComponent(name)
-            guard (try? from.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
-            else { continue }
-            let to = dst.appendingPathComponent(name)
-            try? fm.removeItem(at: to)
-            try fm.copyItem(at: from, to: to)
-            count += 1
-            bytes += (try? fm.attributesOfItem(atPath: from.path)[.size] as? Int64) ?? 0
+    private func exportAgents(dataDir: URL, includesHistory: Bool) async throws -> BackupManifest.CategoryStat {
+        let exportedSessions = includesHistory ? try BotWorkspaceArchive.sessionIDs(in: dataDir) : []
+        let archive = try await MainActor.run {
+            try BotWorkspaceTransfer.recover(workspace: .shared, memory: .shared, journal: BotWorkspaceTransfer.recoveryURL)
+            let workspace = try BotWorkspaceStore.shared.dataForBackup()
+            // The staged rows define the history scope, including on resume.
+            // capture prunes references to sessions excluded by the snapshot cut-off.
+            return try BotWorkspaceArchive.capture(workspace: workspace, memories: BotMemoryStore.shared.entries(),
+                                                   sessionIDs: exportedSessions, includesHistory: includesHistory)
         }
-        return BackupManifest.CategoryStat(entries: count, bytes: bytes, encrypted: false)
+        let url = dataDir.appendingPathComponent("agents.json")
+        try BackupJSONFile.write(archive, to: url)
+        let bytes = try fm.attributesOfItem(atPath: url.path)[.size] as? Int64 ?? 0
+        return BackupManifest.CategoryStat(entries: archive.workspace.bots.count + archive.workspace.rooms.count + archive.memories.count,
+                                           bytes: bytes, encrypted: false)
     }
 
     // MARK: - Providers
@@ -840,6 +834,7 @@ actor BackupExporter {
     }
 
     private func exportSubAgents(dataDir: URL) async throws -> Int {
+        let owners = Set(try BotWorkspaceArchive.read(from: dataDir.appendingPathComponent("agents.json")).workspace.bots.map(\.id))
         let roster = await MainActor.run { SubAgentStore.shared.subAgents }
         let custom = roster.filter { !$0.isBuiltIn && $0.id != SubAgentDefinition.builtInId }
         guard !custom.isEmpty else { return 0 }
@@ -848,6 +843,9 @@ actor BackupExporter {
         defer { try? writer.close() }
         var written = 0
         for def in custom {
+            guard def.ownerBotId == nil || owners.contains(def.ownerBotId!) else {
+                throw BotWorkspaceError.rejected("A private subagent's owner is missing from the agent snapshot. Create a new backup.")
+            }
             let record = BackupSubAgentRecord(
                 id: def.id,
                 name: def.name,
@@ -954,6 +952,7 @@ actor BackupExporter {
     /// missing from `allAsDict()`.
     private func exportEnvironmentVariables(dataDir: URL) async throws
         -> BackupManifest.CategoryStat? {
+        let owners = Set(try BotWorkspaceArchive.read(from: dataDir.appendingPathComponent("agents.json")).workspace.bots.map(\.id))
         // [T-envvar-disable] Each line carries `enabled` (EnvVarBackupEntry);
         // a backup reader that predates it ignores the extra field.
         let entries = await MainActor.run { () -> [EnvVarBackupEntry] in
@@ -963,6 +962,9 @@ actor BackupExporter {
                                   note: $0.note, enabled: store.isEnabled(id: $0.id),
                                   ownerBotId: $0.ownerBotId)
             }
+        }
+        guard entries.allSatisfy({ $0.ownerBotId == nil || owners.contains($0.ownerBotId!) }) else {
+            throw BotWorkspaceError.rejected("A private environment variable's owner is missing from the agent snapshot. Create a new backup.")
         }
         guard !entries.isEmpty else { return nil }
         let url = dataDir.appendingPathComponent("env_vars.json")

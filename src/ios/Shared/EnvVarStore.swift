@@ -94,7 +94,8 @@ struct EnvVarBackupEntry: Codable, Equatable {
     var enabled: Bool
     var ownerBotId: String?
 
-    init(id: String, key: String, createdAt: Date, note: String, enabled: Bool, ownerBotId: String? = nil) {
+    init(id: String, key: String, createdAt: Date, note: String, enabled: Bool,
+         ownerBotId: String? = nil) {
         self.id = id; self.key = key; self.createdAt = createdAt; self.note = note; self.enabled = enabled
         self.ownerBotId = ownerBotId
     }

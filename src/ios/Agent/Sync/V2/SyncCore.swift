@@ -473,10 +473,16 @@ final class SyncCore {
             // hydrate a SyncedX from local SQLite (that's per-type
             // ChatStore work). We delegate to a hydrator registered per
             // recordType (see `SyncCoreHydrators`).
-            if let portable = await SyncCoreHydrators.shared.buildPortable(
-                recordType: row.recordType, id: row.recordId
-            ) {
-                batchRecords.append(portable)
+            do {
+                if let portable = try await SyncCoreHydrators.shared.buildPortable(
+                    recordType: row.recordType, id: row.recordId
+                ) {
+                    batchRecords.append(portable)
+                    continue
+                }
+            } catch {
+                logger.error("[SyncCore] build failed; keeping dirty \(recordId): \(error.localizedDescription)")
+                continue
             }
             // If buildPortable returned nil there are two distinct cases:
             //   (a) no builder is registered for this recordType — KEEP
@@ -486,7 +492,7 @@ final class SyncCore {
             //   (b) builder is registered but returned nil — local row
             //       is gone, clear the dirty so we don't loop trying to
             //       rebuild a missing record.
-            else if !SyncCoreHydrators.shared.hasBuilder(recordType: row.recordType) {
+            if !SyncCoreHydrators.shared.hasBuilder(recordType: row.recordType) {
                 logger.warning("[SyncSchema] noBuilderForType: \(row.recordType):\(row.recordId.prefix(8)) — keeping dirty for future builder")
             } else {
                 logger.info("[SyncCore] dropping stale dirty: \(row.recordType):\(row.recordId.prefix(8)) (no local row)")
@@ -707,21 +713,21 @@ final class SyncCore {
         // it starts. processInbound is synchronous on the main actor, so the
         // tail swap below is atomic and the chain order is the call order.
         // A task only ever awaits a task created before it, never itself, so
-        // the chain cannot deadlock; the apply body does not throw (every
-        // await is `try?` or non-throwing), so a slice always completes and
-        // releases the next one. Hydrators never call back into
+        // the chain cannot deadlock; merge errors are caught and reported in
+        // the completion result, so every slice releases the next one.
+        // Hydrators never call back into
         // processInbound and wait on it, which is the only way a cycle could
-        // form. "Last slice applied" therefore really implies "every earlier
-        // slice applied", which is what the cursor commit relies on.
+        // form. Every slice reports its result in order so the transport can
+        // commit only after all slices succeed.
         let previous = inboundTail
         guard !batch.records.isEmpty || !batch.deletes.isEmpty else {
             // An empty batch has nothing to apply, but its completion must
             // still wait for every batch handed over before it.
             guard let onApplied = batch.onApplied else { return }
-            guard let previous else { onApplied(); return }
+            guard let previous else { onApplied(true); return }
             inboundTail = Task { @MainActor in
                 await previous.value
-                onApplied()
+                onApplied(true)
             }
             return
         }
@@ -815,8 +821,13 @@ final class SyncCore {
                             logger.debug("[SyncSchema] unknownFields (first-seen, further occurrences suppressed): type=\(record.id.type) keys=\(record.unknownFields.keys.sorted())")
                         }
                     }
-                    await SyncCoreHydrators.shared.mergeRemote(record)
-                    applied += 1
+                    do {
+                        try await SyncCoreHydrators.shared.mergeRemote(record)
+                        applied += 1
+                    } catch {
+                        blocked += 1
+                        logger.error("[SyncCore] inbound restore failed \(record.id): \(error.localizedDescription)")
+                    }
                 }
                 i = end
                 // Yield so the main thread can run UI / scrolling / SwiftUI
@@ -859,11 +870,9 @@ final class SyncCore {
             if applied > 0 {
                 NotificationCenter.default.post(name: .cloudSyncDidFetchChanges, object: nil)
             }
-            // [T-icloud-sync-tier1-cursor-after-apply] Every record above is
-            // now written (or deliberately skipped). Tell the transport so it
-            // can commit its cursor. Runs after the notification on purpose:
-            // the cursor is bookkeeping, the data is what matters.
-            batch.onApplied?()
+            // Completion is not success when a version gate or merger blocked
+            // a row. The transport aggregates this result across fetch slices.
+            batch.onApplied?(blocked == 0)
             _ = self
         }
     }

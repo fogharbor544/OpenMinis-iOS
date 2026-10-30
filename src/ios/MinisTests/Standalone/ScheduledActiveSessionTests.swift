@@ -234,7 +234,6 @@ check("busy = running ∪ scheduled ∪ delegating",
 check("any change to the running set re-derives it", tracker.contains("@Published var activeSessions: Set<String> = [] {\n        didSet { recomputeBusy() }"))
 check("publishes only on a real change", tracker.contains("guard busy != busySessions else { return }"))
 check("isBusy resolves draft aliases", tracker.contains("if let realId = draftAliases[sessionId], busySessions.contains(realId) { return true }"))
-check("list spinner + folder aggregates read it", content.contains("let activeIds = sidebarActivityTracker.resolvedBusySessionIds"))
 check("…and the sidebar no longer unions the registry itself", !content.contains("sidebarJobRegistry"))
 check("composer Stop reads it", chatView.contains("vm.isProcessing || hasRunningSubAgent || (vm.sessionId.map(tracker.isBusy) ?? false)"))
 check("Stop says what it stops when only timers are left", chatView.contains("Text(\"Stop scheduled tasks\""))

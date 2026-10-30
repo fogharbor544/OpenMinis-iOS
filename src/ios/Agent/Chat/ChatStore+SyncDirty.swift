@@ -97,7 +97,6 @@ extension ChatStore {
         case "SessionFile":     return "SessionFileV2"
         case "Skill":           return "SkillV2"
         case "SyncDevice":      return "SyncDeviceV2"
-        case "Soul":            return "SoulV2"
         case "Folder":          return "FolderV2"
         default:                return type
         }
@@ -159,7 +158,7 @@ extension ChatStore {
         "FolderV2",
         "SkillV2", "EnvVarItem",
         "EnvVarStateItem",  // [T-envvar-disable]
-        "SyncDeviceV2", "SoulV2",
+        "SyncDeviceV2",
         "ProviderInstanceV3", "ProviderModelEntryV3", "ProviderModelGroupV3",
         // [T-icloud-thinking-rules-sync] Per-rule custom thinking rules. Omitting a
         // type here is the exact failure MCPServersV2 hit below: dirty rows get

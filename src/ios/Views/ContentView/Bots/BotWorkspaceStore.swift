@@ -193,6 +193,24 @@ final class BotWorkspaceStore: ObservableObject {
         return persist(next)
     }
 
+    /// Bot-only app: a top-level conversation that no Bot owns (created by an
+    /// older build, a debug path, or any caller that skipped Bot selection)
+    /// belongs to the commander. Group and delegated sessions keep their owners.
+    @discardableResult
+    func adoptIntoCommander(sessionIDs: [String]) -> Bool {
+        guard ensureCommander(), let index = data.bots.firstIndex(where: { $0.isCommander }) else { return false }
+        let orphans = sessionIDs.filter { data.sessionOwners[$0] == nil }
+        guard !orphans.isEmpty else { return true }
+        var next = data
+        for id in orphans {
+            next.sessionOwners[id] = BotSessionOwner(botId: BotProfile.commanderID, roomId: nil)
+            if !next.bots[index].conversationIds.contains(id) { next.bots[index].conversationIds.append(id) }
+        }
+        // The commander had no main chat yet: the most recent adopted one becomes it.
+        if next.bots[index].sessionId == nil { next.bots[index].sessionId = orphans.first }
+        return persist(next)
+    }
+
     @discardableResult
     func save(_ profile: BotProfile) -> Bool {
         var profile = profile

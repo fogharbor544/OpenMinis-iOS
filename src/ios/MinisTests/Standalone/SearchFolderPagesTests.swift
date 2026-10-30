@@ -143,19 +143,10 @@ check("memo key includes the page state (only while searching)",
       && view.contains("searchFolderPages: searchResultsActive ? searchFolderPages : [:],"))
 
 // Rendering.
-check("Show more row rendered in both list layouts, not in select mode",
-      view.components(separatedBy: "if group.hiddenMatchCount > 0, !isSelecting {\n                        searchFolderShowMoreRow(group)").count - 1 == 2)
-check("both layouts close the card via isLastMemberRow",
-      view.contains("FolderMemberRowBackground(isLast: group.isLastMemberRow(session.id))")
-      && view.contains("let isLast = group.isLastMemberRow(sessionId)")
-      && !view.contains("== group.ids.last"))
-let row = between(view, "private func searchFolderShowMoreRow(_ group: SidebarGroup) -> some View {", "\n    }\n")
-check("a tap adds one page to THIS folder only", row.contains("searchFolderPages[fid, default: 1] += 1"))
-check("the row is the card's bottom segment", row.contains(".listRowBackground(FolderMemberRowBackground(isLast: true))"))
-check("label names the next page and what is left",
-      row.contains("Text(\"Show \\(min(group.hiddenMatchCount, Self.searchFolderPageSize)) more (\\(group.hiddenMatchCount) left)\")"))
-check("\"Show %lld more (%lld left)\" is in the string catalog",
-      source("Localizable.xcstrings").contains("\"Show %lld more (%lld left)\" : {"))
+// Rendering: the folder lists that drew "Show more" were retired with the
+// Bot-only home; only the pure paging port and grouping remain.
+check("the retired Show-more row is gone with the conversation list",
+      !view.contains("private func searchFolderShowMoreRow("))
 
 print(failures == 0 ? "\n✅ ALL PASSED" : "\n❌ \(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

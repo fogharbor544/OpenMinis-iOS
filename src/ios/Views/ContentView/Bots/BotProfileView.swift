@@ -6,7 +6,29 @@ import UIKit
 /// They depend on the chat's own state (share picker, search bar, alerts), so
 /// the profile only requests them; the chat performs them after dismissal.
 enum BotChatAction: Equatable {
-    case search, share, compact, clear, scheduledTasks, files
+    case search, share, compact, clear, scheduledTasks, files, tokenUsage, forceSync, forcePull
+}
+
+/// Per-chat switches from the former "..." menu. Built by the open chat from
+/// the same state and setters that menu used, so behaviour is identical.
+struct BotChatControls {
+    var speakEnabled: Bool
+    var setSpeakEnabled: (Bool) -> Void
+    var keepAwakeEnabled: Bool
+    var setKeepAwake: (Bool) -> Void
+    var screenSaverNowEnabled: Bool
+    var setScreenSaverNow: (Bool) -> Void
+    /// Hidden on a Mac, as in the old menu (no auto-lock, no OLED).
+    var showsKeepAwake: Bool
+    var showEnhancedCacheToggle: Bool
+    var enhancedCacheEnabled: Bool
+    var setEnhancedCache: (Bool) -> Void
+    var showFastModeToggle: Bool
+    var showUltrafast: Bool
+    var speedTier: SpeedTier
+    var setSpeedTier: (SpeedTier) -> Void
+    var showsICloudActions: Bool
+    var iCloudActionsDisabled: Bool
 }
 
 /// Bot profile page: avatar header, browser preview card, capability entries,
@@ -17,6 +39,7 @@ struct BotProfileView: View {
     /// Non-nil when opened from a chat; enables the "会话" section.
     var sessionID: String? = nil
     var onChatAction: ((BotChatAction) -> Void)? = nil
+    var chatControls: BotChatControls? = nil
 
     @ObservedObject private var store = BotWorkspaceStore.shared
     @ObservedObject private var runner = BotRoomRunner.shared
@@ -38,6 +61,10 @@ struct BotProfileView: View {
     @State private var preview: (image: UIImage, pageURL: String?, capturedAt: Date)?
     @State private var openingSession = false
     @State private var resolvedSessionID: String?
+    /// Values just switched in the 会话 controls, shown until the sheet closes.
+    @State private var overriddenToggles: [ChatToggle: Bool] = [:]
+    @State private var overriddenTier: SpeedTier?
+    private enum ChatToggle: Hashable { case speak, keepAwake, screenSaver, enhancedCache }
 
     private var bot: BotProfile? { store.bot(botID) }
     /// A group round running anywhere locks Bot edits, as on the home list.
@@ -149,8 +176,10 @@ struct BotProfileView: View {
                     chatActionRow("在聊天中搜索", "magnifyingglass", .search)
                     chatActionRow("分享聊天", "square.and.arrow.up", .share)
                     chatActionRow("压缩消息", "arrow.down.right.and.arrow.up.left", .compact)
+                    chatActionRow("用量统计", "number", .tokenUsage)
                     Button(role: .destructive) { request(.clear) } label: { Label("清空聊天", systemImage: "trash") }
                 }
+                if let controls = chatControls { chatControlSections(controls) }
             }
         }
         .sheet(isPresented: $choosingAvatar) { BotAvatarPicker(botID: bot.id) }
@@ -259,6 +288,69 @@ struct BotProfileView: View {
     private func chatActionRow(_ title: String, _ symbol: String, _ action: BotChatAction) -> some View {
         Button { request(action) } label: { Label(title, systemImage: symbol) }
             .foregroundStyle(.primary)
+    }
+
+    /// Switches act in place; local copies keep each row's checkmark current
+    /// while the sheet stays open (the chat's own state updates underneath).
+    @ViewBuilder
+    private func chatControlSections(_ controls: BotChatControls) -> some View {
+        Section {
+            Toggle(isOn: toggle(.speak, controls.speakEnabled, controls.setSpeakEnabled)) {
+                Label("朗读回复", systemImage: "speaker.wave.2")
+            }
+            if controls.showsKeepAwake {
+                Toggle(isOn: toggle(.keepAwake, controls.keepAwakeEnabled, controls.setKeepAwake)) {
+                    Label("保持屏幕常亮", systemImage: "sun.max")
+                }
+                Toggle(isOn: toggle(.screenSaver, controls.screenSaverNowEnabled, controls.setScreenSaverNow)) {
+                    Label("使用屏保", systemImage: "moon.stars")
+                }
+            }
+        } footer: {
+            if controls.showsKeepAwake { Text("仅对当前对话生效，离开对话后恢复设置中的默认值。") }
+        }
+        if controls.showEnhancedCacheToggle || controls.showFastModeToggle {
+            Section("模型") {
+                if controls.showEnhancedCacheToggle {
+                    Toggle(isOn: toggle(.enhancedCache, controls.enhancedCacheEnabled, controls.setEnhancedCache)) {
+                        Label("增强缓存", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+                if controls.showFastModeToggle {
+                    if controls.showUltrafast {
+                        Picker(selection: Binding(get: { overriddenTier ?? controls.speedTier },
+                                                  set: { overriddenTier = $0; controls.setSpeedTier($0) })) {
+                            ForEach(SpeedTier.allCases, id: \.self) { tier in
+                                Label(tier.title, systemImage: tier.symbol).tag(tier)
+                            }
+                        } label: { Label("快速模式", systemImage: SpeedTier.entrySymbol) }
+                    } else {
+                        Toggle(isOn: Binding(get: { (overriddenTier ?? controls.speedTier) != .standard },
+                                             set: { on in
+                                                 let tier: SpeedTier = on ? .fast : .standard
+                                                 overriddenTier = tier
+                                                 controls.setSpeedTier(tier)
+                                             })) {
+                            Label("快速模式", systemImage: SpeedTier.fast.symbol)
+                        }
+                    }
+                }
+            }
+        }
+        if controls.showsICloudActions {
+            Section("iCloud") {
+                chatActionRow("强制 iCloud 同步", "icloud.and.arrow.up", .forceSync)
+                    .disabled(controls.iCloudActionsDisabled)
+                chatActionRow("强制拉取消息", "icloud.and.arrow.down", .forcePull)
+                    .disabled(controls.iCloudActionsDisabled)
+            }
+        }
+    }
+
+    /// A toggle that shows the new value immediately and forwards it to the chat.
+    private func toggle(_ key: ChatToggle, _ initial: Bool, _ set: @escaping (Bool) -> Void) -> Binding<Bool> {
+        Binding(get: { overriddenToggles[key] ?? initial },
+                set: { overriddenToggles[key] = $0; set($0) })
     }
 
     // MARK: - Actions

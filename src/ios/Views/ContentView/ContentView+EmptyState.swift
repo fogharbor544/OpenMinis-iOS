@@ -84,10 +84,8 @@ extension ContentView {
                     subtitle: hasGroups ? "Choose a Bot before starting a conversation" : "Complete step 2 first",
                     isDone: false
                 ) {
-                    if hasGroups {
-                        // [T-nav-ghost-row-link] From the home list: replace, never append.
-                        homeShowsBots = true
-                    }
+                    // Nothing to open: once a model group exists the Bot
+                    // workspace replaces these steps by itself.
                 }
             }
             .padding(.horizontal, 8)

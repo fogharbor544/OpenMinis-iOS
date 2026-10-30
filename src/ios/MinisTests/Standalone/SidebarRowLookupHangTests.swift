@@ -205,22 +205,15 @@ check("every sessionForRow exit is counted (cache / draft / memo or nil)",
       grouping.contains("HomeListPerf.row(.cache, since: perfStart)")
       && grouping.contains("HomeListPerf.row(.draft, since: perfStart)")
       && grouping.contains("HomeListPerf.row(hit == nil ? .missing : .memo, since: perfStart)"))
-check("both list bodies time their grouping as a pass, with the pass inputs",
-      sessionList.contains("let _ = HomeListPerf.passEnd(site: \"sidebar\", start: perfStart, groups: groups, sessions: sessions.count,\n                                        inputs: homeListPassInputs)")
-      && sessionList.contains("let _ = HomeListPerf.passEnd(site: \"selection\", start: perfStart, groups: groups, sessions: sessions.count,\n                                        inputs: homeListPassInputs)"))
+// Bot-only home: the grouped conversation lists these checks timed are retired.
+check("the home no longer builds the grouped conversation list",
+      !sessionList.contains("HomeListPerf.passEnd(") && sessionList.contains("BotWorkspaceView(embedded: true,"))
 
 print("\n▶️  2b. [T-home-list-lazy-rows] one fixed-type view per row id")
 check("no row is conditional on the lookup any more (no `if let session = sessionForRow`)",
       !sessionList.contains("if let session = sessionForRow"))
 check("no AnyView-erased session row left",
       !sessionList.contains("erasedSessionRow") && !sessionList.contains("-> AnyView {\n        AnyView(\n            SessionRow("))
-check("iPhone rows are SessionStackRow, iPad rows SessionSplitRow, each from its own ForEach",
-      sessionList.contains("ForEach(group.ids, id: \\.self) { sessionId in\n                            stackRow(sessionId, group: group)\n                        }")
-      && sessionList.contains("ForEach(group.ids, id: \\.self) { sessionId in\n                            splitRow(sessionId, group: group)\n                        }")
-      && sessionList.contains("private func stackRow(_ sessionId: String, group: SidebarGroup) -> SessionStackRow {")
-      && sessionList.contains("private func splitRow(_ sessionId: String, group: SidebarGroup) -> SessionSplitRow {"))
-check("select mode is chosen once per section, rows fall back to a placeholder instead of disappearing",
-      sessionList.components(separatedBy: "selectableRow(sessionForRow(sessionId) ?? .missingRowPlaceholder(sessionId))").count == 3)
 let stackBody = rowsFile.components(separatedBy: "struct SessionStackRow: View {").last?.components(separatedBy: "struct SessionSplitRow").first ?? ""
 let splitBody = rowsFile.components(separatedBy: "struct SessionSplitRow: View {").last ?? ""
 check("iPhone row keeps navigation, drag, regen overlay, folder background and the value-only menu",

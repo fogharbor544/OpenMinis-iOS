@@ -190,9 +190,10 @@ check("sidebar structure breadcrumb is Release-safe and counts-only",
       sidebar.contains("#endif\n\n// MARK: - [T-crash-breadcrumbs] Release-safe structure breadcrumb")
       && structure.contains("groups.reduce(0) { $0 + $1.ids.count }") && !structure.contains("flatMap"))
 let list = source("Views/ContentView/ContentView+SessionList.swift")
-check("both sidebar lists report outside #if DEBUG",
-      list.contains("let _ = SidebarStructureCrumb.note(groups, site: \"sidebar\")\n            #if DEBUG")
-      && list.contains("let _ = SidebarStructureCrumb.note(groups, site: \"selection\")\n            #if DEBUG"))
+// The conversation lists that reported this breadcrumb were retired with
+// the Bot-only home; the home no longer renders sidebar groups at all.
+check("retired conversation lists are gone (Bot-only home)",
+      !list.contains("SidebarStructureCrumb.note(") && list.contains("BotWorkspaceView(embedded: true,"))
 
 print("")
 print(failures == 0 ? "✅ ALL PASSED" : "❌ \(failures) FAILURE(S)\n--- basic ---\n\(basic)\n--- inspect ---\n\(inspect)")

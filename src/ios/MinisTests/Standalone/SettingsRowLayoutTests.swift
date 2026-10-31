@@ -68,7 +68,7 @@ final class LayoutTestDelegate: NSObject, UIApplicationDelegate {
                         do { try data.write(to: output.appendingPathComponent(name + ".png")) }
                         catch { failures.append("\(name): \(error)") }
                     } else { failures.append("\(name): renderer did not produce an image") }
-                    cases.append(["name": name, "short_height": shortSize.height, "long_height": longSize.height, "long_width": longSize.width])
+                    cases.append(["name": name, "short_height": Double(shortSize.height), "long_height": Double(longSize.height), "long_width": Double(longSize.width)])
                 }
             }
         }

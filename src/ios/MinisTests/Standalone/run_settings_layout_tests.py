@@ -14,11 +14,12 @@ BUNDLE = "com.openminis.layout-validation"
 
 
 def run(*args, **kwargs):
+    kwargs.setdefault("timeout", 60)
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
 def capture(*args):
-    return subprocess.check_output(args, text=True).strip()
+    return subprocess.check_output(args, text=True, timeout=60).strip()
 
 
 def main():
@@ -34,7 +35,7 @@ def main():
     try:
         if booted_here:
             run("xcrun", "simctl", "boot", udid)
-        run("xcrun", "simctl", "bootstatus", udid, "-b", timeout=180)
+        run("xcrun", "simctl", "bootstatus", udid, "-b", timeout=240)
         sdk = capture("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
         arch = "arm64" if platform.machine() == "arm64" else "x86_64"
         with tempfile.TemporaryDirectory(prefix="minis-ui-layout-") as temp:
@@ -67,7 +68,7 @@ def main():
             print("PASS: 16 native shared-row layouts rendered: 320/375/667/1024pt, light/dark, standard/AX5")
     finally:
         if booted_here:
-            subprocess.run(["xcrun", "simctl", "shutdown", udid], check=False)
+            subprocess.run(["xcrun", "simctl", "shutdown", udid], check=False, timeout=30)
 
 
 if __name__ == "__main__":

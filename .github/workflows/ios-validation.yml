@@ -65,16 +65,6 @@ jobs:
         run: |
           swift src/ios/MinisTests/Standalone/TopBannersTests.swift
           swift src/ios/MinisTests/Standalone/ScheduledBannerTests.swift
-      - name: Native settings row layout checks
-        run: python3 src/ios/MinisTests/Standalone/run_settings_layout_tests.py
-      - name: Upload native layout snapshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-ui-layout-snapshots
-          path: build/validation/ui-layout
-          if-no-files-found: ignore
-          retention-days: 7
       - name: Bot workspace persistence tests
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"
@@ -128,6 +118,22 @@ jobs:
             src/ios/Views/ContentView/Bots/BotWorkspaceStore+Sessions.swift \
             src/ios/MinisTests/Standalone/BotSessionBindingTests.swift -o "$RUNNER_TEMP/bot-session-tests"
           "$RUNNER_TEMP/bot-session-tests" "$RUNNER_TEMP/bot-session-workspace.json"
+  ui-layout:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native settings row layout checks
+        run: python3 src/ios/MinisTests/Standalone/run_settings_layout_tests.py
+      - name: Upload native layout snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-layout-snapshots
+          path: build/validation/ui-layout
+          if-no-files-found: ignore
+          retention-days: 7
   device-build:
     if: github.event_name == 'workflow_dispatch' && inputs.full_build
     runs-on: macos-26

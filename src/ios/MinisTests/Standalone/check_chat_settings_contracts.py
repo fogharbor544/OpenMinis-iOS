@@ -34,6 +34,22 @@ class ChatSettingsContracts(unittest.TestCase):
         self.assertIn("if !cv.isTracking && !cv.isDragging && !cv.isDecelerating,", source)
         self.assertIn("coord.scrollMode == .autoScrolling || wasNearBottomBefore", source)
 
+    def test_top_strips_share_a_reserved_message_viewport(self):
+        chat = read("Views/Chat/AIChatView/AIChatView.swift")
+        banners = read("Views/Chat/AIChatView/AIChatView+Banners.swift")
+        area = read("Views/Chat/AIChatView/AIChatView+MessagesArea.swift")
+        nav = read("Views/Chat/AIChatView/Toolbar/NavBarModifiers.swift")
+        self.assertEqual(chat.count(".safeAreaInset(edge: .top, spacing: 0)"), 1)
+        self.assertIn("extendsUnderNavigationBar: false", chat)
+        self.assertIn("extendsUnderNavigationBar ? .top : []", nav)
+        self.assertNotIn("BotRunStatusView(", chat)
+        self.assertIn("BotRunStatusView(", banners)
+        self.assertIn("ScheduledTaskBanner(", banners)
+        self.assertIn("ChatSearchBar(", banners)
+        self.assertNotIn("topBannersHeight", chat + area)
+        self.assertNotIn("extraTopInset:", area)
+        self.assertIn(".clipped()", area)
+
     def test_bot_chat_push_and_reduced_motion(self):
         source = read("Views/ContentView/Bots/BotWorkspaceView.swift")
         main = source.split("struct BotProfileEditor")[0]

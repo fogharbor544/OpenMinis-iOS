@@ -114,3 +114,17 @@ Commander entrypoints: BotWorkspaceStore/Profile/Archive, HelperRunner delegatio
 
 ### Final integration findings
 Manual navigation previously relied only on URLRequest timeout; a page waiting for load completion could leave the native UI loading. Added a bounded manual-navigation deadline and existing retry error presentation. Async browser reads begun before native login can complete while the user is entering a secret; interaction-generation checks now discard their response/error before model delivery. Current native fill/cleanup production JS passes 55 synthetic DOM assertions. Native WebKit, authentication, Keychain and device layout still require iOS acceptance.
+
+## Device UI follow-up
+- Device screenshots show chat message clipped behind navigation/reply strip and sparse capability Form rows with trailing-only separators.
+- Target platform is SwiftUI/UIKit iOS. Keep native grouped settings, semantic fonts/colors, >=44pt controls and Dynamic Type.
+- UI skill search confirms fixed elements must reserve viewport space; use SwiftUI settings grouping where appropriate.
+
+### Follow-up implementation decisions
+- Main chat opts out of iOS 26 under-navigation content; every top strip (including BotRunStatusView) now shares one safeAreaInset. Removed async banner-height compensation; collection rendering is confined to its viewport. Helper transcript presentation remains unchanged.
+- Agent Runtime icons now match adjacent settings: 21pt circle, 9pt white glyph, default system row/text sizing.
+- Capability identity and live OS status moved into card; one full-width internal divider, compact Bot-call policy menu. OS grants and tool permissions retain independent actions/state. Native text styles and semantic colors retained.
+
+### Follow-up validation boundary
+- 7 source-contract checks passed; 8 Swift files have no added grammar errors versus HEAD. Capability authorization/refresh/mapping implementation unchanged by byte-normalized comparison. Diff whitespace passed.
+- Updated existing Swift guards that required the retired banner-height compensation. Swift guards have not executed on Windows. Native rendering, Dynamic Type, VoiceOver, rotation, keyboard and streaming-scroll acceptance remain pending; no new package produced.

@@ -71,14 +71,16 @@ struct NavBarStyleModifier: ViewModifier {
     /// it (default true) rather than change behaviour that is not implicated.
     var measuresSafeArea: Bool = true
 
+    /// Transcript sheets retain their under-bar presentation. The main chat
+    /// reserves the navigation bar and banner stack in SwiftUI layout instead.
+    var extendsUnderNavigationBar: Bool = true
+
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            // iOS 26: extend content behind nav bar so liquid-glass has
-            // something to show through; the collection view's
-            // contentInsetAdjustmentBehavior = .automatic keeps messages
-            // starting below the bar.
+            // Under-bar content is opt-in for the main chat: automatic UIKit
+            // insets cannot reliably recover safe areas discarded by SwiftUI.
             content
-                .ignoresSafeArea(.container, edges: .top)
+                .ignoresSafeArea(.container, edges: extendsUnderNavigationBar ? .top : [])
                 .toolbarBackgroundVisibility(.visible, for: .navigationBar)
                 // [T-macos27-liquid-glass-navbar] See MacOS27GlassWorkaround in
                 // ContentView. `toolbarBackgroundVisibility(.visible)` only

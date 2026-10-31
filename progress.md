@@ -253,3 +253,9 @@ Astra medium read-only review found no confirmed defects. User now explicitly re
 - New repair checks plus existing Swift behavior, Bot archive/session/group, browser storage/macOS WebKit, schedule and backup tests succeeded in cloud; full Xcode unsigned Debug arm64 build/package/upload succeeded.
 - Downloaded build/cloud/41131029760/OpenMinis-unsigned.ipa (100860230 bytes), artifact13013232661. ZIP CRC/Mach-O arm64 passed; SHA256 7a42da073c28875023e6d2cd684402bac8e4ad46afb40fc458116c5a7644f838. Evidence verification.json/result.json beside IPA.
 - User signing/install/device testing pending. No real-device results claimed. Final documentation-only delivery record does not change compiled app source.
+
+## Device UI follow-up started
+Read RTK, UI skill and planning skill. Working tree clean. Investigating all three screenshot issues; native rg/git bypass denied RTK wrapper.
+
+### Device UI follow-up local completion
+Implemented standard runtime settings sizing, one reserved chat top viewport (including Bot status), and compact capability cards with explicit internal divider/native policy menu. Preserved helper transcript behavior and capability authorization/refresh/mapping implementation. Executed 7 Python source-contract checks, 8-file baseline grammar comparison, Python AST and git diff --check successfully. These are static checks; no Swift/Xcode/device execution or new IPA. Updated Swift banner guards for the new layout contract. Documented native acceptance in docs/ios-device-ui-followup.md. All changes remain local.

@@ -6,8 +6,8 @@
 // were drawn at y = 0 under the status bar's clock and battery, with the
 // dismiss button beside the battery (device repro, iPhone 11).
 //
-// Source guards (SwiftUI layout; the list-inset maths is shared with
-// ScheduledBannerTests).
+// Source guards for the reserved SwiftUI viewport. These do not substitute
+// for rendering and scroll acceptance on an iOS device.
 //
 // Run: swift TopBannersTests.swift
 import Foundation
@@ -44,20 +44,23 @@ let stack: String = {
 }()
 check("topBanners exists", !stack.isEmpty)
 let iSched = stack.range(of: "ScheduledTaskBanner(sessionId: sid)")?.lowerBound
+let iBot = stack.range(of: "BotRunStatusView(botID: bot.id, sessionID: sid)")?.lowerBound
 let iError = stack.range(of: "errorBanner(error)")?.lowerBound
 let iNotice = stack.range(of: "if let notice = vm.transientNotice {")?.lowerBound
 check("order: scheduled task, then error, then transient notice",
       iSched != nil && iError != nil && iNotice != nil && iSched! < iError! && iError! < iNotice!)
 check("stacked with no gap, so they can never overlap", stack.contains("VStack(spacing: 0) {"))
-check("mounted OUTSIDE NavBarStyleModifier (its top is the bar's bottom on every iOS)",
-      chat.contains(".modifier(NavBarStyleModifier(topSafeAreaInset: $topSafeAreaInset))")
+check("Bot status shares the reservation, before the scheduled task",
+      iBot != nil && iSched != nil && iBot! < iSched!)
+check("main chat respects the navigation safe area before reserving banners",
+      chat.contains("NavBarStyleModifier(topSafeAreaInset: $topSafeAreaInset, extendsUnderNavigationBar: false)")
       && chat.contains(".safeAreaInset(edge: .top, spacing: 0) {\n            topBanners"))
-check("ONE measured height for the whole stack drives the list's top inset",
-      chat.contains("topBanners\n                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in\n                    if abs(height - topBannersHeight) > 0.5 { topBannersHeight = height }")
-      && chat.contains("extraTopInset: Self.listTopInset(forTopBanners: topBannersHeight)"))
+check("no delayed banner measurement or duplicate list compensation",
+      !chat.contains("topBannersHeight") && !chat.contains("listTopInset(forTopBanners:"))
 
 print("\n▶️  nothing left in the old place")
 check("only one top inset in the chat page", count(".safeAreaInset(edge: .top, spacing: 0)") == 1)
+check("Bot status is rendered only from the stack", count("BotRunStatusView(botID: bot.id, sessionID: sid)") == 1)
 check("errorBanner is called only from the stack", count("errorBanner(error)") == 1 && stack.contains("errorBanner(error)"))
 check("the transient notice is rendered only from the stack", count("if let notice = vm.transientNotice {") == 1)
 

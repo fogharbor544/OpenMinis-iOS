@@ -305,5 +305,5 @@ Baseline 24057e5, clean worktree. Prior isolated row snapshots missed the real l
 
 ## Device polish follow-up: model picker, browser header, instruction alignment
 1. Compare pre-visual-pass navigation/model controls and current profile rows (complete).
-2. Restore original model picker under Bot name, fix browser title/time layout, place empty instruction value at trailing edge; preserve reserved chat viewport and title visibility fixes (implemented; local checks passed, native validation pending).
-3. Run targeted native/static checks and full cloud build using account3 public repository; verify/download new IPA (pending). Baseline7524043, clean worktree.
+2. Restore original model picker under Bot name, fix browser title/time layout, place empty instruction value at trailing edge; preserve reserved chat viewport and title visibility fixes (complete; local/native checks passed).
+3. Run targeted native/static checks and full cloud build using account3 public repository; verify/download new IPA (complete: bedcc9d device/source success, test-only3807e07 source/native success, app/workflow/dependencies identical; IPA downloaded and verified). Physical-device and complete-page interaction acceptance pending. Baseline7524043, clean worktree.

@@ -1,6 +1,6 @@
 # iOS 视觉统一（2026-10-31）
 
-最新交付：构建 3 号仓库按用户要求公开后，`41194088809` 的源码检查、原生布局和设备编译全部成功。修复版 IPA 已下载并校验；下文受阻记录描述公开之前的尝试。真机和完整页面交互仍待确认。
+最新交付：模型选择恢复原样、浏览器标题/时间排版和空指令右对齐已完成。设备编译成功，原生布局在 SDK 环境超时后重试通过；新 IPA 已下载并校验。详细证据见文末，完整页面和真机交互仍待确认。
 
 ## 统一规则
 
@@ -18,15 +18,15 @@
 
 ### 聊天
 
-Bot 名称独占导航栏标题，点击仍打开资料。模型、连接状态与运行状态组成下方控制区，模型选择和思考等级具有独立点击目标。模型的提供商、实际模型、快速模式和额度提示保留。
+按后续真机反馈恢复原来的紧凑导航标题：Bot 名称下方显示模型选择，保留模型组、提供商/实际模型、快速模式、额度点和思考等级标记。点击名称仍打开资料；运行状态单独显示在安全区占位内。
 
-控制区、定时任务、搜索、错误与临时提示仍共用一个顶部安全区域占位，保留消息视口裁切。输入区尺寸测量、键盘避让和自动跟随策略不变。非 Bot 聊天保留原导航标题路径。
+运行状态、定时任务、搜索、错误与临时提示仍共用一个顶部安全区域占位，保留消息视口裁切。输入区尺寸测量、键盘避让和自动跟随策略不变。非 Bot 聊天保留原导航标题路径。
 
 导航标题在固定导航栏内限制最大视觉字号；正文、设置与资料内容继续随辅助功能字号增长。回退提示遵循减少动态效果设置。
 
 ### Bot 资料
 
-使用明确的页标题、72pt 头像和系统标题字号。配置与会话控制复用设置行。根据后续真机反馈，浏览器区域已恢复为 `a796a2e` 的原有分组标题、188pt 预览卡片与悬浮“进入浏览器”入口。原终端、刷新、模型、记忆、文件、会话动作及锁定条件保留。
+使用明确的页标题、72pt 头像和系统标题字号。配置与会话控制复用设置行。浏览器保留 `a796a2e` 的 188pt 预览卡片与悬浮“进入浏览器”入口；标题在常规字号下单行，时间与菜单尾对齐，辅助功能字号采用分行元数据。“指令”为空时在常规行最右侧显示“未设置”，有内容时仍提供两行预览。原终端、刷新、模型、记忆、文件、会话动作及锁定条件保留。
 
 ### 内置能力
 
@@ -80,9 +80,15 @@ Bot 名称独占导航栏标题，点击仍打开资料。模型、连接状态�
 
 浏览器卡片和分组标题恢复为 `a796a2e` 原版；资料页和内置能力共用行显式保留图文标签，移除 `ViewThatFits` 的自适应分支。IPA 未签名，需要用户签名安装。完整页面、键盘、滚动、VoiceOver、横竖屏及真实设备权限行为仍待实测。
 
-## Additional device polish follow-up (implementation pending native validation)
+## 后续真机微调交付
 
-- Restore the original compact model picker below the Bot name using the pre-visual-pass principal title. Keep Bot status and all notices in the reserved safe-area stack, preserving the message viewport fix.
-- Browser header: flexible title, whole time badge and44pt menu on the trailing side; accessibility sizes stack metadata. Browser preview/card and all actions stay unchanged.
-- Empty instructions use the trailing Not set value; nonempty instructions retain their two-line preview.
-- Local7 contracts,6 Swift grammar comparisons, Python AST, exact navigation rollback and unchanged browser/action source checks pass. Added native List OCR bounding-box assertions for instruction alignment and browser time; actual cloud result pending.
+- 导航入口与 `a796a2e` 原版逐段比对一致；移除新增的独立模型横条，保留单一顶部安全区内的运行状态。浏览器预览和 Bot 操作/持久化代码与本次修改前一致。
+- 浏览器标题使用可收缩空间，时间保持完整单行，菜单点击区域至少 44pt。最大辅助字号下分行显示。空指令取消预览模式，使用普通设置行的尾部值。
+- 本地 7 项源码契约、6 个 Swift 文件语法比较、Python AST 和差异空白检查通过。
+- `bedcc9d` 的设备编译与源码检查成功；原生检查首次在 SDK 查询阶段超时，尚未编译测试应用。仅测试运行器调整为启动模拟器前解析 SDK/编译器，`3807e07` 的源码检查和原生布局检查全部成功。两版本应用、工作流和依赖源码一致，无需重复设备编译。
+- 16 组组件布局和 4 组真实列表检查全部通过，包括空指令的尾部位置、浏览器时间单行/尾对齐、标题可见性和行高断言。已人工检查浅深色普通列表、浅色 AX5 列表和 320pt 深色 AX5 中文组件快照。测试不等同于完整应用页面及真机验收。
+
+- IPA: `build/cloud/41210827764/OpenMinis-unsigned.ipa`, 100877147 bytes. ZIP CRC, arm64, Bundle ID and artifact revision verified; manifest: `verification.json`.
+- SHA256: `ad743d6de1ff0f4a5ec2e69f337dea09e520495099b1985db989bf7632b80dbe`.
+
+包未签名，需签名安装。真机、完整页面、键盘、滚动、VoiceOver 和横竖屏交互仍待实测。

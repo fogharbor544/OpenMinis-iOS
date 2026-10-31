@@ -109,7 +109,23 @@ struct BotProfileView: View {
                 .listRowSeparator(.hidden)
             }
 
-            Section { browserCard(bot) }
+            Section { browserCard(bot) } header: {
+                HStack(spacing: 6) {
+                    Text("\(bot.name)的浏览器")
+                    if liveBrowsing { BotProfileTag(text: "运行中", color: .green) }
+                    else if let preview { BotProfileTag(text: preview.capturedAt.formatted(.relative(presentation: .named)), color: .secondary) }
+                    Spacer()
+                    Menu {
+                        Button { openSessionThen { showTerminal = true } } label: { Label("打开终端", systemImage: "terminal") }
+                        Button { refreshBrowser() } label: { Label("刷新", systemImage: "arrow.clockwise") }
+                            .disabled(browserSessionID == nil)
+                    } label: {
+                        Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 32)
+                    }
+                    .accessibilityLabel("浏览器选项")
+                }
+                .textCase(nil)
+            }
 
             Section {
                 NavigationLink { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) } label: {
@@ -203,82 +219,53 @@ struct BotProfileView: View {
 
     @ViewBuilder
     private func browserCard(_ bot: BotProfile) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                SettingsActionIcon(systemImage: "globe", color: .blue)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("浏览器").font(.body)
-                    if liveBrowsing {
-                        Text("运行中").foregroundStyle(.secondary)
-                    } else if let preview {
-                        Text(preview.capturedAt.formatted(.relative(presentation: .named)))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .font(.footnote)
-                Spacer(minLength: 8)
-                Menu {
-                    Button { openSessionThen { showTerminal = true } } label: { Label("打开终端", systemImage: "terminal") }
-                    Button { refreshBrowser() } label: { Label("刷新", systemImage: "arrow.clockwise") }
-                        .disabled(browserSessionID == nil)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.body)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("浏览器选项")
-            }
-            .padding(.leading, 16)
-            .padding(.trailing, 4)
-            .padding(.vertical, 4)
-            Divider().padding(.horizontal, 16)
-            Button { openSessionThen {
-                guard let sid = resolvedSessionID else { return }
-                let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
-                vm.browserTabPool.sessionId = sid
-                browserTarget = BotBrowserTarget(id: sid, vm: vm)
-            } } label: {
-                VStack(spacing: 0) {
+        Button { openSessionThen {
+            guard let sid = resolvedSessionID else { return }
+            let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
+            vm.browserTabPool.sessionId = sid
+            browserTarget = BotBrowserTarget(id: sid, vm: vm)
+        } } label: {
+            ZStack(alignment: .bottom) {
+                Group {
                     if let preview {
-                        ZStack {
-                            Color(UIColor.tertiarySystemFill)
-                            Image(uiImage: preview.image).resizable().scaledToFill()
+                        Image(uiImage: preview.image).resizable().scaledToFill()
+                    } else {
+                        VStack(spacing: 8) {
+                            Image(systemName: "globe").font(.largeTitle).foregroundStyle(.secondary)
+                            Text("还没有打开过网页").font(.subheadline).foregroundStyle(.secondary)
                         }
-                        .frame(height: 140)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(UIColor.tertiarySystemFill))
                     }
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("进入浏览器").font(.body)
-                            Text(preview?.pageURL ?? "还没有打开过网页")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                                .truncationMode(.middle)
-                        }
-                        Spacer(minLength: 8)
-                        if openingSession { ProgressView() }
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                            .accessibilityHidden(true)
-                    }
-                    .frame(minHeight: 44)
-                    .padding(16)
                 }
-                .contentShape(Rectangle())
+                .frame(height: 188)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .overlay(alignment: .top) {
+                    if let url = preview?.pageURL {
+                        Text(url).font(.caption2.monospaced()).lineLimit(1)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.ultraThinMaterial)
+                    }
+                }
+                HStack(spacing: 4) {
+                    if openingSession { ProgressView().controlSize(.mini) }
+                    Text("进入浏览器")
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.bottom, 12)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.primary)
-            .disabled(openingSession)
-            .accessibilityLabel("进入浏览器")
-            .accessibilityValue(preview?.pageURL ?? "还没有打开过网页")
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
+        .buttonStyle(.plain)
+        .disabled(openingSession)
+        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+        .accessibilityLabel("进入浏览器")
+        .accessibilityValue(preview?.pageURL ?? "还没有打开过网页")
     }
 
     private func profileMenu(_ bot: BotProfile) -> some View {
@@ -516,6 +503,16 @@ struct BotRoomProfileView: View {
                 } catch { store.errorMessage = error.localizedDescription }
             }
         }
+    }
+}
+
+private struct BotProfileTag: View {
+    let text: String
+    let color: Color
+    var body: some View {
+        Text(text).font(.caption2.weight(.semibold)).foregroundStyle(color)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(color.opacity(0.15), in: Capsule())
     }
 }
 

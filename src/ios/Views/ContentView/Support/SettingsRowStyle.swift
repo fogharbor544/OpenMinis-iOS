@@ -28,11 +28,12 @@ struct SettingsRowLabel: View {
         } icon: {
             SettingsActionIcon(systemImage: systemImage, color: color)
         }
+        .labelStyle(.titleAndIcon)
     }
 }
 
-/// Short values align on the trailing edge; longer values move beneath the
-/// label instead of squeezing the title or disappearing at accessibility sizes.
+/// Keep a stable row in native lists and controls. Instruction previews and
+/// accessibility text use a vertical arrangement; ordinary values can wrap.
 struct SettingsDetailRow: View {
     let title: String
     let systemImage: String
@@ -44,17 +45,16 @@ struct SettingsDetailRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        if dynamicTypeSize.isAccessibilitySize {
+        if dynamicTypeSize.isAccessibilitySize || valueLineLimit != nil {
             stacked
         } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    SettingsRowLabel(title: title, systemImage: systemImage, color: color)
-                        .fixedSize()
-                    Spacer(minLength: 8)
-                    detail.fixedSize()
-                }
-                stacked
+            HStack(spacing: 12) {
+                SettingsRowLabel(title: title, systemImage: systemImage, color: color)
+                    .fixedSize()
+                Spacer(minLength: 8)
+                detail
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

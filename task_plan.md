@@ -291,3 +291,9 @@ d3ab594 device-build/run41172684736 SUCCESS. The Intel source worker's simulator
 
 ### Four-area implementation and verification complete
 8b95155/run41173472074 source-checks and ARM ui-layout SUCCESS. All 16 shared-row native layouts passed and four representative light/dark/AX5 snapshots were visually inspected. App source matches the successful d3ab594 device build. IPA downloaded and ZIP CRC/arm64/Bundle ID/artifact revision verified; verification.json records 100921324 bytes and SHA256. Full-page keyboard/scroll/VoiceOver/orientation and real-device appearance remain explicitly unverified in docs/ios-visual-consistency.md. No real device data touched.
+
+## 2026-10-31 device list label regression and browser rollback
+1. Restore only Bot profile browser section to the pre-visual-pass implementation (complete; exact a796a2e browser card/header comparison passed).
+2. Repair shared detail rows losing titles / inflating height in real List/Button/NavigationLink containers (implemented; native verification pending).
+3. Add native List-context validation; compile and deliver verified IPA through established authorized cloud workflow (in progress).
+Baseline 24057e5, clean worktree. Prior isolated row snapshots missed the real list-container behavior; screenshots show only SettingsDetailRow titles vanish, while direct SettingsRowLabel labels remain visible. Keep unrelated four-area changes and all data/permission/navigation behavior.

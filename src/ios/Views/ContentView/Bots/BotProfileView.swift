@@ -92,7 +92,8 @@ struct BotProfileView: View {
     // MARK: - Sections
 
     private func content(_ bot: BotProfile) -> some View {
-        List {
+        let instructionPreview = bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
+        return List {
             Section {
                 VStack(spacing: 8) {
                     Button { choosingAvatar = true } label: { BotAvatar(profile: bot, size: 72) }
@@ -110,21 +111,16 @@ struct BotProfileView: View {
             }
 
             Section { browserCard(bot) } header: {
-                HStack(spacing: 6) {
-                    Text("\(bot.name)的浏览器")
-                    if liveBrowsing { BotProfileTag(text: "运行中", color: .green) }
-                    else if let preview { BotProfileTag(text: preview.capturedAt.formatted(.relative(presentation: .named)), color: .secondary) }
-                    Spacer()
-                    Menu {
-                        Button { openSessionThen { showTerminal = true } } label: { Label("打开终端", systemImage: "terminal") }
-                        Button { refreshBrowser() } label: { Label("刷新", systemImage: "arrow.clockwise") }
-                            .disabled(browserSessionID == nil)
-                    } label: {
-                        Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 32)
-                    }
-                    .accessibilityLabel("浏览器选项")
+                BotBrowserSectionHeader(
+                    title: String(localized: "\(bot.name)的浏览器"),
+                    status: liveBrowsing ? String(localized: "运行中")
+                        : preview?.capturedAt.formatted(.relative(presentation: .named)),
+                    isRunning: liveBrowsing
+                ) {
+                    Button { openSessionThen { showTerminal = true } } label: { Label("打开终端", systemImage: "terminal") }
+                    Button { refreshBrowser() } label: { Label("刷新", systemImage: "arrow.clockwise") }
+                        .disabled(browserSessionID == nil)
                 }
-                .textCase(nil)
             }
 
             Section {
@@ -146,8 +142,8 @@ struct BotProfileView: View {
             Section("配置") {
                 Button { editingInstructions = true } label: {
                     SettingsDetailRow(title: "指令", systemImage: "text.alignleft", color: .gray,
-                                      value: bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init) ?? "未设置",
-                                      valueLineLimit: 2)
+                                      value: instructionPreview ?? "未设置",
+                                      valueLineLimit: instructionPreview == nil ? nil : 2)
                 }
                 .foregroundStyle(.primary)
                 .disabled(locked)
@@ -503,16 +499,6 @@ struct BotRoomProfileView: View {
                 } catch { store.errorMessage = error.localizedDescription }
             }
         }
-    }
-}
-
-private struct BotProfileTag: View {
-    let text: String
-    let color: Color
-    var body: some View {
-        Text(text).font(.caption2.weight(.semibold)).foregroundStyle(color)
-            .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(color.opacity(0.15), in: Capsule())
     }
 }
 

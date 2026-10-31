@@ -79,3 +79,10 @@ Bot 名称独占导航栏标题，点击仍打开资料。模型、连接状态�
 - SHA256：`baf5291f4266d34891fe394656483e259491322ca35ef4d463b8f51f60ae80b0`。
 
 浏览器卡片和分组标题恢复为 `a796a2e` 原版；资料页和内置能力共用行显式保留图文标签，移除 `ViewThatFits` 的自适应分支。IPA 未签名，需要用户签名安装。完整页面、键盘、滚动、VoiceOver、横竖屏及真实设备权限行为仍待实测。
+
+## Additional device polish follow-up (implementation pending native validation)
+
+- Restore the original compact model picker below the Bot name using the pre-visual-pass principal title. Keep Bot status and all notices in the reserved safe-area stack, preserving the message viewport fix.
+- Browser header: flexible title, whole time badge and44pt menu on the trailing side; accessibility sizes stack metadata. Browser preview/card and all actions stay unchanged.
+- Empty instructions use the trailing Not set value; nonempty instructions retain their two-line preview.
+- Local7 contracts,6 Swift grammar comparisons, Python AST, exact navigation rollback and unchanged browser/action source checks pass. Added native List OCR bounding-box assertions for instruction alignment and browser time; actual cloud result pending.

@@ -27,28 +27,8 @@ extension AIChatView {
 
     /// Size both title rows against the actual navigation pane, including split views.
     var chatNavPrincipalContent: some View {
-        Group {
-            if let bot = currentBot {
-                Button { showBotProfile = true } label: {
-                    Text(bot.name)
-                        .font(.headline)
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(ChatColors.primaryText)
-                .accessibilityHint(Text("打开 Bot 资料"))
-                .blur(radius: titleIsVisuallyLocked ? 8 : 0)
-                .allowsHitTesting(!titleIsVisuallyLocked)
-                .accessibilityHidden(titleIsVisuallyLocked)
-            } else {
-                titleView
-            }
-        }
-        .frame(width: max(0, navigationContainerWidth - 144), alignment: .center)
+        titleView
+            .frame(width: max(0, navigationContainerWidth - 144), alignment: .center)
     }
 
     /// [T-ios-navbar-toolbar-host] Everything the toolbar DISPLAYS (principal
@@ -524,26 +504,10 @@ extension AIChatView {
         }
     }
 
-    /// The Bot chat's reasoning control has its own full touch target outside
-    /// the fixed-height navigation title. Non-Bot titles retain the compact badge.
-    var botThinkingControl: some View {
-        Button { showThinkingLevelSheet = true } label: {
-            Label(vm.currentThinkingLevel.displayName, systemImage: "brain")
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, 8)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .accessibilityLabel(Text("Thinking Level"))
-        .accessibilityValue(vm.currentThinkingLevel.displayName)
-    }
-
     /// True when the current session's navbar title must render blurred —
     /// observed via `@ObservedObject lockStore` so toggles to the lock
     /// state push a re-render of the toolbar synchronously with the gate.
-    var titleIsVisuallyLocked: Bool {
+    private var titleIsVisuallyLocked: Bool {
         guard let sid = vm.sessionId, !sid.isEmpty else { return false }
         return lockStore.isVisuallyLocked(sid)
     }

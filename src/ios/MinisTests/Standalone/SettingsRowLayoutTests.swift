@@ -111,6 +111,20 @@ final class LayoutTestDelegate: NSObject, UIApplicationDelegate {
                     for title in expected where !text.contains(title.lowercased()) {
                         failures.append("\(name): visible list title missing: \(title)")
                     }
+                    let observations = request.results ?? []
+                    if !large {
+                        if let title = recognizedBounds("Instructions", in: observations),
+                           let value = recognizedBounds("Not set", in: observations) {
+                            if value.minX <= title.maxX || value.maxX < 0.8 || abs(value.midY - title.midY) > 0.015 {
+                                failures.append("\(name): empty instruction state is not on the trailing side of its title")
+                            }
+                        } else { failures.append("\(name): instruction alignment could not be verified") }
+                    }
+                    if let status = recognizedBounds("hours ago", in: observations) {
+                        if !large && status.maxX < 0.7 {
+                            failures.append("\(name): browser time is not aligned to the trailing side")
+                        }
+                    } else { failures.append("\(name): browser time did not remain readable on one line") }
                     let maximumHeight = maximumVisibleRowHeight(host.view)
                     if maximumHeight <= 0 || maximumHeight > (large ? 350 : 160) {
                         failures.append("\(name): inflated native list row: \(maximumHeight)")
@@ -133,9 +147,17 @@ final class LayoutTestDelegate: NSObject, UIApplicationDelegate {
     private var listContent: some View {
         NavigationStack {
             List {
+                Section {
+                    Text("Browser preview").frame(minHeight: 44)
+                } header: {
+                    BotBrowserSectionHeader(
+                        title: "Realtime browser for a deliberately long Bot name",
+                        status: "12 hours ago", isRunning: false
+                    ) { Button("Refresh") {} }
+                }
                 Section("Configuration") {
                     Button {} label: {
-                        SettingsDetailRow(title: "Instructions", systemImage: "text.alignleft", color: .gray, value: "Not set", valueLineLimit: 2)
+                        SettingsDetailRow(title: "Instructions", systemImage: "text.alignleft", color: .gray, value: "Not set")
                     }.foregroundStyle(.primary)
                     NavigationLink { Text("Destination") } label: {
                         SettingsDetailRow(title: "Skills", systemImage: "puzzlepiece.extension", color: .purple, value: "5 / 5")
@@ -178,6 +200,17 @@ final class LayoutTestDelegate: NSObject, UIApplicationDelegate {
         }
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowSeparator(.hidden)
+    }
+
+    private func recognizedBounds(_ text: String, in observations: [VNRecognizedTextObservation]) -> CGRect? {
+        for observation in observations {
+            guard let candidate = observation.topCandidates(1).first,
+                  let range = candidate.string.range(of: text, options: .caseInsensitive) else { continue }
+            if let rectangle = try? candidate.boundingBox(for: range) {
+                return rectangle.boundingBox
+            }
+        }
+        return nil
     }
 
     private func maximumVisibleRowHeight(_ view: UIView) -> CGFloat {

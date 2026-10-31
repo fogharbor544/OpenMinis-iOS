@@ -928,6 +928,7 @@ struct BotRunStatusView: View {
     /// Home rows show the status only while something is happening, so an
     /// idle list reads like the reference: name, time and last message.
     var hidesWhenIdle = false
+    var allowsWrapping = false
     @ObservedObject private var activity = SessionActivityTracker.shared
     @ObservedObject private var workspace = BotWorkspaceStore.shared
 
@@ -970,12 +971,17 @@ struct BotRunStatusView: View {
         let isQuiet = !value.running && value.symbol != "exclamationmark.triangle"
         if !(hidesWhenIdle && isQuiet) {
             HStack(spacing: 5) {
-                if value.running { ProgressView().controlSize(.mini) }
-                else { Image(systemName: value.symbol) }
-                Text(value.text).lineLimit(1)
+                if value.running { ProgressView().controlSize(.mini).tint(.green) }
+                else {
+                    Image(systemName: value.symbol)
+                        .accessibilityHidden(true)
+                }
+                Text(value.text)
+                    .lineLimit(allowsWrapping ? 2 : 1)
+                    .fixedSize(horizontal: false, vertical: allowsWrapping)
             }
             .font(.caption)
-            .foregroundStyle(value.running ? Color.green : .secondary)
+            .foregroundStyle(.secondary)
             .accessibilityElement(children: .combine)
         }
     }

@@ -74,11 +74,7 @@ extension AIChatView {
     var topBanners: some View {
         VStack(spacing: 0) {
             if let sid = vm.sessionId, let bot = botWorkspace.bot(forSession: sid) {
-                BotRunStatusView(botID: bot.id, sessionID: sid)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .background(.bar)
+                botConversationControls(bot, sessionID: sid)
             }
             if let sid = vm.sessionId {
                 ScheduledTaskBanner(sessionId: sid)
@@ -110,6 +106,70 @@ extension AIChatView {
                     }
             }
         }
+    }
+
+    private func botConversationControls(_ bot: BotProfile, sessionID sid: String) -> some View {
+        let display = SessionModelDisplay(store: configStore, draftGroupId: vm.initialGroupId)
+        let name = display.displayName(for: sid)
+        let resolved = display.resolvedDetail(for: sid)
+        let modelLabel = resolved.map {
+            display.isGroupBound(for: sid)
+                ? "\(name) · \($0.providerLabel) · \($0.modelName)"
+                : "\($0.providerLabel) · \($0.modelName)"
+        } ?? name
+        let entry = vm.resolveCurrentEntry()
+        let isAuthed = configStore.binding(for: sid) != nil || !configStore.instances.isEmpty
+        let quotaLow = isAuthed && ModelQuotaStatusDot.isLow(instanceId: entry?.providerInstanceId,
+                                                            modelId: entry?.baseModel.id)
+        return HStack(spacing: 12) {
+            Button { showModelPicker = true } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        ModelQuotaStatusDot(isAuthed: isAuthed,
+                                            instanceId: entry?.providerInstanceId,
+                                            modelId: entry?.baseModel.id)
+                            .accessibilityHidden(true)
+                        if let symbol = displayedSpeedTier.badgeSymbol {
+                            Image(systemName: symbol)
+                                .foregroundStyle(.orange)
+                                .accessibilityLabel(Text(verbatim: displayedSpeedTier.title))
+                        }
+                        Text(modelLabel)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                    .font(.subheadline.weight(.medium))
+                    BotRunStatusView(botID: bot.id, sessionID: sid, allowsWrapping: true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12 * fallbackPulseOpacity)))
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(Text(isAuthed
+                ? AppLocalized("\(name), signed in", comment: "VoiceOver value: model picker, authenticated")
+                : AppLocalized("\(name), not signed in", comment: "VoiceOver value: model picker, not authenticated"))
+                + Text(quotaLow ? AppLocalized(", quota low", comment: "VoiceOver: appended to the model value when the model's quota or balance is low") : ""))
+            .accessibilityHint(Text("Opens the model picker"))
+            if !vm.availableThinkingLevels.isEmpty,
+               vm.currentThinkingLevel.isEnabled || vm.currentModelSupportsReasoning {
+                botThinkingControl
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(ChatColors.background)
+        .overlay(alignment: .bottom) { Divider() }
+        .onChange(of: vm.fallbackTrigger) { _ in animateModelFallback() }
+        .blur(radius: titleIsVisuallyLocked ? 8 : 0)
+        .allowsHitTesting(!titleIsVisuallyLocked)
+        .accessibilityHidden(titleIsVisuallyLocked)
     }
 
     // MARK: - Error Banner

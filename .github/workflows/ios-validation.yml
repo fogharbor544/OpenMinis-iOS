@@ -65,6 +65,16 @@ jobs:
         run: |
           swift src/ios/MinisTests/Standalone/TopBannersTests.swift
           swift src/ios/MinisTests/Standalone/ScheduledBannerTests.swift
+      - name: Native settings row layout checks
+        run: python3 src/ios/MinisTests/Standalone/run_settings_layout_tests.py
+      - name: Upload native layout snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-layout-snapshots
+          path: build/validation/ui-layout
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Bot workspace persistence tests
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"

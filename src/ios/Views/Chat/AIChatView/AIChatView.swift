@@ -1108,6 +1108,17 @@ struct AIChatView: View {
             }
             .presentationDetents([.large])
         }
+        .sheet(isPresented: $showThinkingLevelSheet) {
+            ThinkingLevelSheetView(
+                currentLevel: vm.currentThinkingLevel,
+                availableLevels: vm.availableThinkingLevels,
+                onSelect: { newLevel in
+                    vm.setThinkingLevel(newLevel)
+                    showThinkingLevelSheet = false
+                }
+            )
+            .presentationDetents([.medium])
+        }
         .sheet(isPresented: $showTokenUsage) {
             TokenUsageSheet(vm: cached.vm)
                 .presentationDetents([.fraction(0.8), .large])

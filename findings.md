@@ -131,3 +131,19 @@ Manual navigation previously relied only on URLRequest timeout; a page waiting f
 
 ### Follow-up cloud results
 Superseding the local-only limitations for executed checks: fe7d5a3 device build succeeded in run41168685061; corrected scheduler test references at93918e5 passed all source checks in run41169079297. Application source is identical across these revisions. Downloaded unsigned arm64 IPA has valid ZIP CRC and matching artifact provenance; device UI acceptance still belongs to the user.
+
+## Four-area visual consistency audit started
+Target: Settings, main chat chrome, Bot profile and built-in capabilities. Preserve prior reserved chat viewport fix. Existing code is SwiftUI/UIKit, with native grouped settings and semantic colors. Audit shared icon/row components before adding abstractions.
+
+### Audit findings and direction
+- Main settings uses 21pt circular white-glyph icons; Skills SettingsActionIcon and BackupActionIcon already repeat this specification. Reuse this established visual language across settings, Bot profile and capability identity.
+- Bot profile has a large empty 188pt browser tile, labels mixed with unbounded trailing values, a 32pt browser-menu target and no explicit page title. Adaptive rows and a compact browser header/preview will improve hierarchy without changing actions.
+- Chat title currently stacks three tightly spaced rows with negative spacing and 9pt model text. Preserve legacy non-Bot paths and reserved viewport; give Bot chats a readable two-row principal item, one model-picker target and a quiet status strip.
+- UX domain search retry remained web-oriented; no applicable native match was accepted. Adopt verified SwiftUI Dynamic Type/adaptive-layout results and skill built-in native checklist, anchored to repository components.
+- Read/search error: Views/Components does not exist; use actual Views/Settings and existing shared files.
+
+### Implementation checkpoint
+- Extracted established SettingsActionIcon into ContentView/Support/SettingsRowStyle.swift (synchronized group); shared SettingsRowLabel/SettingsDetailRow cover normal and accessibility layouts. Main settings, skill detail, backup actions, Bot profile and capability cards reuse it.
+- Profile now has an explicit inline title, 72pt avatar, native browser card with a compact empty state/optional 140pt screenshot, 44pt options menu, and adaptive configuration summaries.
+- Bot chats use one-line navigation titles and a 44pt model/status control plus a separate 44pt reasoning control in the reserved top stack. Non-Bot title and composer measurement paths retained; thinking-sheet presentation moved to the stable chat root. Status text wraps up to two lines and uses readable semantic secondary text; active spinner retains green.
+- Local 7 contracts and 10-file tracked Swift grammar comparison passed. New shared source still needs explicit syntax/native checking. Full rendering, keyboard/scroll interaction and cloud compile pending.

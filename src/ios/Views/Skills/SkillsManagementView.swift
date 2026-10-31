@@ -431,27 +431,6 @@ private struct SkillFileDocumentPicker: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Settings-style row icon
-
-/// A circular colored badge with a white SF Symbol centered inside, used for
-/// the skill detail action rows instead of a bare tinted glyph.
-/// [T-skill-detail-icons][T-skill-icon-circular] Spec is copied VERBATIM from
-/// the main Settings page rows (ContentView Agent Runtime / Appearance
-/// sections): 9pt default-weight white glyph in a 21×21 colored circle —
-/// keep the two surfaces identical; don't retune one without the other.
-private struct SettingsActionIcon: View {
-    let systemImage: String
-    let color: Color
-
-    var body: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 9))
-            .foregroundStyle(.white)
-            .frame(width: 21, height: 21)
-            .background(color, in: Circle())
-    }
-}
-
 // MARK: - Skill Detail View
 
 private struct SkillDetailView: View {

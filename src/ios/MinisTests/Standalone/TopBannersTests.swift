@@ -44,7 +44,7 @@ let stack: String = {
 }()
 check("topBanners exists", !stack.isEmpty)
 let iSched = stack.range(of: "ScheduledTaskBanner(sessionId: sid)")?.lowerBound
-let iBot = stack.range(of: "BotRunStatusView(botID: bot.id, sessionID: sid)")?.lowerBound
+let iBot = stack.range(of: "botConversationControls(bot, sessionID: sid)")?.lowerBound
 let iError = stack.range(of: "errorBanner(error)")?.lowerBound
 let iNotice = stack.range(of: "if let notice = vm.transientNotice {")?.lowerBound
 check("order: scheduled task, then error, then transient notice",
@@ -60,7 +60,7 @@ check("no delayed banner measurement or duplicate list compensation",
 
 print("\n▶️  nothing left in the old place")
 check("only one top inset in the chat page", count(".safeAreaInset(edge: .top, spacing: 0)") == 1)
-check("Bot status is rendered only from the stack", count("BotRunStatusView(botID: bot.id, sessionID: sid)") == 1)
+check("Bot controls are mounted only from the stack", count("botConversationControls(bot, sessionID: sid)") == 1)
 check("errorBanner is called only from the stack", count("errorBanner(error)") == 1 && stack.contains("errorBanner(error)"))
 check("the transient notice is rendered only from the stack", count("if let notice = vm.transientNotice {") == 1)
 

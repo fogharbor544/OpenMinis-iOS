@@ -305,6 +305,8 @@ struct BuiltinCapabilitiesView: View {
             Section {
                 Text("健康读取权限由 iOS 隐藏，不会显示为已开启。地图和天气无需独立授权；定位权限单独管理。相机和音乐共用媒体工具许可。返回应用后会重新检查系统授权。")
                     .font(.footnote).foregroundStyle(.secondary)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)
@@ -321,32 +323,15 @@ struct BuiltinCapabilitiesView: View {
     }
 
     private func capabilityCard(_ app: (id: String, name: String, icon: String)) -> some View {
-        // A single list row owns the card's layout and separator.
-        // Native row separators otherwise align to the trailing
-        // status instead of the card's leading content edge.
+        // Match the native settings rows while keeping both permission layers
+        // together. This row owns its full-width inset separator.
         VStack(spacing: 4) {
             Button { Task { await manage(app.id) } } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: app.icon)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
-                        .background(Color(UIColor.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(app.name)
-                            .font(.body.weight(.medium))
-                        HStack(spacing: 5) {
-                            Image(systemName: granted.contains(app.id) ? "checkmark.circle.fill" : "info.circle")
-                                .foregroundStyle(granted.contains(app.id) ? Color.green : Color.secondary)
-                                .accessibilityHidden(true)
-                            Text(statuses[app.id] ?? "检查中")
-                                .foregroundStyle(granted.contains(app.id) ? Color.secondary : Color.primary)
-                        }
-                        .font(.footnote.weight(.medium))
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
+                    SettingsDetailRow(title: app.name, systemImage: app.icon, color: capabilityTint(app.id),
+                                      value: statuses[app.id] ?? "检查中",
+                                      valueColor: granted.contains(app.id) ? .secondary : .primary,
+                                      valueSymbol: granted.contains(app.id) ? "checkmark.circle.fill" : nil)
                     if busy == app.id { ProgressView() }
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
@@ -354,7 +339,6 @@ struct BuiltinCapabilitiesView: View {
                         .accessibilityHidden(true)
                 }
                 .frame(minHeight: 44)
-                .padding(.vertical, 4)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -366,36 +350,58 @@ struct BuiltinCapabilitiesView: View {
 
             if let command = command(for: app.id) {
                 Divider()
-                HStack(spacing: 12) {
-                    Text("Bot 调用")
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Menu {
-                        Picker("工具使用许可", selection: Binding(get: { permissions.permissionLevel(for: command) }, set: { permissions.setPermissionLevel($0, for: command) })) {
-                            Text("允许").tag(OffloadPermissionLevel.bypass)
-                            Text("每个会话首次询问").tag(OffloadPermissionLevel.askOnce)
-                            Text("禁止").tag(OffloadPermissionLevel.notAllowed)
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(permissions.permissionLevel(for: command).displayName)
-                            Image(systemName: "chevron.down")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                        .contentShape(Rectangle())
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        Text("Bot 调用").foregroundStyle(.secondary).fixedSize()
+                        Spacer(minLength: 8)
+                        permissionMenu(command, name: app.name).fixedSize()
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                    .accessibilityLabel("\(app.name)：工具使用许可")
-                    .accessibilityValue(permissions.permissionLevel(for: command).displayName)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Bot 调用").foregroundStyle(.secondary)
+                        permissionMenu(command, name: app.name)
+                    }
                 }
                 .font(.subheadline)
             }
         }
-        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 4, trailing: 16))
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowSeparator(.hidden)
+    }
+
+    private func permissionMenu(_ command: String, name: String) -> some View {
+        Menu {
+            Picker("工具使用许可", selection: Binding(get: { permissions.permissionLevel(for: command) }, set: { permissions.setPermissionLevel($0, for: command) })) {
+                Text("允许").tag(OffloadPermissionLevel.bypass)
+                Text("每个会话首次询问").tag(OffloadPermissionLevel.askOnce)
+                Text("禁止").tag(OffloadPermissionLevel.notAllowed)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(permissions.permissionLevel(for: command).displayName)
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .accessibilityLabel("\(name)：工具使用许可")
+        .accessibilityValue(permissions.permissionLevel(for: command).displayName)
+    }
+
+    private func capabilityTint(_ id: String) -> Color {
+        switch id {
+        case "photos", "camera", "maps": return .blue
+        case "music": return .pink
+        case "health": return .red
+        case "notification": return .purple
+        case "weather", "location": return .teal
+        case "clipboard": return .gray
+        default: return .orange
+        }
     }
 
     @MainActor private func refresh() async {

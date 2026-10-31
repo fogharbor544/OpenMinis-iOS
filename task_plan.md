@@ -279,3 +279,9 @@ Run41168685061 source job failed only at two previously unexecuted ScheduledBann
 - Test correction 93918e5/run41169079297: source-checks SUCCESS. App/workflow source comparison confirms no difference from the compiled revision.
 - Downloaded build/cloud/41168685061/OpenMinis-unsigned.ipa (100881304 bytes). ZIP CRC, arm64, Bundle ID, artifact revision and SHA256 verified; verification.json records both runs.
 - Cloud compilation and requested package delivery complete. User signing/install and actual device UI acceptance remain pending. Final documentation changes do not alter compiled application source.
+
+## 2026-10-31 four-area iOS visual consistency
+1. Audit existing shared components and adjacent settings/chat/profile/capability screens; choose native reusable visual rules (complete).
+2. Implement focused shared styling and four-area improvements, preserving features/data/navigation/permissions (complete).
+3. Validate responsive layout and source contracts locally; use established cloud compilation where needed; distinguish native build from device rendering (in progress).
+Baseline a796a2e; working tree clean. Existing cloud delivery authorization retained. No device/simulator available on Windows; native visual acceptance cannot be claimed from source checks.

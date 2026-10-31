@@ -45,20 +45,6 @@ struct SettingsSheet: View {
     @State private var navPath = NavigationPath()
     @State private var showFeedbackDialog = false
 
-    private func runtimeLabel(_ title: String, icon: String, color: Color) -> some View {
-        Label {
-            Text(AppLocalized(String.LocalizationValue(title)))
-                .font(.body)
-        } icon: {
-            Image(systemName: icon)
-                .font(.system(size: 9))
-                .foregroundStyle(.white)
-                .frame(width: 21, height: 21)
-                .background(color, in: Circle())
-                .accessibilityHidden(true)
-        }
-    }
-
     var body: some View {
         NavigationStack(path: $navPath) {
             List {
@@ -66,23 +52,19 @@ struct SettingsSheet: View {
                     NavigationLink {
                         ProviderInstancesView()
                     } label: {
-                        if #available(iOS 26, *) {
-                            Label("Manage Providers", systemImage: "key.circle.fill")
-                        } else {
-                            Label("Manage Providers", systemImage: "lock.circle.fill")
-                        }
+                        SettingsRowLabel(title: "Manage Providers", systemImage: "key.fill", color: .orange)
                     }
 
                     NavigationLink {
                         ModelGroupsView()
                     } label: {
-                        Label("Model Groups", systemImage: "gearshape.circle.fill")
+                        SettingsRowLabel(title: "Model Groups", systemImage: "square.stack.3d.up.fill", color: .indigo)
                     }
 
                     NavigationLink {
                         UsageStatsView()
                     } label: {
-                        Label("Token Usage", systemImage: "chart.line.uptrend.xyaxis.circle.fill")
+                        SettingsRowLabel(title: "Token Usage", systemImage: "chart.line.uptrend.xyaxis", color: .green)
                     }
                 } header: {
                     Text("LLM Providers")
@@ -97,21 +79,17 @@ struct SettingsSheet: View {
                         Label {
                             Text("Appearance")
                         } icon: {
-                            Image(systemName: "paintbrush.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            SettingsActionIcon(systemImage: "paintbrush.fill", color: .indigo)
                         }
                     }
                 }
 
                 Section("Agent Runtime") {
-                    NavigationLink { ToolsSettingsView() } label: { runtimeLabel("Agent 工具", icon: "wrench.and.screwdriver", color: .orange) }
-                    NavigationLink { HelperSettingsView() } label: { runtimeLabel("子代理", icon: "person.2", color: .blue) }
-                    NavigationLink { EnvironmentVariablesView() } label: { runtimeLabel("环境变量", icon: "terminal", color: .teal) }
-                    NavigationLink { SkillsManagementView() } label: { runtimeLabel("Skills", icon: "puzzlepiece.extension", color: .purple) }
-                    NavigationLink { MCPIntegrationsView() } label: { runtimeLabel("连接器", icon: "square.stack.3d.up", color: .indigo) }
+                    NavigationLink { ToolsSettingsView() } label: { SettingsRowLabel(title: "Agent 工具", systemImage: "wrench.and.screwdriver", color: .orange) }
+                    NavigationLink { HelperSettingsView() } label: { SettingsRowLabel(title: "子代理", systemImage: "person.2", color: .blue) }
+                    NavigationLink { EnvironmentVariablesView() } label: { SettingsRowLabel(title: "环境变量", systemImage: "terminal", color: .teal) }
+                    NavigationLink { SkillsManagementView() } label: { SettingsRowLabel(title: "Skills", systemImage: "puzzlepiece.extension", color: .purple) }
+                    NavigationLink { MCPIntegrationsView() } label: { SettingsRowLabel(title: "连接器", systemImage: "square.stack.3d.up", color: .indigo) }
                 }
 
                 Section("Storage") {
@@ -121,11 +99,7 @@ struct SettingsSheet: View {
                         Label {
                             Text("Storage")
                         } icon: {
-                            Image(systemName: "archivebox")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.blue, in: Circle())
+                            SettingsActionIcon(systemImage: "archivebox", color: .blue)
                         }
                     }
                     // Moved here from the Bot home list (was "Shared Materials").
@@ -135,11 +109,7 @@ struct SettingsSheet: View {
                         Label {
                             Text("共享记忆")
                         } icon: {
-                            Image(systemName: "brain")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.pink, in: Circle())
+                            SettingsActionIcon(systemImage: "brain", color: .pink)
                         }
                     }
                     NavigationLink {
@@ -148,11 +118,7 @@ struct SettingsSheet: View {
                         Label {
                             Text("Shared Folders")
                         } icon: {
-                            Image(systemName: "folder.fill.badge.person.crop")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.green, in: Circle())
+                            SettingsActionIcon(systemImage: "folder.fill.badge.person.crop", color: .green)
                         }
                     }
                     NavigationLink {
@@ -161,11 +127,7 @@ struct SettingsSheet: View {
                         Label {
                             Text("Mount External Folders")
                         } icon: {
-                            Image(systemName: "externaldrive.badge.plus")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.orange, in: Circle())
+                            SettingsActionIcon(systemImage: "externaldrive.badge.plus", color: .orange)
                         }
                     }
                     if #available(iOS 17.0, *) {
@@ -177,11 +139,7 @@ struct SettingsSheet: View {
                             Label {
                                 Text("iCloud Sync")
                             } icon: {
-                                Image(systemName: "icloud")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 21, height: 21)
-                                    .background(.cyan, in: Circle())
+                                SettingsActionIcon(systemImage: "icloud", color: .cyan)
                             }
                         }
                     }
@@ -196,11 +154,7 @@ struct SettingsSheet: View {
                         } icon: {
                             // arrow.triangle.2.circlepath reads as a round trip
                             // rather than a one-way export.
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            SettingsActionIcon(systemImage: "arrow.triangle.2.circlepath", color: .indigo)
                         }
                     }
                 }
@@ -212,11 +166,7 @@ struct SettingsSheet: View {
                         Label {
                             Text("Permissions")
                         } icon: {
-                            Image(systemName: "lock.shield")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.red, in: Circle())
+                            SettingsActionIcon(systemImage: "lock.shield", color: .red)
                         }
                     }
                     if BiometricAuth.isAvailable {
@@ -228,11 +178,7 @@ struct SettingsSheet: View {
                             } icon: {
                                 // Match SF Symbol to the device's actual sensor — Touch ID
                                 // devices showed a Face ID glyph here before.
-                                Image(systemName: BiometricAuth.biometryIconName)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 21, height: 21)
-                                    .background(.teal, in: Circle())
+                                SettingsActionIcon(systemImage: BiometricAuth.biometryIconName, color: .teal)
                             }
                         }
                     }
@@ -245,11 +191,7 @@ struct SettingsSheet: View {
                         Label {
                             Text("Logs")
                         } icon: {
-                            Image(systemName: "doc.text")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.gray, in: Circle())
+                            SettingsActionIcon(systemImage: "doc.text", color: .gray)
                         }
                     }
                 }
@@ -261,22 +203,14 @@ struct SettingsSheet: View {
                         Label {
                             Text("About Minis")
                         } icon: {
-                            Image(systemName: "info")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            SettingsActionIcon(systemImage: "info", color: .indigo)
                         }
                     }
                     Link(destination: URL(string: "https://openminis.github.io/privacy-policy.html")!) {
                         Label {
                             Text("Privacy Policy")
                         } icon: {
-                            Image(systemName: "hand.raised")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.teal, in: Circle())
+                            SettingsActionIcon(systemImage: "hand.raised", color: .teal)
                         }
                     }
                     Button {
@@ -285,11 +219,7 @@ struct SettingsSheet: View {
                         Label {
                             Text("Feedback")
                         } icon: {
-                            Image(systemName: "bubble.left.and.bubble.right.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white)
-                                .frame(width: 21, height: 21)
-                                .background(.indigo, in: Circle())
+                            SettingsActionIcon(systemImage: "bubble.left.and.bubble.right.fill", color: .indigo)
                         }
                     }
                     .foregroundStyle(.primary)
@@ -308,6 +238,7 @@ struct SettingsSheet: View {
                 }
 
             }
+            .listStyle(.insetGrouped)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

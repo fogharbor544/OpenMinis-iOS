@@ -31,11 +31,7 @@ struct BackupActionIcon: View {
     let tint: Color
 
     var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: 9))
-            .foregroundStyle(.white)
-            .frame(width: 21, height: 21)
-            .background(tint, in: Circle())
+        SettingsActionIcon(systemImage: systemName, color: tint)
     }
 }
 

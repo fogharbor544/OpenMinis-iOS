@@ -79,6 +79,7 @@ struct BotProfileView: View {
             if let bot { content(bot) }
             else { ContentUnavailableLabel(text: "This Bot or group no longer exists.") }
         }
+        .navigationTitle("Bot 资料")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -93,80 +94,68 @@ struct BotProfileView: View {
     private func content(_ bot: BotProfile) -> some View {
         List {
             Section {
-                VStack(spacing: 10) {
-                    Button { choosingAvatar = true } label: { BotAvatar(profile: bot, size: 92) }
+                VStack(spacing: 8) {
+                    Button { choosingAvatar = true } label: { BotAvatar(profile: bot, size: 72) }
                         .buttonStyle(.plain)
                         .disabled(locked)
                         .accessibilityLabel("更改头像")
-                    Text(bot.name).font(.title2.weight(.bold)).multilineTextAlignment(.center)
-                    BotRunStatusView(botID: bot.id, sessionID: sessionID)
+                    Text(bot.name).font(.title2.weight(.semibold)).multilineTextAlignment(.center)
+                        .accessibilityAddTraits(.isHeader)
+                    BotRunStatusView(botID: bot.id, sessionID: sessionID, allowsWrapping: true)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                .padding(.vertical, 12)
                 .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
 
-            Section { browserCard(bot) } header: {
-                HStack(spacing: 6) {
-                    Text("\(bot.name)的浏览器")
-                    if liveBrowsing { BotProfileTag(text: "运行中", color: .green) }
-                    else if let preview { BotProfileTag(text: preview.capturedAt.formatted(.relative(presentation: .named)), color: .secondary) }
-                    Spacer()
-                    Menu {
-                        Button { openSessionThen { showTerminal = true } } label: { Label("打开终端", systemImage: "terminal") }
-                        Button { refreshBrowser() } label: { Label("刷新", systemImage: "arrow.clockwise") }
-                            .disabled(browserSessionID == nil)
-                    } label: {
-                        Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 32)
-                    }
-                    .accessibilityLabel("浏览器选项")
-                }
-                .textCase(nil)
-            }
+            Section { browserCard(bot) }
 
             Section {
                 NavigationLink { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) } label: {
-                    Label("长期记忆", systemImage: "brain")
+                    SettingsRowLabel(title: "长期记忆", systemImage: "brain", color: .pink)
                 }
                 if let sessionID {
-                    Button { request(.files) } label: { Label("对话文件", systemImage: "folder") }
+                    Button { request(.files) } label: { SettingsRowLabel(title: "对话文件", systemImage: "folder", color: .blue) }
                         .foregroundStyle(.primary)
-                    Button { request(.scheduledTasks) } label: { Label("定时任务", systemImage: "clock") }
+                    Button { request(.scheduledTasks) } label: { SettingsRowLabel(title: "定时任务", systemImage: "clock", color: .orange) }
                         .foregroundStyle(.primary)
                 } else {
                     NavigationLink { ScheduledTasksManagementView(botID: bot.id) } label: {
-                        Label("定时任务", systemImage: "clock")
+                        SettingsRowLabel(title: "定时任务", systemImage: "clock", color: .orange)
                     }
                 }
             }
 
             Section("配置") {
                 Button { editingInstructions = true } label: {
-                    LabeledRow(title: "指令", symbol: "text.alignleft",
-                               value: bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init) ?? "未设置")
+                    SettingsDetailRow(title: "指令", systemImage: "text.alignleft", color: .gray,
+                                      value: bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init) ?? "未设置",
+                                      valueLineLimit: 2)
                 }
+                .foregroundStyle(.primary)
                 .disabled(locked)
                 Picker(selection: modelGroupBinding(bot)) {
                     Text("Default Model Group").tag("")
                     ForEach(providers.modelGroups) { group in Text(group.name).tag(group.id) }
-                } label: { Label("模型组", systemImage: "square.stack.3d.up") }
+                } label: { SettingsRowLabel(title: "模型组", systemImage: "square.stack.3d.up", color: .indigo) }
                 .disabled(locked)
                 NavigationLink { BotCapabilityToggles(botID: bot.id, skills: true) } label: {
-                    LabeledRow(title: "技能", symbol: "puzzlepiece.extension",
+                    SettingsDetailRow(title: "技能", systemImage: "puzzlepiece.extension", color: .purple,
                                value: enabledCount(bot.skillOverrides, all: skills.skills.map { ($0.id, $0.isEnabled) }))
                 }
                 NavigationLink { BotCapabilityToggles(botID: bot.id, skills: false) } label: {
-                    LabeledRow(title: "连接器 (MCP)", symbol: "powerplug",
+                    SettingsDetailRow(title: "连接器 (MCP)", systemImage: "square.stack.3d.up", color: .indigo,
                                value: enabledCount(bot.connectorOverrides, all: connectors.servers.map { ($0.id, $0.enabled) }))
                 }
-                Toggle(isOn: memoryBinding(bot)) { Label("启用长期记忆", systemImage: "brain.head.profile") }
+                Toggle(isOn: memoryBinding(bot)) { SettingsRowLabel(title: "启用长期记忆", systemImage: "brain.head.profile", color: .pink) }
                     .disabled(locked)
                 NavigationLink { HelperSettingsView(scopeBotID: bot.id) } label: {
-                    LabeledRow(title: "子代理", symbol: "person.2",
+                    SettingsDetailRow(title: "子代理", systemImage: "person.2", color: .blue,
                                value: "\(subAgents.subAgents.filter { $0.ownerBotId == bot.id }.count) 个专属")
                 }
                 NavigationLink { EnvironmentVariablesView(scopeBotID: bot.id) } label: {
-                    LabeledRow(title: "环境变量", symbol: "terminal",
+                    SettingsDetailRow(title: "环境变量", systemImage: "terminal", color: .teal,
                                value: "\(envVars.entries(ownedBy: bot.id).count) 个专属")
                 }
             }
@@ -177,11 +166,12 @@ struct BotProfileView: View {
                     chatActionRow("分享聊天", "square.and.arrow.up", .share)
                     chatActionRow("压缩消息", "arrow.down.right.and.arrow.up.left", .compact)
                     chatActionRow("用量统计", "number", .tokenUsage)
-                    Button(role: .destructive) { request(.clear) } label: { Label("清空聊天", systemImage: "trash") }
+                    Button(role: .destructive) { request(.clear) } label: { SettingsRowLabel(title: "清空聊天", systemImage: "trash", color: .red) }
                 }
                 if let controls = chatControls { chatControlSections(controls) }
             }
         }
+        .listStyle(.insetGrouped)
         .sheet(isPresented: $choosingAvatar) { BotAvatarPicker(botID: bot.id) }
         .sheet(isPresented: $editingInstructions) { BotInstructionsEditor(botID: bot.id) }
         .sheet(item: $browserTarget, onDismiss: loadPreview) { target in
@@ -213,53 +203,82 @@ struct BotProfileView: View {
 
     @ViewBuilder
     private func browserCard(_ bot: BotProfile) -> some View {
-        Button { openSessionThen {
-            guard let sid = resolvedSessionID else { return }
-            let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
-            vm.browserTabPool.sessionId = sid
-            browserTarget = BotBrowserTarget(id: sid, vm: vm)
-        } } label: {
-            ZStack(alignment: .bottom) {
-                Group {
-                    if let preview {
-                        Image(uiImage: preview.image).resizable().scaledToFill()
-                    } else {
-                        VStack(spacing: 8) {
-                            Image(systemName: "globe").font(.largeTitle).foregroundStyle(.secondary)
-                            Text("还没有打开过网页").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(UIColor.tertiarySystemFill))
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                SettingsActionIcon(systemImage: "globe", color: .blue)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("浏览器").font(.body)
+                    if liveBrowsing {
+                        Text("运行中").foregroundStyle(.secondary)
+                    } else if let preview {
+                        Text(preview.capturedAt.formatted(.relative(presentation: .named)))
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .frame(height: 188)
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .overlay(alignment: .top) {
-                    if let url = preview?.pageURL {
-                        Text(url).font(.caption2.monospaced()).lineLimit(1)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.ultraThinMaterial)
-                    }
+                .font(.footnote)
+                Spacer(minLength: 8)
+                Menu {
+                    Button { openSessionThen { showTerminal = true } } label: { Label("打开终端", systemImage: "terminal") }
+                    Button { refreshBrowser() } label: { Label("刷新", systemImage: "arrow.clockwise") }
+                        .disabled(browserSessionID == nil)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
-                HStack(spacing: 4) {
-                    if openingSession { ProgressView().controlSize(.mini) }
-                    Text("进入浏览器")
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                }
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 16).padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .padding(.bottom, 12)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("浏览器选项")
             }
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.leading, 16)
+            .padding(.trailing, 4)
+            .padding(.vertical, 4)
+            Divider().padding(.horizontal, 16)
+            Button { openSessionThen {
+                guard let sid = resolvedSessionID else { return }
+                let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
+                vm.browserTabPool.sessionId = sid
+                browserTarget = BotBrowserTarget(id: sid, vm: vm)
+            } } label: {
+                VStack(spacing: 0) {
+                    if let preview {
+                        ZStack {
+                            Color(UIColor.tertiarySystemFill)
+                            Image(uiImage: preview.image).resizable().scaledToFill()
+                        }
+                        .frame(height: 140)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                    }
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("进入浏览器").font(.body)
+                            Text(preview?.pageURL ?? "还没有打开过网页")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                        }
+                        Spacer(minLength: 8)
+                        if openingSession { ProgressView() }
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(minHeight: 44)
+                    .padding(16)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .disabled(openingSession)
+            .accessibilityLabel("进入浏览器")
+            .accessibilityValue(preview?.pageURL ?? "还没有打开过网页")
         }
-        .buttonStyle(.plain)
-        .disabled(openingSession)
-        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
-        .accessibilityLabel("进入浏览器")
-        .accessibilityValue(preview?.pageURL ?? "还没有打开过网页")
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
     }
 
     private func profileMenu(_ bot: BotProfile) -> some View {
@@ -285,7 +304,7 @@ struct BotProfileView: View {
     }
 
     private func chatActionRow(_ title: String, _ symbol: String, _ action: BotChatAction) -> some View {
-        Button { request(action) } label: { Label(title, systemImage: symbol) }
+        Button { request(action) } label: { SettingsRowLabel(title: title, systemImage: symbol, color: .blue) }
             .foregroundStyle(.primary)
     }
 
@@ -295,14 +314,14 @@ struct BotProfileView: View {
     private func chatControlSections(_ controls: BotChatControls) -> some View {
         Section {
             Toggle(isOn: toggle(.speak, controls.speakEnabled, controls.setSpeakEnabled)) {
-                Label("朗读回复", systemImage: "speaker.wave.2")
+                SettingsRowLabel(title: "朗读回复", systemImage: "speaker.wave.2", color: .blue)
             }
             if controls.showsKeepAwake {
                 Toggle(isOn: toggle(.keepAwake, controls.keepAwakeEnabled, controls.setKeepAwake)) {
-                    Label("保持屏幕常亮", systemImage: "sun.max")
+                    SettingsRowLabel(title: "保持屏幕常亮", systemImage: "sun.max", color: .orange)
                 }
                 Toggle(isOn: toggle(.screenSaver, controls.screenSaverNowEnabled, controls.setScreenSaverNow)) {
-                    Label("使用屏保", systemImage: "moon.stars")
+                    SettingsRowLabel(title: "使用屏保", systemImage: "moon.stars", color: .indigo)
                 }
             }
         } footer: {
@@ -312,7 +331,7 @@ struct BotProfileView: View {
             Section("模型") {
                 if controls.showEnhancedCacheToggle {
                     Toggle(isOn: toggle(.enhancedCache, controls.enhancedCacheEnabled, controls.setEnhancedCache)) {
-                        Label("增强缓存", systemImage: "clock.arrow.circlepath")
+                        SettingsRowLabel(title: "增强缓存", systemImage: "clock.arrow.circlepath", color: .teal)
                     }
                 }
                 if controls.showFastModeToggle {
@@ -322,7 +341,7 @@ struct BotProfileView: View {
                             ForEach(SpeedTier.allCases, id: \.self) { tier in
                                 Label(tier.title, systemImage: tier.symbol).tag(tier)
                             }
-                        } label: { Label("快速模式", systemImage: SpeedTier.entrySymbol) }
+                        } label: { SettingsRowLabel(title: "快速模式", systemImage: SpeedTier.entrySymbol, color: .orange) }
                     } else {
                         Toggle(isOn: Binding(get: { (overriddenTier ?? controls.speedTier) != .standard },
                                              set: { on in
@@ -330,7 +349,7 @@ struct BotProfileView: View {
                                                  overriddenTier = tier
                                                  controls.setSpeedTier(tier)
                                              })) {
-                            Label("快速模式", systemImage: SpeedTier.fast.symbol)
+                            SettingsRowLabel(title: "快速模式", systemImage: SpeedTier.fast.symbol, color: .orange)
                         }
                     }
                 }
@@ -497,29 +516,6 @@ struct BotRoomProfileView: View {
                 } catch { store.errorMessage = error.localizedDescription }
             }
         }
-    }
-}
-
-private struct LabeledRow: View {
-    let title: String
-    let symbol: String
-    let value: String
-    var body: some View {
-        HStack {
-            Label(title, systemImage: symbol).foregroundStyle(.primary)
-            Spacer(minLength: 12)
-            Text(value).foregroundStyle(.secondary).lineLimit(1)
-        }
-    }
-}
-
-private struct BotProfileTag: View {
-    let text: String
-    let color: Color
-    var body: some View {
-        Text(text).font(.caption2.weight(.semibold)).foregroundStyle(color)
-            .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(color.opacity(0.15), in: Capsule())
     }
 }
 

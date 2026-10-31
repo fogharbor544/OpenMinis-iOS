@@ -262,3 +262,6 @@ Implemented standard runtime settings sizing, one reserved chat top viewport (in
 
 ### Device UI cloud run started
 Committed/pushed fe7d5a3; full run41168685061 started for exactly this revision. Added TopBannersTests and ScheduledBannerTests to cloud source checks. Native dependencies and Swift regression tests are in progress. No build success or package download claimed yet.
+
+### Device UI cloud delivery complete
+Run41168685061 device-build SUCCESS; first source job exposed two obsolete nextCronDate references in newly enabled ScheduledBannerTests. Test-only fix93918e5 pushed; run41169079297 source-checks SUCCESS. Compiled app and workflow match both revisions exactly. Downloaded IPA artifact13029804073 to build/cloud/41168685061/OpenMinis-unsigned.ipa (100881304 bytes); CRC/Mach-O arm64/Bundle ID/provenance checks passed, SHA256 a05e81f816f466eb3b18ac3428cab156bbd616b413fcc78936f3643e8931ac63. Evidence verification.json/result.json. User signing and device acceptance pending; no device results claimed.

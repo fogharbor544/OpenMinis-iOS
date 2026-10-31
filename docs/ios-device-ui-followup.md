@@ -12,7 +12,7 @@
 - 8 个修改过的 Swift 文件相对 HEAD 没有新增 tree-sitter 语法错误；Python AST 检查通过。报告保存在 `build/validation/device-ui-followup/syntax.json`。
 - `git diff --check` 通过。
 
-以上属于本地静态检查，不代表 Swift 编译、Swift 测试执行或真机显示验证。现有 `TopBannersTests.swift`、`ScheduledBannerTests.swift` 的旧布局断言已更新，尚未在 Swift 环境执行。
+以上属于初始本地静态检查，不代表真机显示验证。后续云端编译和测试结果见下文。
 
 ## 待真机验收
 
@@ -22,4 +22,14 @@
 4. 检查内置能力卡片的浅色/深色模式、375pt 窄屏、横屏及最大 Dynamic Type，确认文字可换行、菜单可操作、分割线完整。
 5. 修改工具调用许可，触发系统授权并从系统设置返回；确认两种权限仍独立生效、状态刷新。
 
-当前 Windows 环境没有 Swift/Xcode 和 iOS 真机运行环境；本次尚未产生新安装包。
+## 云构建与 IPA 交付
+
+- 应用版本 `fe7d5a3`：运行 `41168685061` 的 `device-build` 成功，完成 Xcode Debug arm64 编译、打包和上传。
+- 首次源码任务因两处测试仍引用旧函数名 `nextCronDate` 失败；已将引用修正为生产代码现用的 `nextCalendarFire`。
+- 测试修正版 `93918e5`：运行 `41169079297` 的全部源码验证成功，包括两组顶部横幅检查、Swift 行为测试及原有备份/浏览器/权限测试。
+- 已比较两版本：应用代码与工作流完全相同，只有测试引用及记录发生变化。因此无需重复编译相同应用代码。
+- IPA 已下载到 `build/cloud/41168685061/OpenMinis-unsigned.ipa`，大小 100881304 bytes；CRC、Mach-O arm64、Bundle ID 及制品来源校验通过。
+- SHA256：`a05e81f816f466eb3b18ac3428cab156bbd616b413fcc78936f3643e8931ac63`。
+- 包为未签名 Debug IPA，iOS 16+；需用户签名安装。真机 UI、滚动和系统授权表现仍待上述步骤验收。
+
+构建和校验证据保存在对应 `build/cloud` 目录的 `result.json`、`artifacts.json`、`verification.json`。

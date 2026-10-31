@@ -18,11 +18,15 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
-def capture(*args):
-    return subprocess.check_output(args, text=True, timeout=60).strip()
+def capture(*args, timeout=60):
+    return subprocess.check_output(args, text=True, timeout=timeout).strip()
 
 
 def main():
+    # Resolve the toolchain before the simulator's first-boot work competes
+    # for resources. SDK discovery timed out after boot on an ARM worker.
+    sdk = capture("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path", timeout=120)
+    swiftc = capture("xcrun", "--find", "swiftc")
     devices = json.loads(capture("xcrun", "simctl", "list", "devices", "available", "--json"))["devices"]
     phones = [device for runtime, values in devices.items() if ".iOS-" in runtime
               for device in values if device["name"].startswith("iPhone")]
@@ -36,7 +40,6 @@ def main():
         if booted_here:
             run("xcrun", "simctl", "boot", udid)
         run("xcrun", "simctl", "bootstatus", udid, "-b", timeout=240)
-        sdk = capture("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
         arch = "arm64" if platform.machine() == "arm64" else "x86_64"
         with tempfile.TemporaryDirectory(prefix="minis-ui-layout-") as temp:
             app = Path(temp) / "LayoutValidation.app"
@@ -45,7 +48,7 @@ def main():
                     "CFBundlePackageType": "APPL", "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0",
                     "MinimumOSVersion": "16.0", "UIDeviceFamily": [1, 2], "UILaunchScreen": {}}
             (app / "Info.plist").write_bytes(plistlib.dumps(info))
-            run("xcrun", "swiftc", "-swift-version", "5", "-sdk", sdk, "-target", f"{arch}-apple-ios16.0-simulator",
+            run(swiftc, "-swift-version", "5", "-sdk", sdk, "-target", f"{arch}-apple-ios16.0-simulator",
                 str(ROOT / "Views/ContentView/Support/SettingsRowStyle.swift"),
                 str(ROOT / "Views/ContentView/Support/BotBrowserSectionHeader.swift"),
                 str(ROOT / "MinisTests/Standalone/SettingsRowLayoutTests.swift"), "-o", str(app / "LayoutValidation"), timeout=180)

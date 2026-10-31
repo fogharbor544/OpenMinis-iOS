@@ -277,3 +277,12 @@ d3ab594/run41172684736 device-build succeeded. Intel simulator boot migration ti
 
 ## Device regression repair started
 User requests browser region rollback and repairs for missing titles in Bot profile and built-in capabilities. Working tree clean at 24057e5. Preserve other UI changes and existing data logic; previous isolated visual checks did not cover the failing container context.
+
+### List regression cloud verification started
+Committed/pushed 6a1b372, full run41179959963 started. Browser card/header match a796a2e exactly. Local 7 contracts, 3 Swift grammar comparisons, Python AST and diff whitespace pass. Added 4 real native list contexts with screen OCR/title presence and visible-cell height assertions in addition to the 16 component cases. Await actual cloud results before claiming title/render/build pass.
+
+### Build account 3 retry authorized
+Run41179959963 did not start any job: GitHub reported recent account payment failures or a spending limit issue. No compilation, rendering or IPA resulted. User explicitly directed use of build account3. Verified saved third account fogharbor544 matches existing origin private OpenMinis-iOS repository with ADMIN permission. Pushed exact6a1b372 to a new codex/bot-single-chat branch there without force; full run41180487104 dispatched. No billing settings or spending limits changed.
+
+### Account3 run blocked before execution
+Run41180487104 for exact6a1b372 completed FAILURE with zero steps in source-checks, ui-layout and device-build. Read each check annotation: all report recent account payments failed or spending limit needs increasing, directing the account owner to Billing & plans. This is an infrastructure refusal, not a compilation result. No current-fix native tests ran and no new IPA exists. Monitor stopped. Local review additionally confirmed explicit title/icon style, deterministic rows, real List OCR/height test wiring, Python AST, and unchanged Bot action/persistence source against24057e5. Source implementation is committed on both authorized private build repositories; account3 billing restoration is required for further cloud verification. No account billing settings changed and no prior IPA is represented as this fix.

@@ -285,3 +285,6 @@ Run41168685061 source job failed only at two previously unexecuted ScheduledBann
 2. Implement focused shared styling and four-area improvements, preserving features/data/navigation/permissions (complete).
 3. Validate responsive layout and source contracts locally; use established cloud compilation where needed; distinguish native build from device rendering (in progress).
 Baseline a796a2e; working tree clean. Existing cloud delivery authorization retained. No device/simulator available on Windows; native visual acceptance cannot be claimed from source checks.
+
+### Native layout infrastructure retry
+d3ab594 device-build/run41172684736 SUCCESS. The Intel source worker's simulator timed out in first-boot LaunchServices data migration before compiling/running the layout harness; source remainder was skipped. Cancellation was requested as the run finished, so no cancellation occurred. Move native rendering to a separate macos-26 ARM job, bound subprocess/cleanup duration, and rerun validation without rebuilding identical app code. Record the first run as a validation-environment failure, not an app layout pass.

@@ -48,15 +48,15 @@ struct SettingsSheet: View {
     private func runtimeLabel(_ title: String, icon: String, color: Color) -> some View {
         Label {
             Text(AppLocalized(String.LocalizationValue(title)))
+                .font(.body)
         } icon: {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 30, height: 30)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .font(.system(size: 9))
+                .foregroundStyle(.white)
+                .frame(width: 21, height: 21)
+                .background(color, in: Circle())
                 .accessibilityHidden(true)
         }
-        .frame(minHeight: 44)
     }
 
     var body: some View {

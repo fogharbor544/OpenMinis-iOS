@@ -422,9 +422,6 @@ struct AIChatView: View {
     @State var lastRecognizedLength: Int = 0
     /// Intent-based auto-scroll: stays true until the user actively scrolls up
     @State private var topSafeAreaInset: CGFloat = 59
-    /// [T-scheduled-banner] [T-error-banner-under-navbar] Measured height of
-    /// everything in `topBanners` together — what the list must start below.
-    @State var topBannersHeight: CGFloat = 0
     @Environment(\.horizontalSizeClass) var hSizeClass
 
     /// [T-ios-de-voice-toolbar] Measured width of the composer's bottom row,
@@ -772,20 +769,12 @@ struct AIChatView: View {
             }
         }
         .environment(\.chatSessionId, vm.sessionId)
-        .modifier(NavBarStyleModifier(topSafeAreaInset: $topSafeAreaInset))
-        // [T-scheduled-banner] Next run of this chat's scheduled task, pinned
-        // under the navigation bar. Outside NavBarStyleModifier on purpose:
-        // on iOS 26 that modifier lets the content run up behind the bar, so
-        // an inset placed inside it would sit behind the bar too (y = 0). Out
-        // here the safe area's top IS the bar's bottom. The list is told the
-        // banner's height (iOS 26 only; see `extraTopInset`) so it starts
-        // below it. The banner observes the job registry and ticks in its own
-        // view, so this body re-renders only when its height changes.
+        .modifier(NavBarStyleModifier(topSafeAreaInset: $topSafeAreaInset, extendsUnderNavigationBar: false))
+        // One layout reservation for every pinned strip, including Bot status.
+        // The message viewport starts below this stack on every iOS version;
+        // no measured height or UIKit content-inset compensation is needed.
         .safeAreaInset(edge: .top, spacing: 0) {
             topBanners
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                    if abs(height - topBannersHeight) > 0.5 { topBannersHeight = height }
-                }
         }
         .navigationBarTitleDisplayMode(.inline)
         // The editor role shifts the principal title toward the leading edge.
@@ -1132,14 +1121,6 @@ struct AIChatView: View {
             guard let target = note.object as? (sessionId: String, messageId: UUID),
                   target.sessionId == vm.sessionId else { return }
             openSharePicker(selecting: target.messageId)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if let sid = cached.vm.sessionId, let bot = botWorkspace.bot(forSession: sid) {
-                BotRunStatusView(botID: bot.id, sessionID: sid)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 6)
-                    .background(.bar)
-            }
         }
         .sheet(isPresented: $showBotScheduledTasks) {
             NavigationStack {

@@ -199,14 +199,13 @@ check("running state uses the task page's own rule", page.contains("isFiringNow:
 
 print("\n▶️  3. mounting, ticking, tap, accessibility, style")
 let list = messageListV3Source()
-check("mounted in a top inset OUTSIDE NavBarStyleModifier (iOS 26 runs content behind the bar), first in topBanners",
-      chat.contains(".modifier(NavBarStyleModifier(topSafeAreaInset: $topSafeAreaInset))\n        // [T-scheduled-banner]")
+check("mounted with Bot status in the reserved top inset, below the navigation bar",
+      chat.contains("NavBarStyleModifier(topSafeAreaInset: $topSafeAreaInset, extendsUnderNavigationBar: false)")
       && chat.contains(".safeAreaInset(edge: .top, spacing: 0) {\n            topBanners")
-      && chat.contains("VStack(spacing: 0) {\n            if let sid = vm.sessionId {\n                ScheduledTaskBanner(sessionId: sid)"))
-check("the top banners' measured height is passed to the list on iOS 26 only",
-      chat.contains("extraTopInset: Self.listTopInset(forTopBanners: topBannersHeight)")
-      && chat.contains("if #available(iOS 26, *) { return height }\n        return 0"))
-check("the list adds it to its top content inset",
+      && chat.contains("if let sid = vm.sessionId {\n                ScheduledTaskBanner(sessionId: sid)"))
+check("SwiftUI owns banner clearance without measured list compensation",
+      !chat.contains("topBannersHeight") && !chat.contains("listTopInset(forTopBanners:"))
+check("generic list callers retain their explicit top-inset support",
       list.contains("if #available(iOS 26, *) { return extraTopInset } else { return 8 + extraTopInset }")
       && list.contains("coord.extraTopInset = extraTopInset"))
 check("ticks with a 1 s TimelineView only while shown", page.contains("TimelineView(.periodic(from: .now, by: 1))")

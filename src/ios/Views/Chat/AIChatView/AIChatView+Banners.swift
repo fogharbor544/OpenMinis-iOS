@@ -68,17 +68,18 @@ extension AIChatView {
 
     // MARK: - Top banners  [T-error-banner-under-navbar]
 
-    /// Everything pinned under the navigation bar, top to bottom:
-    /// 1. the scheduled task's next run — it persists while the task lives,
-    ///    so it stays put on top and nothing transient pushes it around;
-    /// 2. the error banner — transient, dismissable, next to the content it
-    ///    is about;
-    /// 3. the transient notice (~4 s).
-    /// One stack, one measured height, so the list's top inset covers them
-    /// all and they can never overlap each other.
+    /// Bot status, scheduled tasks, search and notices share one safe-area
+    /// inset. SwiftUI reserves their actual height before laying out messages.
     @ViewBuilder
     var topBanners: some View {
         VStack(spacing: 0) {
+            if let sid = vm.sessionId, let bot = botWorkspace.bot(forSession: sid) {
+                BotRunStatusView(botID: bot.id, sessionID: sid)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .background(.bar)
+            }
             if let sid = vm.sessionId {
                 ScheduledTaskBanner(sessionId: sid)
             }

@@ -24,14 +24,6 @@ import WebKit
 extension AIChatView {
     // MARK: - Messages
 
-    /// [T-scheduled-banner] On iOS 26 the content runs behind the navigation
-    /// bar and the top banners, so the list adds their height to its top
-    /// inset; earlier iOS lays the list out below both.
-    static func listTopInset(forTopBanners height: CGFloat) -> CGFloat {
-        if #available(iOS 26, *) { return height }
-        return 0
-    }
-
     var messagesArea: some View {
         ZStack {
             CollectionViewMessageListV3(
@@ -64,9 +56,11 @@ extension AIChatView {
                 maxContentWidth: maxContentWidth ?? 0,
                 floatingBarHeight: floatingBarHeight,
                 inputBarHeight: inputBarHeight,
-                extraTopInset: Self.listTopInset(forTopBanners: topBannersHeight),
                 composerLiveHeight: composerLiveHeight
             )
+            // Confine scrolling cells to the reserved message viewport, so
+            // they never draw through the navigation bar or pinned banners.
+            .clipped()
             // Empty/loading overlay for tap-to-dismiss-keyboard.
             // Placed BEFORE the directory timeline in the ZStack so the
             // timeline can sit on top and receive its own taps (folder-card

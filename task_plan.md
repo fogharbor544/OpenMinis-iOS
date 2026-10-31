@@ -254,3 +254,19 @@ User authorizes commit, push, cloud validation/build and IPA delivery on codex/b
 
 ### 2026-10-31 authorized delivery outcome
 Commit/push complete at d4453fb. Full run41131029760 passed source-checks and device-build. Unsigned IPA downloaded and CRC/arm64 verified at build/cloud/41131029760/OpenMinis-unsigned.ipa; evidence verification.json/result.json. Requested cloud build/package delivery complete. Signing and device acceptance remain user-owned and unverified. Earlier Windows-only validation notes are superseded for checks actually executed in the cloud workflow; unexecuted native XCTest/device cases remain pending.
+
+## 2026-10-31 device UI follow-up
+1. Inspect settings typography, chat top geometry and built-in capability layout (complete).
+2. Implement consistent settings scale, unobscured chat viewport and compact capability cards (complete).
+3. Run targeted checks and record device/build limitations (complete for available local checks; native build/device acceptance pending).
+Scope: requested three iOS UI defects; preserve existing work. No new commit/push/build dispatch requested.
+Errors: RTK executable access denied; use native executable paths. No project instruction file found. Windows has no Xcode.
+
+### Follow-up phase update
+Inspection complete; source changes implemented for all three defects. Targeted local checks and manual source review in progress. Actual iOS rendering/build still pending.
+
+### Follow-up local completion
+7 Python source contracts pass. 8 edited Swift files have no new tree-sitter grammar errors relative to HEAD; Python AST and diff whitespace pass. Authorization/refresh/command-mapping source tail matches HEAD exactly. Updated existing Swift banner guards but did not execute Swift. Device/build acceptance and checklist: docs/ios-device-ui-followup.md. No commit, push, CI dispatch or new IPA.
+
+## Device UI cloud delivery authorized
+User requests successful cloud compilation and IPA download for real-device validation. Use existing private darkyuanbao06 remote and codex/bot-single-chat branch. Include the updated banner regression guards in the existing workflow. Commit/push reviewed changes, dispatch full build, resolve actual failures, download and verify unsigned arm64 IPA. CLI credentials require execution outside the sandbox; do not expose tokens. Native device acceptance remains user-owned.

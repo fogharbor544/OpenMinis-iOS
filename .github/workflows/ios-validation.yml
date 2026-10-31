@@ -61,6 +61,10 @@ jobs:
         run: |
           swift src/ios/MinisTests/Standalone/ScheduledRunNowTests.swift
           swift src/ios/MinisTests/Standalone/ScheduledTaskDetailTests.swift
+      - name: Chat top viewport and banner regression guards
+        run: |
+          swift src/ios/MinisTests/Standalone/TopBannersTests.swift
+          swift src/ios/MinisTests/Standalone/ScheduledBannerTests.swift
       - name: Bot workspace persistence tests
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"

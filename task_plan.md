@@ -270,3 +270,6 @@ Inspection complete; source changes implemented for all three defects. Targeted 
 
 ## Device UI cloud delivery authorized
 User requests successful cloud compilation and IPA download for real-device validation. Use existing private darkyuanbao06 remote and codex/bot-single-chat branch. Include the updated banner regression guards in the existing workflow. Commit/push reviewed changes, dispatch full build, resolve actual failures, download and verify unsigned arm64 IPA. CLI credentials require execution outside the sandbox; do not expose tokens. Native device acceptance remains user-owned.
+
+### Cloud test correction
+Run41168685061 source job failed only at two previously unexecuted ScheduledBannerTests source assertions referring to nextCronDate; current production code uses nextCalendarFire. Layout guards and compiled banner-model cases passed. Correct two test references, push test-only follow-up and run source checks while the unchanged app device build continues. Verify no application source difference between build/test revisions before artifact delivery. CLI run-log endpoint waits for all jobs; individual completed job logs fetched via API with ANSI stripped.

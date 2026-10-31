@@ -295,5 +295,5 @@ d3ab594 device-build/run41172684736 SUCCESS. The Intel source worker's simulator
 ## 2026-10-31 device list label regression and browser rollback
 1. Restore only Bot profile browser section to the pre-visual-pass implementation (complete; exact a796a2e browser card/header comparison passed).
 2. Repair shared detail rows losing titles / inflating height in real List/Button/NavigationLink containers (implemented; native verification pending).
-3. Add native List-context validation; compile and deliver verified IPA through established authorized cloud workflow (in progress).
+3. Add native List-context validation (implemented); compile and deliver verified IPA (pending: both41179959963 and user-authorized build account3 retry41180487104 were refused before any job steps because of account billing/spending limits).
 Baseline 24057e5, clean worktree. Prior isolated row snapshots missed the real list-container behavior; screenshots show only SettingsDetailRow titles vanish, while direct SettingsRowLabel labels remain visible. Keep unrelated four-area changes and all data/permission/navigation behavior.

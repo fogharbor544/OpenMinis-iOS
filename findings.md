@@ -153,3 +153,8 @@ ARM ui-layout/run41173472074 passed all 16 cases. Downloaded actual iOS simulato
 
 ## Device list regression findings
 The device screenshots show missing titles only in adaptive SettingsDetailRow rows (instructions/skills/connectors/agents/environment and built-in capability identities). Direct label rows such as the model group and memory toggle remain visible. The adaptive row places an automatic SwiftUI Label inside ViewThatFits, so container-driven label presentation and size negotiation need to be removed from this path. Verify the repaired rows in an actual native List with Button and NavigationLink wrappers, rather than only detached sizeThatFits/ImageRenderer samples.
+
+### Regression verification infrastructure
+Run41179959963 ended before any job steps because of GitHub billing/spending limits; this is not a compile failure or a test pass. User authorized switching to saved build account3, verified as owner of the existing private origin repository. Retry41180487104 builds exact6a1b372. Native list/title/height verification still pending.
+
+The account3 retry41180487104 was also refused before any steps with the same billing/spending-limit annotation in all3 jobs. ARM capacity notices are informational; the explicit failure is billing. The proposed title/layout repair remains unverified on iOS. Neither run produced a current-fix IPA. Do not retry without an external account-state change or further user direction.

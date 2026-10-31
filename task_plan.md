@@ -297,3 +297,8 @@ d3ab594 device-build/run41172684736 SUCCESS. The Intel source worker's simulator
 2. Repair shared detail rows losing titles / inflating height in real List/Button/NavigationLink containers (implemented; native verification pending).
 3. Add native List-context validation (implemented); compile and deliver verified IPA (pending: 41179959963, user-authorized build account3 retry41180487104, and account2 initialization run41181156783 were refused before any job steps because of account billing/spending limits).
 Baseline 24057e5, clean worktree. Prior isolated row snapshots missed the real list-container behavior; screenshots show only SettingsDetailRow titles vanish, while direct SettingsRowLabel labels remain visible. Keep unrelated four-area changes and all data/permission/navigation behavior.
+
+## Public account3 build retry
+1. Verify explicit publication target and audit all refs/history/logs/artifacts (complete).
+2. Make existing account3 repository public as requested (complete; isPrivate=false).
+3. Follow full run41194088809, fix actual failures, verify/download IPA if successful (complete: all3 jobs succeeded; IPA downloaded, CRC/arm64/Bundle ID/artifact provenance/SHA256 verified). Other accounts visibility and billing settings preserved. Real-device and complete-page interaction acceptance remains user-owned.

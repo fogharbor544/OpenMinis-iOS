@@ -128,3 +128,6 @@ Manual navigation previously relied only on URLRequest timeout; a page waiting f
 ### Follow-up validation boundary
 - 7 source-contract checks passed; 8 Swift files have no added grammar errors versus HEAD. Capability authorization/refresh/mapping implementation unchanged by byte-normalized comparison. Diff whitespace passed.
 - Updated existing Swift guards that required the retired banner-height compensation. Swift guards have not executed on Windows. Native rendering, Dynamic Type, VoiceOver, rotation, keyboard and streaming-scroll acceptance remain pending; no new package produced.
+
+### Follow-up cloud results
+Superseding the local-only limitations for executed checks: fe7d5a3 device build succeeded in run41168685061; corrected scheduler test references at93918e5 passed all source checks in run41169079297. Application source is identical across these revisions. Downloaded unsigned arm64 IPA has valid ZIP CRC and matching artifact provenance; device UI acceptance still belongs to the user.

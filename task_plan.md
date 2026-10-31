@@ -273,3 +273,9 @@ User requests successful cloud compilation and IPA download for real-device vali
 
 ### Cloud test correction
 Run41168685061 source job failed only at two previously unexecuted ScheduledBannerTests source assertions referring to nextCronDate; current production code uses nextCalendarFire. Layout guards and compiled banner-model cases passed. Correct two test references, push test-only follow-up and run source checks while the unchanged app device build continues. Verify no application source difference between build/test revisions before artifact delivery. CLI run-log endpoint waits for all jobs; individual completed job logs fetched via API with ANSI stripped.
+
+### Device UI cloud delivery complete
+- Build fe7d5a3/run41168685061: device-build SUCCESS, unsigned IPA artifact13029804073.
+- Test correction 93918e5/run41169079297: source-checks SUCCESS. App/workflow source comparison confirms no difference from the compiled revision.
+- Downloaded build/cloud/41168685061/OpenMinis-unsigned.ipa (100881304 bytes). ZIP CRC, arm64, Bundle ID, artifact revision and SHA256 verified; verification.json records both runs.
+- Cloud compilation and requested package delivery complete. User signing/install and actual device UI acceptance remain pending. Final documentation changes do not alter compiled application source.

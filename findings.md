@@ -150,3 +150,6 @@ Target: Settings, main chat chrome, Bot profile and built-in capabilities. Prese
 
 ### Native visual QA
 ARM ui-layout/run41173472074 passed all 16 cases. Downloaded actual iOS simulator renders and inspected 375pt light/dark standard plus 320pt light AX5 and 667pt dark AX5. Normal values align on the trailing edge, long values move below the label, and AX5 text wraps without horizontal overflow; dark surfaces and primary/secondary hierarchy render correctly. These are shipping shared-row component renders, not full-page or keyboard/scroll interaction tests. Source regressions still running; no final overall pass claimed yet.
+
+## Device list regression findings
+The device screenshots show missing titles only in adaptive SettingsDetailRow rows (instructions/skills/connectors/agents/environment and built-in capability identities). Direct label rows such as the model group and memory toggle remain visible. The adaptive row places an automatic SwiftUI Label inside ViewThatFits, so container-driven label presentation and size negotiation need to be removed from this path. Verify the repaired rows in an actual native List with Button and NavigationLink wrappers, rather than only detached sizeThatFits/ImageRenderer samples.

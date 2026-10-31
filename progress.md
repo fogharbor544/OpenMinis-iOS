@@ -274,3 +274,6 @@ Pushed d3ab594 and dispatched full run41172684736. Read-only proof confirmed the
 
 ### Four-area visual consistency delivery
 d3ab594/run41172684736 device-build succeeded. Intel simulator boot migration timed out before layout execution; test-only 8b95155 moved rendering to ARM and bounded runner commands. Run41173472074 source-checks and ui-layout both succeeded. 16 shipping shared-row render/measurement cases passed; manually inspected four representative screenshots. Downloaded artifact13032261153 to build/cloud/41172684736/OpenMinis-unsigned.ipa (100921324 bytes); CRC, arm64, Bundle ID, artifact provenance and unchanged application source verified. SHA256 5af43ab5a1ece2809adbf1513e238cae5f6edb70dc6b550aa603e76ccd9cbe67. Full-page keyboard/scroll/VoiceOver/orientation and real-device behavior remain pending; unsigned IPA requires user signing.
+
+## Device regression repair started
+User requests browser region rollback and repairs for missing titles in Bot profile and built-in capabilities. Working tree clean at 24057e5. Preserve other UI changes and existing data logic; previous isolated visual checks did not cover the failing container context.

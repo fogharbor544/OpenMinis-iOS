@@ -65,7 +65,8 @@ def main():
                     shutil.copy2(item, OUTPUT / item.name)
             assert not result["failures"], result["failures"]
             assert len(result["cases"]) == 16
-            print("PASS: 16 native shared-row layouts rendered: 320/375/667/1024pt, light/dark, standard/AX5")
+            assert len(result["list_cases"]) == 4
+            print("PASS: 16 native component layouts plus 4 real List contexts with visible-title OCR and row-height checks")
     finally:
         if booted_here:
             subprocess.run(["xcrun", "simctl", "shutdown", udid], check=False, timeout=30)

@@ -302,3 +302,8 @@ Baseline 24057e5, clean worktree. Prior isolated row snapshots missed the real l
 1. Verify explicit publication target and audit all refs/history/logs/artifacts (complete).
 2. Make existing account3 repository public as requested (complete; isPrivate=false).
 3. Follow full run41194088809, fix actual failures, verify/download IPA if successful (complete: all3 jobs succeeded; IPA downloaded, CRC/arm64/Bundle ID/artifact provenance/SHA256 verified). Other accounts visibility and billing settings preserved. Real-device and complete-page interaction acceptance remains user-owned.
+
+## Device polish follow-up: model picker, browser header, instruction alignment
+1. Compare pre-visual-pass navigation/model controls and current profile rows (complete).
+2. Restore original model picker under Bot name, fix browser title/time layout, place empty instruction value at trailing edge; preserve reserved chat viewport and title visibility fixes (implemented; local checks passed, native validation pending).
+3. Run targeted native/static checks and full cloud build using account3 public repository; verify/download new IPA (pending). Baseline7524043, clean worktree.

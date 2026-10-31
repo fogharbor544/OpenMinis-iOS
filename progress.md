@@ -301,3 +301,9 @@ Run41194088809 successfully started all3 jobs after publication, unlike private-
 
 ### Public account3 delivery complete
 Full run41194088809 SUCCESS at ce9061e: source-checks, ui-layout and device-build all passed without code changes. Artifact13040725385 downloaded as build/cloud/41194088809/OpenMinis-unsigned.ipa,100915125 bytes. Verified ZIP CRC, Mach-O arm64, com.openminis.app, unsigned packaging, exact artifact revision and unchanged app/workflow/dependencies from repair6a1b372. SHA256 baf5291f4266d34891fe394656483e259491322ca35ef4d463b8f51f60ae80b0. Saved verification.json; all20 native layout checks passed and four actual snapshots manually reviewed. Account3 repository remains PUBLIC per explicit request; no billing or other repo visibility changes. Complete production pages, keyboard/scroll/VoiceOver/orientation and physical-device behavior remain unverified. User signing/install/device acceptance pending.
+
+## Latest device polish started
+User provided fresh screenshots after41194088809 IPA. Applying ui-ux-pro-max to targeted layout corrections, retaining prior title fix and safe-area viewport. Inspecting exact pre-visual-pass navigation baseline and current native list tests before edits.
+
+### Follow-up local checks passed
+All7 source contracts pass;6 edited/new Swift files show no added tree-sitter grammar errors; runner AST and diff whitespace pass. Exact original principal-title function comparison and unchanged browser preview/action/persistence comparisons pass. These are local/static checks; current changes have not yet compiled or rendered natively. Updated existing banner guard to the restored status strip. Cloud/native run next, using public account3.

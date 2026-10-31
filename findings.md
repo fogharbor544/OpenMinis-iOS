@@ -161,3 +161,9 @@ The account3 retry41180487104 was also refused before any steps with the same bi
 
 ### Build account2 verification
 Saved account2 is gaopan513. No existing Minis repository; new private gaopan513/OpenMinis-iOS verified with ADMIN access. Registering the workflow on a matching main push resolved initial workflow discovery, but source-checks/run41181156783 was immediately refused before steps with the same Billing & plans payment/spending-limit annotation. Default branch of this newly created build copy is main. No full-build dispatch was attempted after the explicit account restriction. All three requested build accounts are now confirmed blocked before execution; no current-fix IPA exists.
+
+### Actual public native list results
+Public run41194088809 passed source-checks and ui-layout. Native OCR/height assertions all passed in4 production-row List/control fixtures, beyond the earlier detached-only validation. Regular maximum row112.67pt, AX5 maximum220pt. Representative actual snapshots show titles render in both color schemes and AX text wraps. This validates shared rows inside the fixture containers, not complete production pages/keyboard/scroll/VoiceOver/device behavior. Final device build remains in progress.
+
+### Final public build outcome
+Changing only the user-authorized account3 repository visibility removed the prior pre-execution quota/billing refusal for this run. All3 jobs succeeded in41194088809 at ce9061e, whose compiled app source matches repair6a1b372. New unsigned IPA downloaded and verified (100915125 bytes, artifact13040725385); complete verification manifest stored beside package. This proves cloud compilation and the recorded native fixture checks, not full application/device acceptance.

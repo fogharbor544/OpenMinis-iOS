@@ -375,10 +375,10 @@ check("runner: skip re-arms past the skipped run or cancels like Stop",
 check("runner: arm takes the first fire for loop and cron",
       runner.contains("static func arm(_ job: AgentJob, firstFireAt: Date? = nil, runNowSlot: Date? = nil) {")
       && runner.contains("let first = preclaimed ? Date() : (firstFireAt ?? Date().addingTimeInterval(interval))")
-      && runner.contains("guard let first = preclaimed ? Date() : (firstFireAt\n                    ?? nextCronDate("))
+      && runner.contains("guard let first = preclaimed ? Date() : (firstFireAt\n                    ?? nextCalendarFire("))
 check("runner: a timer task re-armed while it was firing stops instead of overwriting the new schedule",
       runner.components(separatedBy: "await fire(job, claimed: claimed)\n                    claimed = false\n                    // Re-armed while firing (skipNext): the new task owns the schedule.\n                    if Task.isCancelled { return }").count == 2
-      && runner.contains("await fire(job, claimed: claimed)\n                    claimed = false\n                    if Task.isCancelled { return }\n                    guard let n = nextCronDate("))
+      && runner.contains("await fire(job, claimed: claimed)\n                    claimed = false\n                    if Task.isCancelled { return }\n                    guard let n = nextCalendarFire("))
 
 // MARK: - [4] localization
 

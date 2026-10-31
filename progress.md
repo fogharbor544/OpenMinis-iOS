@@ -259,3 +259,6 @@ Read RTK, UI skill and planning skill. Working tree clean. Investigating all thr
 
 ### Device UI follow-up local completion
 Implemented standard runtime settings sizing, one reserved chat top viewport (including Bot status), and compact capability cards with explicit internal divider/native policy menu. Preserved helper transcript behavior and capability authorization/refresh/mapping implementation. Executed 7 Python source-contract checks, 8-file baseline grammar comparison, Python AST and git diff --check successfully. These are static checks; no Swift/Xcode/device execution or new IPA. Updated Swift banner guards for the new layout contract. Documented native acceptance in docs/ios-device-ui-followup.md. All changes remain local.
+
+### Device UI cloud run started
+Committed/pushed fe7d5a3; full run41168685061 started for exactly this revision. Added TopBannersTests and ScheduledBannerTests to cloud source checks. Native dependencies and Swift regression tests are in progress. No build success or package download claimed yet.

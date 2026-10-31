@@ -313,3 +313,9 @@ Committed/pushed bedcc9de0763030e103714c0baff14fe8d9270bd; full public-account3 
 
 ### Native harness environment timeout
 Run41210827764 ui-layout failed before compiling the fixture: xcrun --sdk iphonesimulator --show-sdk-path timed out after60s, after simulator boot. No rendering assertion executed and no snapshots were produced. Device build continues unchanged. Test-only runner fix resolves SDK (bounded120s) and Swift compiler paths before simulator startup, then invokes the resolved compiler directly. Python AST/diff checks pass; run full_build=false validation retry without rebuilding identical app source.
+
+### Toolchain-preflight validation retry
+Pushed test-only3807e078d91c4557a0a44fd88e70106a360c12e9; full_build=false run41211417483 dispatched. App/workflow/dependency equivalence with bedcc9d verified, allowing unchanged first device build to continue. Native rendering and new geometry assertions still pending.
+
+### Profile polish delivery complete
+Device/source run41210827764 succeeded for bedcc9d; first native job failed only at SDK lookup before compilation. Test-only retry41211417483/3807e07 passed source-checks and all20 native layout cases, including instruction trailing-value and browser time geometry/readability assertions. Four actual snapshots manually reviewed. Verified application/workflow/dependency equivalence across revisions. IPA downloaded and verified: 100877147 bytes, SHA256 ad743d6de1ff0f4a5ec2e69f337dea09e520495099b1985db989bf7632b80dbe, ZIP CRC/arm64/Bundle ID/artifact revision passed. Evidence verification.json beside IPA. New file is unsigned; physical-device/full-page keyboard/scroll/VoiceOver/orientation behavior remains unverified.

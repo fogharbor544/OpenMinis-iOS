@@ -283,8 +283,11 @@ Run41168685061 source job failed only at two previously unexecuted ScheduledBann
 ## 2026-10-31 four-area iOS visual consistency
 1. Audit existing shared components and adjacent settings/chat/profile/capability screens; choose native reusable visual rules (complete).
 2. Implement focused shared styling and four-area improvements, preserving features/data/navigation/permissions (complete).
-3. Validate responsive layout and source contracts locally; use established cloud compilation where needed; distinguish native build from device rendering (in progress).
+3. Validate responsive layout and source contracts locally; use established cloud compilation where needed; distinguish native build from device rendering (complete for local/cloud/component checks; full-page device interaction pending).
 Baseline a796a2e; working tree clean. Existing cloud delivery authorization retained. No device/simulator available on Windows; native visual acceptance cannot be claimed from source checks.
 
 ### Native layout infrastructure retry
 d3ab594 device-build/run41172684736 SUCCESS. The Intel source worker's simulator timed out in first-boot LaunchServices data migration before compiling/running the layout harness; source remainder was skipped. Cancellation was requested as the run finished, so no cancellation occurred. Move native rendering to a separate macos-26 ARM job, bound subprocess/cleanup duration, and rerun validation without rebuilding identical app code. Record the first run as a validation-environment failure, not an app layout pass.
+
+### Four-area implementation and verification complete
+8b95155/run41173472074 source-checks and ARM ui-layout SUCCESS. All 16 shared-row native layouts passed and four representative light/dark/AX5 snapshots were visually inspected. App source matches the successful d3ab594 device build. IPA downloaded and ZIP CRC/arm64/Bundle ID/artifact revision verified; verification.json records 100921324 bytes and SHA256. Full-page keyboard/scroll/VoiceOver/orientation and real-device appearance remain explicitly unverified in docs/ios-visual-consistency.md. No real device data touched.

@@ -173,3 +173,5 @@ User requests original model selector under Bot name, browser section title/time
 
 ### Follow-up implementation
 Restored chatNavPrincipalContent exactly froma796a2e, reusing the existing title/model/group/provider/thinking badge presentation. Removed separate Bot model/thinking strip; retained wrapping BotRunStatusView in the same reserved top stack and kept root thinking-sheet presentation. Browser188pt preview and Bot action/persistence code match baseline exactly. Isolated browser section header in a production view for real native List testing: flexible one-line middle-truncated title, whole trailing time badge,44pt menu; AX metadata stacks. Empty instruction uses ordinary trailing detail row; nonempty instruction retains2-line preview. Added native OCR geometry checks for same-row trailing Not set and readable trailing browser time, while reusing20 existing native cases.
+
+Native failure detail: ARM worker SDK lookup exceeded60s after boot, not a Swift error or layout assertion failure. Move toolchain discovery before simulator startup to avoid first-boot contention; keep total job and subprocess bounds. Device app remains bedcc9d.

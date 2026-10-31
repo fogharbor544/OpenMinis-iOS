@@ -307,3 +307,9 @@ User provided fresh screenshots after41194088809 IPA. Applying ui-ux-pro-max to 
 
 ### Follow-up local checks passed
 All7 source contracts pass;6 edited/new Swift files show no added tree-sitter grammar errors; runner AST and diff whitespace pass. Exact original principal-title function comparison and unchanged browser preview/action/persistence comparisons pass. These are local/static checks; current changes have not yet compiled or rendered natively. Updated existing banner guard to the restored status strip. Cloud/native run next, using public account3.
+
+### Profile polish cloud run started
+Committed/pushed bedcc9de0763030e103714c0baff14fe8d9270bd; full public-account3 run41210827764 dispatched. New commit secret scan passed. Follow real List OCR/alignment and full compilation results before claiming rendering or IPA success.
+
+### Native harness environment timeout
+Run41210827764 ui-layout failed before compiling the fixture: xcrun --sdk iphonesimulator --show-sdk-path timed out after60s, after simulator boot. No rendering assertion executed and no snapshots were produced. Device build continues unchanged. Test-only runner fix resolves SDK (bounded120s) and Swift compiler paths before simulator startup, then invokes the resolved compiler directly. Python AST/diff checks pass; run full_build=false validation retry without rebuilding identical app source.

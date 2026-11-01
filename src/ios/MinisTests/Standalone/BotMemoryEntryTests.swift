@@ -71,10 +71,9 @@ import Foundation
         precondition(recent.contains("Pinned convention") && recent.contains("Project note day 4"))
         precondition(!recent.contains("Project note day 6") && !recent.contains("Project note day 31"))
         precondition(!recent.contains("First fact"))
-        var longNote = make("bot:lines", (0..<250).map { "line-\($0)" }.joined(separator: "\n"))
+        var longNote = make("bot:lines", (0..<250).map { "L\($0)" }.joined(separator: "\n"))
         longNote.createdAt = now
         // Store content limit remains enforced, so use short lines for the daily cap test.
-        longNote.content = (0..<250).map { "L\($0)" }.joined(separator: "\n")
         _ = try store.save(longNote)
         let clipped = try store.recentContext(owner: "bot:lines", now: now, dateCalendar: dates)
         precondition(clipped.contains("L199") && !clipped.contains("L200"))

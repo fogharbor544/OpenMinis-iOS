@@ -51,6 +51,11 @@ enum MessageListItem: Hashable {
 class SelfSizingCell: UICollectionViewCell {
     var onQuote: (() -> Void)?
     private lazy var quotePan = UIPanGestureRecognizer(target: self, action: #selector(handleQuotePan(_:)))
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, onQuote != nil else { return false }
+        let v = pan.velocity(in: self)
+        return pan.location(in: window).x > 28 && v.x > 0 && abs(v.x) > abs(v.y) * 2
+    }
     @objc private func handleQuotePan(_ pan: UIPanGestureRecognizer) {
         let offset = pan.translation(in: self).x
         if pan.state == .changed { contentView.transform = CGAffineTransform(translationX: min(52, max(0, offset * 0.4)), y: 0) }
@@ -1254,11 +1259,6 @@ final class CellStateBridgeV2: ObservableObject {
 
 
 extension SelfSizingCell: UIGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, onQuote != nil else { return false }
-        let v = pan.velocity(in: self)
-        return pan.location(in: window).x > 28 && v.x > 0 && abs(v.x) > abs(v.y) * 2
-    }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var view = touch.view
         while let current = view, current !== self {

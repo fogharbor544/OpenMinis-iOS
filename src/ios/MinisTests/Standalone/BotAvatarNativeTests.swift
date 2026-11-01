@@ -2,12 +2,6 @@ import SwiftUI
 import UIKit
 import ImageIO
 
-struct SessionCategory {
-    var icon: String
-    var color: Color
-    static let all: [SessionCategory] = []
-}
-
 private struct AvatarGallery: View {
     var body: some View {
         VStack(spacing: 18) {

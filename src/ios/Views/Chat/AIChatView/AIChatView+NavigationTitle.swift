@@ -127,6 +127,7 @@ extension AIChatView {
         let sessionTitle: String? = vm.sessionId.flatMap { botWorkspace.bot(forSession: $0)?.name } ?? (titlePillSession?.title?.trimmingCharacters(in: .whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 }
         return NavTitleKey(
+            botAvatar: currentBot.map { BotAvatarChoice(profile: $0) },
             sessionTitle: sessionTitle,
             canEditTitle: titlePillSession != nil,
             soulName: soulName,
@@ -225,6 +226,8 @@ extension AIChatView {
                 // wrapped under the trailing "…" button. Drop one point
                 // on legacy iOS so they fit cleanly; keep the iOS 26
                 // size unchanged.
+                HStack(spacing: 5) {
+                    if let bot = currentBot { BotAvatar(profile: bot, size: legacyLayout ? 14 : 18) }
                 Text(sessionTitle ?? soulName)
                     // [T-navbar-title-size 2026-05-18 / -19 / -20] iOS 16-18
                     // principal toolbar is a fixed ~44pt band sitting just
@@ -263,6 +266,7 @@ extension AIChatView {
                     // breathing room above the semibold cap height without
                     // re-introducing the top crop.
                     .padding(.top, legacyLayout ? 0 : 2)
+                }
             }
             .buttonStyle(.plain)
             .disabled(currentBot == nil && !canEditTitle)

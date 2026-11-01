@@ -79,7 +79,7 @@ extension ChatStore {
     }
     static var ready: URL { directory.appendingPathComponent("ready") }
     static func begin(databaseURL: URL) async throws {
-        guard SessionActivityTracker.shared.activeSessions.isEmpty, BotRoomRunner.shared.activeRooms.isEmpty,
+        guard SessionActivityTracker.shared.activeSessions.isEmpty && !BotWorkspaceStore.shared.data.delegations.contains(where: { $0.state.isActive || $0.state == .takingOver }), BotRoomRunner.shared.activeRooms.isEmpty,
               !AgentJobRegistry.shared.hasPendingSpecialistStop else { throw BotWorkspaceError.rejected("请等待正在运行或停止中的任务结束。") }
         guard !FileManager.default.fileExists(atPath: ready.path) else {
             throw BotWorkspaceError.rejected("上次 Bot 恢复尚未恢复，请重新启动应用。")

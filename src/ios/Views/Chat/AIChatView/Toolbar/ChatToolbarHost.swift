@@ -91,6 +91,7 @@ private struct EquatableByValue<Key: Equatable, Content: View>: View, Equatable 
 /// bar every tick, and UIKit refreshes the presented menu when bar items are
 /// re-set (items shifting under the user's finger → mis-taps).
 struct NavTitleKey: Equatable {
+    var botAvatar: BotAvatarChoice? = nil
     let sessionTitle: String?
     let canEditTitle: Bool
     let soulName: String

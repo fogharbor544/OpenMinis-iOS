@@ -33,7 +33,9 @@ struct BotMemoryView: View {
                     if entry.pinned { Label("Always include", systemImage: "pin").font(.caption) }
                     if entry.automatic { Text("Automatically remembered").font(.caption) }
                     DisclosureGroup("Source") {
-                        Text(entry.evidence.isEmpty ? "Added or edited by you" : entry.evidence).textSelection(.enabled)
+                        Text(entry.evidence.isEmpty
+                             ? (entry.automatic ? String(localized: "No additional source information") : String(localized: "Added or edited by you"))
+                             : entry.evidence).textSelection(.enabled)
                         if let id = entry.sourceSession { Text("Conversation: \(id)").font(.caption2).textSelection(.enabled) }
                         if let id = entry.sourceMessage { Text("Message: \(id)").font(.caption2).textSelection(.enabled) }
                     }
@@ -93,7 +95,7 @@ private struct BotMemoryEditor: View {
                 }
                 TextField("Scope", text: $entry.scope)
                 Toggle("Always include", isOn: $entry.pinned)
-                Text("Pin only a few general preferences. Other memories are retrieved when relevant, within a fixed context budget.")
+                Text("Pinned memories are always included. Recent notes are loaded by date; search memory for other relevant context.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.red) }
             }

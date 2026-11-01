@@ -322,3 +322,9 @@ Device/source run41210827764 succeeded for bedcc9d; first native job failed only
 
 ## 2026-11-01 implementation checkpoint
 Security lifecycle and scoped proactive-memory changes implemented, shared transactional selector and bounded native playback integrated. Built-in imagegen blocked first requested character atlas; no art produced and user material choice pending. Added native scene-based fixtures and expanded memory/persistence/archive tests. Local production-JS55, current Bot, chat/settings7, fresh-store and Python syntax checks passed. Swift/native/cloud checks pending. No real website/account data used.
+
+### Verification checkpoint
+- Run41277942150: native layout/interaction fixtures passed (26 new assertions); source stopped at an oversized test provenance field, corrected in2503e86. Full build found a dynamic String passed to StaticString localization helper, corrected in62d7450.
+- Run41278289160: all source checks and native fixtures passed; full build still contained the pre-correction localization call. Run41278726470 and latest41278826022 compile the correction.
+- Inspected native picker snapshots at320/light,375/dark/AX3 and667/dark. Corrected AX grid fragmentation with single-column choices and fixed-size icons in951640b; missing asset preview now says system icon. Real character artwork remains unproduced after3D and2D imagegen rejections; user final specification is2D chibi Pokémon stickers, not the interim original-pet trial.
+- Corrected memory Source fallback and editor footer for optional provenance/date-based recent injection. No extra model call or historical backfill added.

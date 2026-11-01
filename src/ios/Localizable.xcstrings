@@ -1,6 +1,38 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "No additional source information": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "No additional source information"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未附加来源说明"
+        }
+      }
+    }
+  },
+  "Pinned memories are always included. Recent notes are loaded by date; search memory for other relevant context.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pinned memories are always included. Recent notes are loaded by date; search memory for other relevant context."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "置顶记忆会始终加载。近期记录按日期加入上下文，也可搜索其他相关记忆。"
+        }
+      }
+    }
+  },
   "Kept Existing": {
     "localizations": {
       "en": {

@@ -316,3 +316,10 @@ Baseline 24057e5, clean worktree. Prior isolated row snapshots missed the real l
 Asset blocker: built-in imagegen rejected first Pikachu 24-frame atlas with moderation_blocked. No asset was produced. User asked asynchronously to choose supplied assets, original creatures, or defer assets. Do not silently substitute art or use CLI fallback. No subagents.
 
 Final material state: user selected original pets briefly, then changed back to Pokémon and confirmed2D chibi sticker style. A2D Pikachu request was also rejected. No production character art was produced or substituted; only existing icons/photos ship. No CLI fallback used.
+
+## 2026-11-01 remove avatar feature at user request
+1. Restore new/edit/profile avatar UI, profile model and new-Bot icon allocation exactly to1326902 (complete).
+2. Remove preset catalog/ID, shared draft picker, animation/cache, added avatar tests and runner dependencies; retain13 secure-presentation checks (implemented).
+3. Preserve secure-input and scoped-memory fixes (hash comparison passed).
+4. Verify, cloud-build with existing authorized account3 and download replacement IPA (pending).
+No repository reset and no user device data mutation. Earlier avatar plans are superseded, not pending work.

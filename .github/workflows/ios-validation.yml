@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Native settings row layout checks
         run: python3 src/ios/MinisTests/Standalone/run_settings_layout_tests.py
-      - name: Secure presentation and avatar native fixtures
+      - name: Secure presentation native fixtures
         run: python3 src/ios/MinisTests/Standalone/run_native_interaction_tests.py
       - name: Upload native interaction evidence
         if: always()

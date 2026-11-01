@@ -409,7 +409,8 @@ struct BotProfileEditor: View {
     @ObservedObject private var store = BotWorkspaceStore.shared
     @ObservedObject private var providers = ProviderConfigStore.shared
     @Environment(\.dismiss) private var dismiss
-    @State private var choosingAvatar = false
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var iconError: String?
 
     var body: some View {
         NavigationStack {
@@ -421,9 +422,41 @@ struct BotProfileEditor: View {
                 }
                 Section("Bot Icon") {
                     HStack(spacing: 16) {
-                        BotAvatarPreview(profile: profile, size: 64)
-                        Button("更改头像") { choosingAvatar = true }
-                            .frame(minHeight: 44)
+                        BotAvatar(profile: profile, size: 56)
+                        PhotosPicker("Choose Custom Image", selection: $selectedPhoto, matching: .images)
+                    }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 12)], spacing: 12) {
+                        ForEach(SessionCategory.all, id: \.key) { category in
+                            let symbol = category.icon
+                            Button {
+                                selectedPhoto = nil
+                                profile.iconImageData = nil
+                                profile.iconSymbol = symbol
+                            } label: {
+                                let selected = profile.iconImageData == nil && profile.iconSymbol == symbol
+                                VStack(spacing: 6) {
+                                    Image(systemName: symbol)
+                                        .font(.title3)
+                                        .foregroundStyle(selected ? .white : category.color)
+                                        .frame(width: 44, height: 44)
+                                        .background(Circle().fill(selected ? category.color : category.color.opacity(0.18)))
+                                    Text(LocalizedStringKey(category.label))
+                                        .font(.caption2)
+                                        .foregroundStyle(selected ? category.color : .secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                }
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(LocalizedStringKey(category.label)))
+                            .accessibilityAddTraits(profile.iconImageData == nil && profile.iconSymbol == symbol ? .isSelected : [])
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    if let iconError {
+                        Label(iconError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                     }
                 }
                 Section {
@@ -457,11 +490,26 @@ struct BotProfileEditor: View {
             }
             .navigationTitle(store.bot(profile.id) == nil ? LocalizedStringKey("新建 Bot") : LocalizedStringKey("Edit Bot"))
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $choosingAvatar) {
-                BotAvatarPicker(profile: profile) { choice in
-                    choice.apply(to: &profile)
-                    return true
-                }
+            .task(id: selectedPhoto) {
+                guard let selectedPhoto else { return }
+                do {
+                    guard let data = try await selectedPhoto.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else {
+                        iconError = String(localized: "Unable to read this image.")
+                        return
+                    }
+                    let format = UIGraphicsImageRendererFormat()
+                    format.scale = 1
+                    let size = CGSize(width: 192, height: 192)
+                    let thumbnail = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                        let scale = max(size.width / image.size.width, size.height / image.size.height)
+                        let width = image.size.width * scale, height = image.size.height * scale
+                        image.draw(in: CGRect(x: (192 - width) / 2, y: (192 - height) / 2, width: width, height: height))
+                    }
+                    try Task.checkCancellation()
+                    profile.iconImageData = thumbnail.jpegData(compressionQuality: 0.85)
+                    iconError = nil
+                } catch is CancellationError { } catch { iconError = error.localizedDescription }
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -728,6 +776,31 @@ private struct BotRoomView: View {
                 Spacer(minLength: 24)
             }
         }
+    }
+}
+
+struct BotAvatar: View {
+    let profile: BotProfile
+    var size: CGFloat = 32
+    private var iconColor: Color {
+        SessionCategory.all.first { $0.icon == profile.iconSymbol }?.color ?? .green
+    }
+    var body: some View {
+        Group {
+            if let data = profile.iconImageData, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Image(systemName: profile.iconSymbol ?? "bubble.left.fill")
+                    // Inset scales with the avatar so 22pt headers and 44pt rows look alike.
+                    .resizable().scaledToFit().padding(size * 0.24)
+                    .foregroundStyle(iconColor)
+                    // 18% tint matches the session-list category avatars (shared/design/category-colors.md).
+                    .background(iconColor.opacity(0.18), in: Circle())
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
     }
 }
 

@@ -334,3 +334,6 @@ Final app revision d0c4949 / run41279022146: source-checks SUCCESS and ui-layout
 
 ### Cloud delivery outcome
 Run41279022146 / d0c4949: source-checks, ui-layout and full device-build all SUCCESS. Downloaded unsigned IPA100971918 bytes; CRC, arm64, Bundle ID, exact artifact revision and SHA256 verified (4cc3e6b40c070459f01dbf36f0b8086fe29bb9c325122799b20a7eca57f5cac0). Final3 picker snapshots inspected,26 native interaction checks+16 components+4 List contexts passed. Native fixtures use synthetic events/images; no real login, device keyboard/VoiceOver or production artwork acceptance claimed.12 character assets remain blocked by generation refusal, final specification2D chibi Pokémon stickers. Docs-only follow-up preserves compiled application source.
+
+## Avatar rollback implementation
+Restored six avatar-only files byte-for-byte to1326902, deleted the added avatar file, removed preset/choice/player/cache dependencies and avatar fixtures.13 native secure-presentation checks remain. Browser/memory production hashes unchanged. Local source/7chat-settings/55productionJS/Python syntax/whitespace checks passed; new cloud compilation and replacement package pending. The old41279022146 IPA still contains avatar changes and is superseded by the upcoming rollback build.

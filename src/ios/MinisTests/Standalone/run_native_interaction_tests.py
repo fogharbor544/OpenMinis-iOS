@@ -1,4 +1,4 @@
-"""Exercise shipping secure presentation and native avatar code in a scene-based simulator fixture."""
+"""Exercise shipping secure presentation in a scene-based simulator fixture."""
 from pathlib import Path
 import json
 import platform
@@ -53,10 +53,8 @@ def main():
             presentation = passwords.split("// BEGIN BrowserSecurePresentation", 1)[1].split("// END BrowserSecurePresentation", 1)[0]
             driver = app.parent / "BrowserSecurePresentation.swift"
             driver.write_text("import UIKit\n" + presentation, encoding="utf-8")
-            types = app.parent / "BotAvatarTypes.swift"
-            types.write_text((ROOT / "Views/ContentView/Bots/BotWorkspaceStore.swift").read_text(encoding="utf-8").split("struct BotSessionOwner:", 1)[0], encoding="utf-8")
             run(swiftc, "-swift-version", "5", "-sdk", sdk, "-target", f"{arch}-apple-ios16.0-simulator",
-                str(driver), str(types), str(ROOT / "Views/ContentView/Bots/BotAvatar.swift"),
+                str(driver),
                 str(ROOT / "MinisTests/Standalone/NativeInteractionTests.swift"), "-o", str(app / "InteractionValidation"), timeout=180)
             run("codesign", "--force", "--sign", "-", str(app))
             run("xcrun", "simctl", "install", udid, str(app))
@@ -74,8 +72,8 @@ def main():
                 if item.suffix in {".png", ".json"}:
                     shutil.copy2(item, OUTPUT / item.name)
             assert not result["failures"], result["failures"]
-            assert len(result["cases"]) >= 24
-            print(f"PASS: {len(result['cases'])} native interaction/renderer fixture assertions; see result.json for limitations")
+            assert len(result["cases"]) == 13
+            print(f"PASS: {len(result['cases'])} native secure-presentation fixture assertions; see result.json for limitations")
     finally:
         if booted_here:
             subprocess.run(["xcrun", "simctl", "shutdown", udid], check=False, timeout=30)

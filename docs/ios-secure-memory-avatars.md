@@ -15,5 +15,18 @@ For each stable ID (`pikachu`, `bulbasaur`, `charmander`, `squirtle`, `eevee`, `
 - Place sets in `src/ios/Assets.xcassets`. Do not ship placeholder character art. Final production frames still require visual identity, silhouette, alpha, action and seam review.
 
 ## Validation status
-Windows local: production JavaScript fill tests (55 assertions), current Bot contracts, seven chat/settings contracts, fresh database initialization, Python syntax and whitespace checks pass. Swift compilation, simulator fixtures and cloud package are pending at this checkpoint.
+Windows local: production JavaScript fill tests (55 assertions), current Bot contracts, seven chat/settings contracts, fresh database initialization, Python syntax and whitespace checks pass. Final revision d0c4949 / run41279022146: all source-checks and the native ui-layout job succeeded. The full unsigned arm64 device build and package verification also succeeded. All three jobs passed for the same revision.
 New native fixture uses a real UIWindowScene and the shipping presentation coordinator/renderer, synthetic notifications and test images. It does not validate real website login, actual device background lifecycle, final character artwork, hardware power settings, VoiceOver navigation or keyboard behavior. Those remain explicit device acceptance items.
+
+
+## Latest native evidence
+Run41279022146 passed16 component cases,4 real List contexts and26 native presentation/renderer assertions with no reported failures. Manually inspected the final320/light,375/dark/AX3 and667/dark picker snapshots. Accessibility-size choices now use one readable column and icons stay proportionate. The isolated fixture omits the application's localization catalog, so its system-category labels are English; shipping selection labels use SwiftUI localization keys.
+The recent-memory fragment is appended before ContextSizeMeter.estimateFixedTokens(systemPrompt:tools:) in AgentLoop; injected notes therefore participate in the existing request budget, including model fallback reconstruction.
+
+
+## Package delivery
+- Cloud run41279022146, revisiond0c4949bb29846db3cb0a7ee4cb2f65122da74e7, all3 jobs SUCCESS. Earlier superseded runs were cancelled; the initial test/compile failures are recorded in progress.md and are resolved in this revision.
+- IPA: `build/cloud/41279022146/OpenMinis-unsigned.ipa`,100971918 bytes, Bundle ID`com.openminis.app`, version1.15/build1, unsigned arm64.
+- ZIP CRC, Mach-O architecture, Bundle ID, artifact-to-commit provenance and lack of signing envelope checked. SHA256:`4cc3e6b40c070459f01dbf36f0b8086fe29bb9c325122799b20a7eca57f5cac0`.
+- `verification.json`, run/result/artifact metadata and native results beside the IPA retain evidence. Documentation-only follow-up does not change the compiled app.
+- Real mailbox login, actual OS background/foreground while entering credentials, photo-library interaction, hardware power settings, keyboard/orientation/VoiceOver navigation and final character animation appearance remain device acceptance items. The12 requested2D Pokémon sticker assets are NOT delivered because generation was rejected. Existing images/icons remain available; the native animation tests use synthetic art.

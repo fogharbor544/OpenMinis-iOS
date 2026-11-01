@@ -309,8 +309,10 @@ Baseline 24057e5, clean worktree. Prior isolated row snapshots missed the real l
 3. Run targeted native/static checks and full cloud build using account3 public repository; verify/download new IPA (complete: bedcc9d device/source success, test-only3807e07 source/native success, app/workflow/dependencies identical; IPA downloaded and verified). Physical-device and complete-page interaction acceptance pending. Baseline7524043, clean worktree.
 
 ## 2026-11-01 secure input, scoped proactive memory and avatar implementation
-1. Repair native secure-input presentation lifecycle and preserve secret protections (in progress).
-2. Restore model-driven proactive memory and recent daily injection within scoped SQLite ownership (in progress).
-3. Shared transactional avatar selector, additive preset identity, bounded native playback (pending).
-4. Validate, publish to authorized account3 repository, build and verify IPA (pending).
+1. Repair native secure-input presentation lifecycle and preserve secret protections (complete; source/native fixture verification passed).
+2. Restore model-driven proactive memory and recent daily injection within scoped SQLite ownership (complete; source/native fixture verification passed).
+3. Shared transactional avatar selector, additive preset identity and bounded native playback complete; all12 production character assets remain blocked by imagegen rejection. Final requested style:2D chibi Pokémon stickers.
+4. Validate, publish to authorized account3 repository, build and verify IPA (complete: d0c4949/run41279022146 all3 jobs success; downloaded and CRC/arm64/Bundle ID/provenance/SHA256 verified). Real-device acceptance pending.
 Asset blocker: built-in imagegen rejected first Pikachu 24-frame atlas with moderation_blocked. No asset was produced. User asked asynchronously to choose supplied assets, original creatures, or defer assets. Do not silently substitute art or use CLI fallback. No subagents.
+
+Final material state: user selected original pets briefly, then changed back to Pokémon and confirmed2D chibi sticker style. A2D Pikachu request was also rejected. No production character art was produced or substituted; only existing icons/photos ship. No CLI fallback used.

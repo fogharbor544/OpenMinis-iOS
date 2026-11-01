@@ -483,6 +483,7 @@ final class BrowserSecurePresentation {
     private var timeout: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
     private var lastDiagnostic: String?
+    private var presentationStartedAt: Date?
 
     init(preferredWindow: UIWindow?, timeoutNanoseconds: UInt64 = 180_000_000_000,
          sourceIsValid: @escaping () -> Bool, makeController: @escaping () -> UIViewController,
@@ -553,6 +554,13 @@ final class BrowserSecurePresentation {
     private func attempt() {
         guard phase != .finished else { return }
         guard sourceIsValid() else { end("cancelled: source_changed"); return }
+        // UIKit can reject a presentation without invoking its completion. Retry only
+        // when no controller was attached; an accepted presentation must never duplicate.
+        if phase == .presenting, controller?.presentingViewController == nil,
+           let presentationStartedAt, Date().timeIntervalSince(presentationStartedAt) > 1 {
+            controller = nil; phase = .waitingForWindow; hasPresented = false
+            diagnose("waiting: presentation_retry")
+        }
         guard phase == .waitingForWindow else { return }
         guard UIApplication.shared.applicationState == .active else { diagnose("waiting: app_inactive"); return }
         guard let presenter = Self.presenter(preferredWindow: preferredWindow) else {
@@ -563,10 +571,14 @@ final class BrowserSecurePresentation {
         }
         let controller = makeController()
         self.controller = controller
-        phase = .presenting; hasPresented = true
+        phase = .presenting; hasPresented = true; presentationStartedAt = Date()
         diagnose("presenting")
         presenter.present(controller, animated: true) { [weak self, weak controller] in
-            guard let self, self.phase == .presenting, let controller else { return }
+            guard let controller else { return }
+            guard let self, self.phase == .presenting else {
+                // A cancellation during the entrance transition must not leave an orphan card.
+                controller.dismiss(animated: false); return
+            }
             guard controller.presentingViewController != nil else { self.end("cancelled: presentation_failed"); return }
             guard UIApplication.shared.applicationState == .active, self.sourceIsValid() else {
                 self.end("cancelled: presentation_interrupted"); return

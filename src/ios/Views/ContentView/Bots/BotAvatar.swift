@@ -143,16 +143,21 @@ private struct BotAvatarAnimation: UIViewRepresentable {
 
 final class BotAvatarImageView: UIImageView {
     var cover: UIImage?
+    private var pendingFrames: [UIImage]?
     private var timer: Timer?
     private var remainingTicks = 0
     private var observers: [NSObjectProtocol] = []
     func reset(_ cover: UIImage?) {
         stopAnimating(); animationImages = nil; image = cover; self.cover = cover
+        pendingFrames = nil
         timer?.invalidate(); timer = nil
         observers.forEach(NotificationCenter.default.removeObserver); observers.removeAll()
     }
     func play(_ frames: [UIImage], cover: UIImage) {
         reset(cover)
+        // A cached decode can finish before SwiftUI attaches/sizes the native view.
+        // Defer only this first mount; detachment clears the request permanently.
+        if window == nil || bounds.isEmpty { pendingFrames = frames; return }
         guard visible, !UIAccessibility.isReduceMotionEnabled, !ProcessInfo.processInfo.isLowPowerModeEnabled,
               UIApplication.shared.applicationState == .active else { return }
         animationImages = frames; animationDuration = 2; animationRepeatCount = 1
@@ -183,7 +188,15 @@ final class BotAvatarImageView: UIImageView {
         }
         return !rect.isEmpty && rect.intersects(window.bounds)
     }
-    override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { reset(cover) } }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { reset(cover) } else { playPendingFrames() }
+    }
+    override func layoutSubviews() { super.layoutSubviews(); playPendingFrames() }
+    private func playPendingFrames() {
+        guard window != nil, !bounds.isEmpty, let pendingFrames, let cover else { return }
+        self.pendingFrames = nil; play(pendingFrames, cover: cover)
+    }
     deinit { timer?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 }
 

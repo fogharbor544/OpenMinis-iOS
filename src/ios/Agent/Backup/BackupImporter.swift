@@ -283,7 +283,13 @@ actor BackupImporter {
                 cat.notDownloadedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "not_downloaded" }.count
                 report.categories.append(cat)
-                if category == .agents { try await BotGraphRestore.commit() }
+                if category == .agents {
+                    let unavailable = await MainActor.run {
+                        BotWorkspaceStore.shared.data.bots.filter { $0.iconImageData == nil && $0.avatarPresetID != nil && $0.originalAvatar == nil }.map(\.name)
+                    }
+                    if !unavailable.isEmpty { report.warnings.append("部分内置头像在当前版本不可用，已显示系统头像：" + unavailable.joined(separator: "、")) }
+                    try await BotGraphRestore.commit()
+                }
             } catch {
                 logger.error("[Restore] category \(category.rawValue) failed: \(error.localizedDescription)")
                 var cat = CategoryReport(category: category.rawValue)

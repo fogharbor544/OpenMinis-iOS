@@ -12,6 +12,13 @@ struct BotMessagePresentation: Codable, Equatable {
 }
 
 extension BotMessageQuote {
+    static func readableContext(_ text: String) -> String? {
+        let prefix = "<quoted-content>\n", suffix = "\n</quoted-content>"
+        guard text.hasPrefix(prefix), let end = text.range(of: suffix),
+              let quote = try? JSONDecoder().decode(Self.self, from: Data(text[text.index(text.startIndex, offsetBy: prefix.count)..<end.lowerBound].utf8)) else { return nil }
+        return "引用 " + quote.author + "：\n" + quote.text
+    }
+
     var modelContext: String {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         let json = String(decoding: try! encoder.encode(self), as: UTF8.self)

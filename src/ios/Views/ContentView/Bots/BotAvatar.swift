@@ -14,7 +14,7 @@ struct BotAvatar: View {
         Group {
             if let data = profile.iconImageData, let image = UIImage(data: data) {
                 Image(uiImage: image).resizable().scaledToFill()
-            } else if let preset = BotAvatarPreset.find(profile.avatarPresetID),
+            } else if let preset = profile.originalAvatar,
                       let cover = BotAvatarFrameCache.shared.poster(preset) {
                 if let playbackID {
                     BotAvatarAnimation(preset: preset, cover: cover, playbackID: playbackID)
@@ -46,7 +46,7 @@ struct BotAvatarPreview: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("头像预览")
-        .accessibilityValue(BotAvatarPreset.find(profile.avatarPresetID)?.name ?? "自定义头像")
+        .accessibilityValue(profile.originalAvatar?.name ?? "自定义头像")
         .accessibilityHint("轻点播放一次头像动作")
         .onAppear { replay() }
         .onDisappear { playbackID = nil }
@@ -227,7 +227,7 @@ struct BotAvatarPicker: View {
     }
     private var previewName: String {
         if draft.iconImageData != nil { return "自定义照片" }
-        if let preset = BotAvatarPreset.find(draft.avatarPresetID), BotAvatarFrameCache.shared.poster(preset) != nil { return preset.name }
+        if let preset = draft.originalAvatar, BotAvatarFrameCache.shared.poster(preset) != nil { return preset.name }
         return "系统图标"
     }
     var body: some View {
@@ -250,7 +250,7 @@ struct BotAvatarPicker: View {
                             ForEach(available) { preset in
                                 choiceButton(name: preset.name, selected: draft.iconImageData == nil && draft.avatarPresetID == preset.id) {
                                     selectedPhoto = nil; loadingPhoto = false; replayTrigger = UUID()
-                                    draft.iconImageData = nil; draft.iconSymbol = "bubble.left.fill"; draft.avatarPresetID = preset.id
+                                    draft.iconImageData = nil; draft.iconSymbol = "bubble.left.fill"; draft.avatarResourceVersion = 1; draft.avatarPresetID = preset.id
                                 } icon: {
                                     BotAvatar(profile: BotProfile(name: "", iconSymbol: "bubble.left.fill", avatarPresetID: preset.id), size: 52)
                                 }

@@ -185,7 +185,10 @@ struct ChatShareCellContent: View {
     var body: some View {
         switch cell.kind {
         case .user:
-            ChatMessageRow(message: message, isActiveMessage: false)
+            VStack(alignment: .leading, spacing: 8) {
+                if let quote = message.quote { BotQuoteStrip(quote: quote).padding(.horizontal, 16) }
+                ChatMessageRow(message: message, isActiveMessage: false)
+            }
         case .callback:
             // The list insets callback cards itself (BridgedWholeMessageV3); without
             // it the card ran edge to edge and was clipped on the right.

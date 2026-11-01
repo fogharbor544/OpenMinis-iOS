@@ -68,6 +68,7 @@ extension ChatStore {
         """)
 
         exec("CREATE TABLE IF NOT EXISTS message_presentation (message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE, json TEXT NOT NULL)")
+        exec("CREATE TRIGGER IF NOT EXISTS delete_message_presentation AFTER DELETE ON messages BEGIN DELETE FROM message_presentation WHERE message_id = OLD.id; END")
 
         exec("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, sort_order)")
         // [T-ios-listsessions-part-flags] Supports listSessions' per-role

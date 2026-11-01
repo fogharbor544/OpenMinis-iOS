@@ -318,7 +318,8 @@ actor BackupExporter {
         }
 
         try await run(.chats, AppLocalized("Exporting chats…"), announces: true) {
-            try await exportChats(dataDir: dataDir, trees: trees, store: snapshotStore,
+            guard let snapshotStore else { throw BotWorkspaceError.storage }
+            return try await exportChats(dataDir: dataDir, trees: trees, store: snapshotStore,
                                   snapshotAt: options.snapshotAt,
                                   progress: { text, transient in
                 // Prefer the detailed channel when the caller supplied one;

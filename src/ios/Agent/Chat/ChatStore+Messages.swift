@@ -446,6 +446,14 @@ extension ChatStore {
     func updateMessageParts(messageId: String, parts: [ContentPart]) {
         BotDataSnapshotLock.lock.lock()
         defer { BotDataSnapshotLock.lock.unlock() }
+        var parts = parts
+        var presentation = BotMessagePresentation.decode(messagePresentation(messageId))
+        if let quote = presentation?.quote {
+            parts.removeAll { if case .text(let text) = $0 { return text == quote.modelContext }; return false }
+            parts.append(.text(quote.modelContext))
+            presentation?.quotedPartIndex = parts.count - 1
+        }
+
         // PER-SESSION: the row's session is resolved here once and reused by
         // the preview recompute at the end. This runs on every assistant-turn
         // finalize — the hottest path after appendMessages — and a FULL
@@ -481,6 +489,7 @@ extension ChatStore {
             logger.info("[updateMessageParts] id=\(messageId.prefix(8)) parts=\(parts.count) stepRC=\(rc)")
         }
         sqlite3_finalize(stmt)
+        if let presentation { _ = setMessagePresentation(messageId, json: presentation.json) }
         // Mark dirty so the rewritten row syncs to iCloud.
         markDirty(recordType: "Message", recordId: messageId)
         // [T-ios-listsessions-perf] Rewriting a message's parts can change the

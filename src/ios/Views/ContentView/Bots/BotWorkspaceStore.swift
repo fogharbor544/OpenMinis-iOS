@@ -49,6 +49,10 @@ struct BotProfile: Identifiable, Codable, Equatable {
 
     static let builtinIcons = SessionCategory.all.map(\.icon)
     static let commanderID = "builtin-commander"
+    var originalAvatar: BotAvatarPreset? {
+        guard avatarResourceVersion == nil || avatarResourceVersion == 1 else { return nil }
+        return BotAvatarPreset.find(avatarPresetID)
+    }
     var isCommander: Bool { id == Self.commanderID }
 }
 

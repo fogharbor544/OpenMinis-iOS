@@ -43,19 +43,19 @@ import Foundation
         precondition(archive.version == 3 && archive.workspace.delegations.count == 1)
         precondition(archive.workspace.sessionOwners["child"]?.delegationID == task.id)
         let fresh = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"))
-        let restored = try archive.merging(local: fresh.data, localMemories: [])
+        let restored = try archive.merging(into: fresh.data, memories: [])
         precondition(restored.workspace.bots.filter(\.isCommander).count == 1)
         precondition(restored.workspace.bots.first(where: \.isCommander)?.name == "我的队长")
         precondition(restored.workspace.delegations.first?.state == .interrupted)
         precondition(restored.workspace.delegations.first?.jobID == nil)
         precondition(restored.workspace.conversationStates["parent"]?.lastReadMessageID == "reply")
-        let again = try archive.merging(local: restored.workspace, localMemories: restored.memories)
+        let again = try archive.merging(into: restored.workspace, memories: restored.memories)
         precondition(again.workspace == restored.workspace && again.memories == restored.memories)
         precondition(fresh.persist(restored.workspace))
         let reexport = try BotWorkspaceArchive.capture(workspace: BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json")).data,
             memories: restored.memories, sessionIDs: ["parent", "private", "child"], includesHistory: true)
         let secondFresh = BotWorkspaceStore(fileURL: root.appendingPathComponent("second-fresh.json"))
-        let secondRestore = try reexport.merging(local: secondFresh.data, localMemories: [])
+        let secondRestore = try reexport.merging(into: secondFresh.data, memories: [])
         precondition(secondRestore.workspace == restored.workspace && secondRestore.memories == restored.memories)
         let config = try BotWorkspaceArchive.capture(workspace: store.data, memories: [memory], sessionIDs: [], includesHistory: false)
         precondition(config.workspace.delegations.isEmpty && config.workspace.sessionOwners.isEmpty && config.workspace.conversationStates.isEmpty)
@@ -66,7 +66,7 @@ import Foundation
         precondition(config.memories.first?.evidence == memory.evidence)
         var conflict = restored.workspace
         conflict.bots[conflict.bots.firstIndex(where: { $0.id == specialist.id })!].sessionId = "other-primary"
-        do { _ = try archive.merging(local: conflict, localMemories: []); preconditionFailure("Conflicting primary session accepted") }
+        do { _ = try archive.merging(into: conflict, memories: []); preconditionFailure("Conflicting primary session accepted") }
         catch BotWorkspaceError.rejected { }
         var invalid = archive
         invalid.workspace.sessionOwners["child"] = BotSessionOwner(botId: commander.id, delegationID: task.id)
@@ -81,6 +81,8 @@ import Foundation
         precondition(!quote.modelContext.contains("\n</quoted-content>\""))
         precondition(quote.modelContext.contains("\\u003C/quoted-content>"))
         precondition(BotMessagePresentation.decode("broken") == nil)
+        precondition(BotMessageQuote.readableContext(quote.modelContext) == "引用 我的队长：\n" + quote.text)
+        precondition(BotMessageQuote.readableContext("<quoted-content>broken") == nil)
         print("PASS: commander identity/protection, independent specialist ownership, new archives, idempotence/conflicts, two-device roundtrip, no-history pruning, interrupted restore and quote transport")
     }
 }

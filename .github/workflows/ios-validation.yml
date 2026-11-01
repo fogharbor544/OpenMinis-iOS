@@ -118,6 +118,9 @@ jobs:
             src/ios/MinisTests/Standalone/BotWorkspaceArchiveTests.swift \
             -lsqlite3 -o "$RUNNER_TEMP/bot-archive-tests"
           "$RUNNER_TEMP/bot-archive-tests"
+      - name: Restored Bot model requirement and cache behavior
+        if: ${{ !cancelled() }}
+        run: python3 src/ios/MinisTests/Standalone/run_bot_model_restore_routing_tests.py
       - name: Frozen Bot graph and SQLite rollback behavior
         if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_bot_frozen_snapshot_tests.py

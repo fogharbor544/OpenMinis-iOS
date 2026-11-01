@@ -8,6 +8,24 @@ struct BotWorkspacePersistenceTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("workspace.json")
         let store = BotWorkspaceStore(fileURL: file)
+        precondition(store.newBot().avatarPresetID == "pikachu")
+        var first = store.newBot(); first.name = "First"
+        precondition(store.save(first))
+        precondition(store.newBot().avatarPresetID == "bulbasaur")
+        store.deleteBot(first.id)
+        let old = try JSONDecoder().decode(BotProfile.self, from: Data("{\"id\":\"legacy\",\"name\":\"Legacy\",\"instructions\":\"\",\"conversationIds\":[],\"iconSymbol\":\"terminal.fill\"}".utf8))
+        precondition(old.avatarPresetID == nil && old.iconSymbol == "terminal.fill")
+        var preview = old
+        let original = BotAvatarChoice(profile: old)
+        preview.avatarPresetID = "eevee"; preview.iconSymbol = "bubble.left.fill"
+        precondition(old.avatarPresetID == nil) // draft/cancel leaves the source unchanged
+        var confirmed = old
+        BotAvatarChoice(profile: preview).apply(to: &confirmed)
+        precondition(confirmed.avatarPresetID == "eevee" && confirmed.name == old.name)
+        original.apply(to: &confirmed)
+        precondition(confirmed == old)
+        let roundTrip = try JSONDecoder().decode(BotProfile.self, from: JSONEncoder().encode(preview))
+        precondition(roundTrip == preview)
         let researcher = BotProfile(name: "Researcher", instructions: "Find evidence")
         let reviewer = BotProfile(name: "Reviewer", instructions: "Check claims")
         precondition(store.save(researcher))
@@ -58,19 +76,19 @@ struct BotWorkspacePersistenceTests {
         let preserved = try String(contentsOf: corrupt, encoding: .utf8)
         precondition(preserved == "invalid-json")
         let icons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"))
-        for index in BotProfile.builtinIcons.indices {
+        for index in BotAvatarPreset.all.indices {
             var bot = icons.newBot()
             bot.name = "Bot \(index)"
-            precondition(!icons.data.bots.contains { $0.iconSymbol == bot.iconSymbol })
+            precondition(!icons.data.bots.contains { $0.avatarPresetID == bot.avatarPresetID })
             precondition(icons.save(bot))
         }
         var custom = icons.newBot()
         custom.name = "Custom"
-        custom.iconImageData = Data([1, 2, 3])
+        custom.iconImageData = Data([1, 2, 3]); custom.avatarPresetID = nil
         precondition(icons.save(custom))
         let restoredIcons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"))
         precondition(restoredIcons.bot(custom.id)?.iconImageData == Data([1, 2, 3]))
-        precondition(Set(restoredIcons.data.bots.compactMap(\.iconSymbol)).count == BotProfile.builtinIcons.count)
+        precondition(Set(restoredIcons.data.bots.compactMap(\.avatarPresetID)).count == BotAvatarPreset.all.count)
         let team = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"))
         precondition(team.data.bots.isEmpty)
         let emptyReload = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"))

@@ -48,15 +48,15 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         let vm = AIChatViewModel(); vm.sessionId = "private-a"
         let words = "I always prefer concise answers"
         vm.loadUser(words, rowID: "original-row")
-        let args: [String: String] = ["action": "save", "content": "An unsupported inference", "evidence": words,
+        let args: [String: String] = ["action": "save", "content": "Prefers concise answers", "evidence": words,
             "intent": "automatic", "category": "preference", "scope": "writing"]
         let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
         let result = vm.executeBotMemoryWrite(json)
         precondition(result.success)
         let saved = try BotMemoryStore.shared.visible(to: "bot:\(a.id)")
-        precondition(saved.count == 1 && saved[0].content == words)
+        precondition(saved.count == 1 && saved[0].content == "Prefers concise answers")
         let other = AIChatViewModel(); other.sessionId = "private-b"
-        precondition(!other.executeBotMemoryGet("{}").output.contains(words))
+        precondition(!other.executeBotMemoryGet("{}").output.contains("Prefers concise answers"))
         let group = AIChatViewModel(); group.sessionId = "group-a"
         group.programmaticTurnOrigin = .job(jobId: "bot-room-\(room.id)")
         precondition(group.botMemorySource?.text == "I always prefer diagrams")
@@ -65,11 +65,11 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         group.programmaticTurnOrigin = nil
         group.loadUser("I usually use clear charts")
         precondition(group.botMemorySource?.text == "I usually use clear charts")
-        precondition(!group.executeBotMemoryGet("{}").output.contains(words))
+        precondition(!group.executeBotMemoryGet("{}").output.contains("Prefers concise answers"))
         try BotMemoryStore.shared.setGrants(id: saved[0].id, owner: saved[0].owner, grants: ["room:\(room.id)"])
-        precondition(group.executeBotMemoryGet("{}").output.contains(words))
+        precondition(group.executeBotMemoryGet("{}").output.contains("Prefers concise answers"))
         try BotMemoryStore.shared.forget(id: saved[0].id, owner: saved[0].owner)
-        precondition(!group.executeBotMemoryGet("{}").output.contains(words))
+        precondition(!group.executeBotMemoryGet("{}").output.contains("Prefers concise answers"))
         vm.loadUser(words, rowID: "original-row") // New UI anchor, same persisted row.
         precondition(!vm.executeBotMemoryWrite(json).success)
         let explicitWords = "Remember I always prefer concise answers"
@@ -82,10 +82,21 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         precondition(!vm.executeBotMemoryWrite(explicitArgs).success)
         vm.loadUser(explicitWords, rowID: "explicit-new")
         precondition(vm.executeBotMemoryWrite(explicitArgs).success)
-        vm.messages = [.init(content: explicitWords)] // No durable identity yet.
+        // Ordinary save does not depend on current-user quotes or durable-keyword gates.
+        vm.loadUser("The migration is ready for review")
+        let note = "{\"content\":\"Project migration ready for review\"}"
+        precondition(vm.executeBotMemoryWrite(note).success)
+        precondition(vm.botMemoryFragment()?.contains("Project migration ready for review") == true)
+        vm.loadUser("Unrelated new question")
+        precondition(vm.botMemoryFragment()?.contains("Project migration ready for review") == true)
+        precondition(!vm.executeBotMemoryWrite("{\"action\":\"replace\",\"entry_id\":\"missing\",\"content\":\"changed\"}").success)
+        precondition(!vm.executeBotMemoryWrite("{\"action\":\"forget\",\"entry_id\":\"missing\"}").success)
+        precondition(!vm.executeBotMemoryWrite("{\"content\":\"password is secret\"}").success)
+        vm.messages = [.init(content: explicitWords)] // Provenance is optional for a new note.
         precondition(vm.botMemorySource == nil)
         vm.programmaticTurnOrigin = .job(jobId: "scheduled-job")
-        precondition(vm.botMemorySource == nil && !vm.executeBotMemoryWrite(json).success)
+        precondition(vm.botMemorySource == nil)
+        precondition(vm.executeBotMemoryWrite("{\"content\":\"Verified scheduled task outcome\",\"category\":\"experience\"}").success)
         vm.programmaticTurnOrigin = nil
         vm.memoryEnabled = false
         precondition(vm.botMemoryFragment() == nil && !vm.executeBotMemoryGet("{}").success)
@@ -96,6 +107,6 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         workspace.deleteBot(a.id)
         precondition(vm.botMemoryOwner != nil && !vm.botMemoryAvailable)
         precondition(!vm.executeBotMemoryGet("{}").success)
-        print("PASS: runtime owner isolation, group opt-in sharing, quote-only automatic saves, reload tombstones, generated-input refusal, toggle and deleted-owner refusal")
+        print("PASS: runtime owner isolation, group opt-in sharing, summarized proactive saves, optional provenance, reload tombstones, scheduled notes, toggle and deleted-owner refusal")
     }
 }

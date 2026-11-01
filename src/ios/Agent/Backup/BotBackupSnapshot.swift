@@ -9,7 +9,7 @@ struct BotBackupSnapshot {
     var databaseURL: URL { directory.appendingPathComponent("chat.sqlite") }
     var archiveURL: URL { directory.appendingPathComponent("agents.json") }
     var markerURL: URL { directory.appendingPathComponent("ready.json") }
-    struct Marker: Codable { var format: String; var capturedAt: Date }
+    struct Marker: Codable { var format: String; var capturedAt: Date; var includesHistory: Bool }
 
     @MainActor func capture(sourceDatabase: URL?, resuming: Bool, includesHistory: Bool) throws -> Date {
         if FileManager.default.fileExists(atPath: markerURL.path) {
@@ -25,6 +25,7 @@ struct BotBackupSnapshot {
         }
         BotDataSnapshotLock.lock.lock()
         defer { BotDataSnapshotLock.lock.unlock() }
+        guard BotWorkspaceStore.shared.pendingSessions.isEmpty else { throw BotWorkspaceError.rejected("请等待 Bot 会话创建完成后再备份。") }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let timestamp = Date()
         let archive = BotWorkspaceArchive(includesHistory: true,
@@ -35,7 +36,7 @@ struct BotBackupSnapshot {
         }
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(archive).write(to: archiveURL, options: .atomic)
-        try JSONEncoder().encode(Marker(format: BackupFormat.current, capturedAt: timestamp)).write(to: markerURL, options: .atomic)
+        try JSONEncoder().encode(Marker(format: BackupFormat.current, capturedAt: timestamp, includesHistory: includesHistory)).write(to: markerURL, options: .atomic)
         return timestamp
     }
 

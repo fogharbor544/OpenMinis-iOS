@@ -16,15 +16,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Current Bot and device repair contracts
+        if: ${{ !cancelled() }}
         run: |
           python3 src/ios/MinisTests/Standalone/check_current_bot_contract.py
           python3 src/ios/MinisTests/Standalone/check_chat_settings_contracts.py
           python3 src/ios/MinisTests/Standalone/run_secure_input_tests.py
       - name: Fresh product initialization and Swift syntax
+        if: ${{ !cancelled() }}
         run: |
           python3 src/ios/MinisTests/Standalone/check_fresh_install.py
           python3 src/ios/MinisTests/Standalone/parse_ios_sources.py
       - name: Parse changed Swift sources
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -58,42 +61,56 @@ jobs:
             xcrun swiftc -frontend -parse "$file"
           done
       - name: Existing scheduled task regression tests
+        if: ${{ !cancelled() }}
         run: |
           swift src/ios/MinisTests/Standalone/ScheduledRunNowTests.swift
           swift src/ios/MinisTests/Standalone/ScheduledTaskDetailTests.swift
       - name: Chat top viewport and banner regression guards
+        if: ${{ !cancelled() }}
         run: |
           swift src/ios/MinisTests/Standalone/TopBannersTests.swift
           swift src/ios/MinisTests/Standalone/ScheduledBannerTests.swift
       - name: Bot workspace persistence tests
+        if: ${{ !cancelled() }}
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"
           "$RUNNER_TEMP/bot-tests"
       - name: Bot memory entries
+        if: ${{ !cancelled() }}
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotMemoryStore.swift src/ios/MinisTests/Standalone/BotMemoryEntryTests.swift -lsqlite3 -o "$RUNNER_TEMP/bot-memory-tests"
           "$RUNNER_TEMP/bot-memory-tests"
       - name: Bot memory runtime boundaries
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_bot_memory_runtime_tests.py
       - name: Current model identity
+        if: ${{ !cancelled() }}
         run: |
           swiftc src/ios/Providers/ModelEntry.swift src/ios/MinisTests/Standalone/ModelEntryIdentityTests.swift -o "$RUNNER_TEMP/model-identity-tests"
           "$RUNNER_TEMP/model-identity-tests"
       - name: Bot memory iOS UI type checking
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/check_bot_memory_ui.py
       - name: Browser storage behavior tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
       - name: Schedule editing behavior tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_schedule_edit_tests.py
       - name: Completion wait lifecycle regression tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_schedule_completion_tests.py
       - name: Backup model restore regression tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_backup_model_restore_tests.py
       - name: Bot capability transport regression tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_capability_transport_tests.py
       - name: Backup format and inbound cursor regressions
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_review_followup_tests.py
       - name: Bot workspace backup and device restore
+        if: ${{ !cancelled() }}
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
             src/ios/Views/ContentView/Bots/BotMemoryStore.swift \
@@ -102,6 +119,7 @@ jobs:
             -lsqlite3 -o "$RUNNER_TEMP/bot-archive-tests"
           "$RUNNER_TEMP/bot-archive-tests"
       - name: Commander, task restore and quoted message contracts
+        if: ${{ !cancelled() }}
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
             src/ios/Views/ContentView/Bots/BotMemoryStore.swift \
@@ -112,17 +130,22 @@ jobs:
           "$RUNNER_TEMP/bot-team-tests"
           python3 src/ios/MinisTests/Standalone/check_bot_avatar_assets.py
       - name: Bot room orchestration behavior tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_bot_room_tests.py
       - name: Browser form WebKit tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_browser_form_tests.py
       - name: Capability permission behavior tests
+        if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_capability_permission_tests.py
       - name: Bot workspace search behavior tests
+        if: ${{ !cancelled() }}
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
             src/ios/MinisTests/Standalone/BotWorkspaceSearchTests.swift -o "$RUNNER_TEMP/bot-search-tests"
           "$RUNNER_TEMP/bot-search-tests"
       - name: Bot session binding behavior tests
+        if: ${{ !cancelled() }}
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
             src/ios/Views/ContentView/Bots/BotWorkspaceStore+Sessions.swift \
@@ -136,6 +159,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Native settings row layout checks
         run: python3 src/ios/MinisTests/Standalone/run_settings_layout_tests.py
+      - name: Original avatar decoding, animation and picker fixtures
+        run: python3 src/ios/MinisTests/Standalone/run_bot_avatar_native_tests.py
+      - name: Upload original avatar evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-bot-avatar-evidence
+          path: build/validation/bot-avatar-ui
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Secure presentation native fixtures
         run: python3 src/ios/MinisTests/Standalone/run_native_interaction_tests.py
       - name: Upload native interaction evidence

@@ -228,7 +228,7 @@ extension ChatStore {
         }
         for part in parts {
             guard case .text(var t) = part else { continue }
-            t = RawMessage.stripSystemReminders(t)
+            t = BotMessageQuote.readableContext(t) ?? RawMessage.stripSystemReminders(t)
             if let start = t.range(of: "<user-attached-files>") {
                 let endBound = t.range(of: "</user-attached-files>")?.upperBound ?? t.endIndex
                 t = String(t[t.startIndex..<start.lowerBound] + t[endBound...])

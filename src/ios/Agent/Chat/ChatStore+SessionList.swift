@@ -520,7 +520,7 @@ extension ChatStore {
             case .toolResult(let tr):
                 toolResults.append(tr)
             case .text(var t) where !t.isEmpty:
-                t = RawMessage.stripSystemReminders(t)
+                t = BotMessageQuote.readableContext(t) ?? RawMessage.stripSystemReminders(t)
                 if let start = t.range(of: "<user-attached-files>") {
                     let end = t.range(of: "</user-attached-files>")
                     let endBound = end?.upperBound ?? t.endIndex

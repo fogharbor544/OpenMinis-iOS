@@ -44,6 +44,7 @@ struct BotConversationOverview: View {
     @ObservedObject private var store = BotWorkspaceStore.shared
     @State private var selected: Set<Int> = []
     @State private var showTaskHistory = false
+    @State private var notice: String?
     @State private var error: String?
     @State private var openBot: BotProfile?
     private var bot: BotProfile? { vm.sessionId.flatMap { store.bot(forSession: $0) } }
@@ -119,6 +120,7 @@ struct BotConversationOverview: View {
                     }
                 }
             }
+            if let notice { Text(notice).font(.caption).foregroundStyle(.secondary) }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
@@ -160,8 +162,9 @@ struct BotConversationOverview: View {
             } catch { self.error = error.localizedDescription; return }
         }
         current.onboarding?.memorySaved = current.memoryEnabled != false
-        current.onboarding?.selected = selected.sorted(); current.onboarding?.dismissed = true
+        current.onboarding?.selected = current.memoryEnabled == false ? [] : selected.sorted(); current.onboarding?.dismissed = true
         if !store.save(current) { error = "偏好处理完成，但卡片状态保存失败，请重试。" }
+        else if current.memoryEnabled == false { notice = "长期记忆已关闭，本次选择未保存。可以直接开始聊天。" }
     }
 }
 

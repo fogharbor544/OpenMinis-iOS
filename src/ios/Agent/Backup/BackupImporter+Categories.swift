@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 private let logger = AppLogger(category: "Backup")
 
@@ -141,6 +142,11 @@ extension BackupImporter {
     /// Validate the complete Bot graph and every staged row before the first live write.
     func preflightBotGraph(root: URL, options: Options) async throws {
         var archive = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
+        for bot in archive.workspace.bots {
+            if let data = bot.iconImageData, data.count > 8 * 1024 * 1024 || UIImage(data: data) == nil {
+                throw BotWorkspaceError.rejected("自定义头像已损坏或过大，请在原设备重新选择头像后备份。")
+            }
+        }
         let includesChats = options.categories?.contains(.chats) == true
         if !includesChats {
             archive = try BotWorkspaceArchive.capture(workspace: archive.workspace, memories: archive.memories,
@@ -170,7 +176,7 @@ extension BackupImporter {
                     throw BotWorkspaceError.rejected("消息分组引用了其他会话。")
                 }
                 if let index = metadata.quotedPartIndex {
-                    guard metadata.quote != nil, message.parts.indices.contains(index), case .text = message.parts[index] else {
+                    guard let quote = metadata.quote, message.parts.indices.contains(index), case .text(let context) = message.parts[index], context == quote.modelContext else {
                         throw BotWorkspaceError.rejected("引用与原始消息内容不匹配。")
                     }
                 }
@@ -187,7 +193,7 @@ extension BackupImporter {
             guard SessionActivityTracker.shared.activeSessions.isEmpty && BotRoomRunner.shared.activeRooms.isEmpty && BotWorkspaceStore.shared.pendingSessions.isEmpty else {
                 throw BotWorkspaceError.rejected("请先停止正在运行的 Bot 和群任务，再恢复备份。")
             }
-            _ = try incoming.merging(local: BotWorkspaceStore.shared.data, localMemories: BotMemoryStore.shared.entries())
+            _ = try incoming.merging(into: BotWorkspaceStore.shared.data, memories: BotMemoryStore.shared.entries())
         }
     }
 

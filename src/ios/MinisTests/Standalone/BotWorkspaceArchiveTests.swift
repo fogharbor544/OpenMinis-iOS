@@ -11,6 +11,7 @@ import Foundation
         researcher.conversationIds = ["main"]
         var bot = BotProfile(name: "Designer", instructions: "Draw layouts", modelGroupId: "models",
                              iconSymbol: "pencil", skillOverrides: ["design": true], connectorOverrides: ["files": false])
+        bot.avatarPresetID = "mew"
         bot.sessionId = "designer-chat"
         bot.conversationIds = ["designer-chat"]
         var room = BotRoom(name: "Team", members: [researcher.id, bot.id])
@@ -37,6 +38,7 @@ import Foundation
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(BotWorkspaceArchive.self, from: encoder.encode(archive))
         try decoded.validate()
+        precondition(decoded.workspace.bots.first(where: { $0.id == bot.id })?.avatarPresetID == "mew")
         precondition(decoded.workspace.bots.map(\.id) == archive.workspace.bots.map(\.id))
         precondition(decoded.workspace.rooms.first?.interrupted == false)
         precondition(decoded.memories.contains { $0.status == "deleted" })

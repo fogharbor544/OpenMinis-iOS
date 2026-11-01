@@ -356,11 +356,7 @@ enum BrowserCredentialFiller {
         guard BrowserUseManager.secureInteractionManager == nil, !manager.isSecureInputActive,
               BrowserCredentialStore.origin(for: manager.currentURL) == entry.origin,
               UIApplication.shared.applicationState == .active,
-              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
-              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return false }
-        var presenter = root
-        while let presented = presenter.presentedViewController { presenter = presented }
-        guard !presenter.isBeingDismissed else { return false }
+              let presenter = BrowserSecurePresentation.presenter(preferredWindow: manager.webView.window) else { return false }
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 guard !Task.isCancelled else { continuation.resume(returning: false); return }
@@ -469,6 +465,137 @@ enum PasswordReplyRedactor {
 // END PasswordReplyRedactor
 
 
+// BEGIN BrowserSecurePresentation
+/// Presentation contains no credentials and is never persisted. The polling fallback also
+/// covers SwiftUI transitions that do not emit a window notification.
+@MainActor
+final class BrowserSecurePresentation {
+    enum Phase { case waitingForWindow, presenting, awaitingUser, finished }
+    private(set) var phase: Phase = .waitingForWindow
+    private(set) var hasPresented = false
+    private weak var preferredWindow: UIWindow?
+    private weak var controller: UIViewController?
+    private let sourceIsValid: () -> Bool
+    private let makeController: () -> UIViewController
+    private let onEnd: (String) -> Void
+    private let timeoutNanoseconds: UInt64
+    private var retry: Task<Void, Never>?
+    private var timeout: Task<Void, Never>?
+    private var observers: [NSObjectProtocol] = []
+    private var lastDiagnostic: String?
+
+    init(preferredWindow: UIWindow?, timeoutNanoseconds: UInt64 = 180_000_000_000,
+         sourceIsValid: @escaping () -> Bool, makeController: @escaping () -> UIViewController,
+         onEnd: @escaping (String) -> Void) {
+        self.preferredWindow = preferredWindow; self.timeoutNanoseconds = timeoutNanoseconds
+        self.sourceIsValid = sourceIsValid; self.makeController = makeController; self.onEnd = onEnd
+    }
+
+    /// Request-owned window first, then visible normal windows in foreground scenes.
+    /// Never use keyboard/alert overlay windows or attempt a presentation mid-transition.
+    static func presenter(preferredWindow: UIWindow?) -> UIViewController? {
+        guard UIApplication.shared.applicationState == .active else { return nil }
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+            .sorted { $0.session.persistentIdentifier < $1.session.persistentIdentifier }
+        var windows = scenes.flatMap(\.windows).sorted { $0.isKeyWindow && !$1.isKeyWindow }
+        if let preferredWindow { windows.removeAll { $0 === preferredWindow }; windows.insert(preferredWindow, at: 0) }
+        for window in windows {
+            guard window.windowScene?.activationState == .foregroundActive,
+                  !window.isHidden, window.alpha > 0, window.windowLevel == .normal,
+                  !window.bounds.isEmpty, let root = window.rootViewController else { continue }
+            var candidate = root
+            var transitioning = false
+            while true {
+                if candidate.isBeingDismissed || candidate.isBeingPresented || candidate.transitionCoordinator != nil {
+                    transitioning = true; break
+                }
+                if let presented = candidate.presentedViewController { candidate = presented }
+                else if let navigation = candidate as? UINavigationController, let visible = navigation.visibleViewController { candidate = visible }
+                else if let tabs = candidate as? UITabBarController, let selected = tabs.selectedViewController { candidate = selected }
+                else { break }
+            }
+            guard !transitioning, candidate.viewIfLoaded?.window === window else { continue }
+            return candidate
+        }
+        return nil
+    }
+
+    func start() {
+        guard retry == nil, phase == .waitingForWindow else { return }
+        for name in [UIApplication.didBecomeActiveNotification, UIWindow.didBecomeVisibleNotification,
+                     UIWindow.didBecomeKeyNotification, UIScene.didActivateNotification, UIApplication.didEnterBackgroundNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if note.name == UIApplication.didEnterBackgroundNotification && self.phase != .waitingForWindow {
+                        self.end("cancelled: background")
+                    } else { self.attempt() }
+                }
+            })
+        }
+        retry = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.attempt()
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard self != nil else { return }
+            }
+        }
+        attempt()
+    }
+
+    private func diagnose(_ reason: String) {
+        guard reason != lastDiagnostic else { return }
+        lastDiagnostic = reason
+        NSLog("[SecureInputPresentation] %@", reason) // Fixed state only; never URLs, selectors or values.
+    }
+
+    private func attempt() {
+        guard phase != .finished else { return }
+        guard sourceIsValid() else { end("cancelled: source_changed"); return }
+        guard phase == .waitingForWindow else { return }
+        guard UIApplication.shared.applicationState == .active else { diagnose("waiting: app_inactive"); return }
+        guard let presenter = Self.presenter(preferredWindow: preferredWindow) else {
+            let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            let transition = windows.contains { $0.rootViewController?.transitionCoordinator != nil || $0.rootViewController?.presentedViewController?.isBeingDismissed == true }
+            diagnose(transition ? "waiting: transition" : "waiting: window_unavailable")
+            return
+        }
+        let controller = makeController()
+        self.controller = controller
+        phase = .presenting; hasPresented = true
+        diagnose("presenting")
+        presenter.present(controller, animated: true) { [weak self, weak controller] in
+            guard let self, self.phase == .presenting, let controller else { return }
+            guard controller.presentingViewController != nil else { self.end("cancelled: presentation_failed"); return }
+            guard UIApplication.shared.applicationState == .active, self.sourceIsValid() else {
+                self.end("cancelled: presentation_interrupted"); return
+            }
+            self.phase = .awaitingUser; self.diagnose("awaiting_user")
+            self.timeout = Task { [weak self] in
+                guard let duration = self?.timeoutNanoseconds else { return }
+                try? await Task.sleep(nanoseconds: duration)
+                guard !Task.isCancelled else { return }
+                self?.end("expired")
+            }
+        }
+    }
+
+    private func end(_ status: String) {
+        guard phase != .finished else { return }
+        diagnose(status); stop(); onEnd(status)
+    }
+
+    func stop() {
+        guard phase != .finished else { return }
+        phase = .finished
+        retry?.cancel(); retry = nil; timeout?.cancel(); timeout = nil
+        observers.forEach(NotificationCenter.default.removeObserver); observers.removeAll()
+        controller?.dismiss(animated: false); controller = nil
+    }
+}
+// END BrowserSecurePresentation
+
 // Secrets exist only in this native session; no Codable, tool payload or history field.
 @MainActor
 final class BrowserSecureInputSession: ObservableObject {
@@ -496,8 +623,7 @@ final class BrowserSecureInputSession: ObservableObject {
     var useSavedAccount = false
     let store: BrowserCredentialStore
     private var completion: ((String) -> Void)?
-    private weak var controller: UIViewController?
-    private var timeout: Task<Void, Never>?
+    private var presentation: BrowserSecurePresentation?
     private var ended = false
 
     init(manager: BrowserUseManager, origin: String, requester: String, purpose: String,
@@ -507,17 +633,22 @@ final class BrowserSecureInputSession: ObservableObject {
         self.purpose = purpose; self.selector = selector; self.kind = kind; self.completion = completion
     }
 
-    func present(from presenter: UIViewController) {
-        let controller = UIHostingController(rootView: BrowserSecureInputView(session: self))
-        controller.isModalInPresentation = true
-        controller.modalPresentationStyle = .fullScreen
-        self.controller = controller
-        presenter.present(controller, animated: true)
-        timeout = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 180_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.finish("expired")
-        }
+    /// Agent requests may wait without holding any secret; manual fills never wait.
+    func present(from presenter: UIViewController? = nil) {
+        guard presentation == nil, !ended else { return }
+        let flow = BrowserSecurePresentation(preferredWindow: presenter?.viewIfLoaded?.window ?? manager.webView.window,
+            sourceIsValid: { [weak self] in
+                guard let self else { return false }
+                return BrowserCredentialStore.origin(for: self.manager.webView.url?.absoluteString ?? "") == self.origin
+            }, makeController: { [weak self] in
+                guard let self else { return UIViewController() }
+                let controller = UIHostingController(rootView: BrowserSecureInputView(session: self))
+                controller.isModalInPresentation = true
+                controller.modalPresentationStyle = .fullScreen
+                return controller
+            }, onEnd: { [weak self] status in self?.finish(status) })
+        presentation = flow
+        flow.start()
     }
 
     func fill() async {
@@ -589,12 +720,14 @@ final class BrowserSecureInputSession: ObservableObject {
 
     func finish(_ status: String) {
         guard !ended else { return }
-        ended = true; timeout?.cancel(); timeout = nil
+        ended = true
+        let wasPresented = presentation?.hasPresented ?? false
+        presentation?.stop(); presentation = nil
         secret = ""; username = ""; reveal = false; shielded = true; store.lock()
         manager.secureInputSession = nil
+        if !wasPresented { manager.secureInputProtected = false }
         manager.finishSecureInput()
         let callback = completion; completion = nil
-        controller?.dismiss(animated: true) { [weak manager = manager] in manager?.objectWillChange.send() }
         callback?("reference=\(id.uuidString); \(status)")
     }
 }

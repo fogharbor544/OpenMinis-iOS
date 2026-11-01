@@ -25,8 +25,9 @@ import Foundation
         try check(try store.visible(to: "room:x").isEmpty)
         let reloaded = BotMemoryStore(fileURL: file)
         try check(try reloaded.visible(to: "bot:a").first?.sourceMessage == "m1")
-        do { _ = try store.save(make("bot:a", "I prefer long writing", source: "m2")); fatalError("Silently accepted conflict") }
-        catch is BotMemoryError {}
+        let additional = try store.save(make("bot:a", "Use diagrams for architecture", source: "m-other"))
+        try check(try store.visible(to: "bot:a").count == 2)
+        try store.forget(id: additional.id, owner: "bot:a")
         let replacement = try store.save(make("bot:a", "I prefer direct writing", source: "m2"), replacing: a.id, userInitiated: true)
         try check(try store.entries().first(where: { $0.id == a.id })?.status == "replaced")
         try check(try store.visible(to: "bot:a").count == 1)
@@ -43,13 +44,8 @@ import Foundation
         let context = try store.recall(owner: "bot:c", query: "unrelated question")
         precondition(context.contains("Use plain language"))
         try check(try store.recall(owner: "bot:c", query: "unrelated", budget: 5).isEmpty)
-        do { try BotMemoryStore.validateEvidence(content: "short", evidence: "this article shorter", userText: "this article shorter", automatic: true); fatalError("Saved transient request") }
-        catch is BotMemoryError {}
-        do { try BotMemoryStore.validateEvidence(content: "fact", evidence: "other Bot said", userText: "hello", automatic: false); fatalError("Accepted fabricated evidence") }
-        catch is BotMemoryError {}
         do { _ = try store.save(make("bot:a", "My password is sensitive"), userInitiated: true); fatalError("Stored secret") }
         catch is BotMemoryError {}
-        try BotMemoryStore.validateEvidence(content: "concise", evidence: "I always prefer concise writing", userText: "I always prefer concise writing", automatic: true)
         try store.forgetOwner("bot:a")
         try check(try store.visible(to: "bot:a").isEmpty)
         try check(try store.visible(to: "bot:b").count == 1)
@@ -57,6 +53,31 @@ import Foundation
         _ = try store.save(make("bot:d", "Second fact"), userInitiated: true)
         do { _ = try store.save(make("bot:d", "Second fact"), replacing: first.id, userInitiated: true); fatalError("Reported a correction while leaving the old entry unchanged") }
         catch is BotMemoryError {}
-        print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, evidence and secret refusal")
+        // Recent context is date-based, independent of the current question's terms.
+        var dates = Calendar(identifier: .gregorian)
+        dates.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for offset in [0, 2, 4, 6, 31] {
+            var entry = make("bot:recent", "Project note day \(offset)", source: "d\(offset)")
+            entry.createdAt = dates.date(byAdding: .day, value: -offset, to: now)!
+            entry.updatedAt = entry.createdAt
+            _ = try store.save(entry)
+        }
+        var oldPinned = make("bot:recent", "Pinned convention", source: "pinned")
+        oldPinned.createdAt = dates.date(byAdding: .day, value: -90, to: now)!
+        oldPinned.pinned = true
+        _ = try store.save(oldPinned)
+        let recent = try store.recentContext(owner: "bot:recent", now: now, dateCalendar: dates)
+        precondition(recent.contains("Pinned convention") && recent.contains("Project note day 4"))
+        precondition(!recent.contains("Project note day 6") && !recent.contains("Project note day 31"))
+        precondition(!recent.contains("First fact"))
+        var longNote = make("bot:lines", (0..<250).map { "line-\($0)" }.joined(separator: "\n"))
+        longNote.createdAt = now
+        // Store content limit remains enforced, so use short lines for the daily cap test.
+        longNote.content = (0..<250).map { "L\($0)" }.joined(separator: "\n")
+        _ = try store.save(longNote)
+        let clipped = try store.recentContext(owner: "bot:lines", now: now, dateCalendar: dates)
+        precondition(clipped.contains("L199") && !clipped.contains("L200"))
+        print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, multiple same-scope notes, date-based injection, line limits and secret refusal")
     }
 }

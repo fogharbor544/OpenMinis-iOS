@@ -32,6 +32,8 @@ struct BotProfile: Identifiable, Codable, Equatable {
     var conversationIds: [String] = []
     var iconSymbol: String?
     var iconImageData: Data?
+    /// Stable optional identity; older workspaces decode without migration.
+    var avatarPresetID: String?
     var skillOverrides: [String: Bool]? = [:]
     var connectorOverrides: [String: Bool]? = [:]
     var memoryEnabled: Bool? = true
@@ -39,6 +41,35 @@ struct BotProfile: Identifiable, Codable, Equatable {
     var pinnedAt: Date?
 
     static let builtinIcons = SessionCategory.all.map(\.icon)
+}
+
+struct BotAvatarPreset: Identifiable, Equatable {
+    let id: String
+    let name: String
+    var coverAsset: String { "BotAvatar-" + id + "-cover" }
+    var atlasAsset: String { "BotAvatar-" + id + "-atlas" }
+    static let all: [BotAvatarPreset] = [
+        .init(id: "pikachu", name: "皮卡丘"), .init(id: "bulbasaur", name: "妙蛙种子"),
+        .init(id: "charmander", name: "小火龙"), .init(id: "squirtle", name: "杰尼龟"),
+        .init(id: "eevee", name: "伊布"), .init(id: "jigglypuff", name: "胖丁"),
+        .init(id: "snorlax", name: "卡比兽"), .init(id: "psyduck", name: "可达鸭"),
+        .init(id: "gengar", name: "耿鬼"), .init(id: "mew", name: "梦幻"),
+        .init(id: "togepi", name: "波克比"), .init(id: "meowth", name: "喵喵")
+    ]
+    static func find(_ id: String?) -> BotAvatarPreset? { all.first { $0.id == id } }
+}
+
+/// Picker drafts only these fields; confirming must not overwrite a concurrently edited name.
+struct BotAvatarChoice: Equatable {
+    var presetID: String?
+    var symbol: String?
+    var imageData: Data?
+    init(profile: BotProfile) {
+        presetID = profile.avatarPresetID; symbol = profile.iconSymbol; imageData = profile.iconImageData
+    }
+    func apply(to profile: inout BotProfile) {
+        profile.avatarPresetID = presetID; profile.iconSymbol = symbol; profile.iconImageData = imageData
+    }
 }
 
 struct BotSessionOwner: Codable, Equatable {
@@ -127,9 +158,10 @@ final class BotWorkspaceStore: ObservableObject {
 
     func newBot() -> BotProfile {
         let counts = Dictionary(grouping: data.bots.filter { $0.iconImageData == nil },
-                                by: { $0.iconSymbol ?? "sparkles" }).mapValues(\.count)
-        let symbol = BotProfile.builtinIcons.min { counts[$0, default: 0] < counts[$1, default: 0] }
-        return BotProfile(name: "", iconSymbol: symbol, skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
+                                by: { $0.avatarPresetID ?? "" }).mapValues(\.count)
+        let preset = BotAvatarPreset.all.min { counts[$0.id, default: 0] < counts[$1.id, default: 0] }!
+        return BotProfile(name: "", iconSymbol: "bubble.left.fill", avatarPresetID: preset.id,
+                          skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
     }
 
     func bot(forSession id: String) -> BotProfile? {

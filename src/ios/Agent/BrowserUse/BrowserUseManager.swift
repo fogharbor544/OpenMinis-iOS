@@ -396,14 +396,6 @@ final class BrowserUseManager: NSObject, ObservableObject {
               let purpose = input.purpose, !purpose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .error("secure_input requires an HTTPS page, selector, secret_kind and purpose; do not supply text or script.")
         }
-        guard UIApplication.shared.applicationState == .active,
-              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
-              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            return .error("请打开应用后通过原生卡片提供安全输入。")
-        }
-        var presenter = root
-        while let presented = presenter.presentedViewController { presenter = presented }
-        guard !presenter.isBeingDismissed else { return .error("请等待当前界面关闭后再请求安全输入。") }
         let sid = sessionIdProvider?()
         let requester = secureInputRequester ?? sid.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "当前 Bot"
         return await withTaskCancellationHandler(operation: {
@@ -421,7 +413,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 self.secureInputProtected = true
                 self.secureInputSession = session
                 self.lastScreenshot = nil
-                session.present(from: presenter)
+                session.present()
             }
         }, onCancel: {
             Task { @MainActor [weak self] in self?.secureInputSession?.finish("cancelled") }
@@ -2642,6 +2634,7 @@ extension BrowserUseManager: WKNavigationDelegate {
             let tabId = self.tabIdProvider?()
             BrowserResourceMonitor.shared.webContentProcessDidTerminate(tabId: tabId, url: url)
 
+            self.secureInputSession?.finish("cancelled: web_content_terminated")
             self.isLoading = false
             let error = NSError(
                 domain: "BrowserUse",

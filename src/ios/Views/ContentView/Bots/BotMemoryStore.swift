@@ -116,22 +116,6 @@ enum BotMemoryError: LocalizedError {
         return text.range(of: pattern, options: .regularExpression) != nil
     }
 
-    /// Model writes must cite the current user's words. Automatic writes are deliberately
-    /// conservative; one-off requests, inferred facts and tool/Bot output are not evidence.
-    static func validateEvidence(content: String, evidence: String, userText: String, automatic: Bool) throws {
-        guard !evidence.isEmpty, userText.contains(evidence), !containsSecret(content), !containsSecret(evidence) else {
-            throw BotMemoryError.invalid("Memory requires a non-secret quote from the current user message.")
-        }
-        if automatic {
-            let text = evidence.lowercased()
-            let durable = ["偏好", "通常", "一直", "长期", "以后", "总是", "我喜欢", "我不喜欢", "我住在", "我的职业", "我叫", "prefer", "always", "usually", "from now on", "i live in", "i work as", "my name is"]
-            let temporary = ["这次", "这篇", "今天", "暂时", "this time", "this article", "today", "temporarily"]
-            guard durable.contains(where: text.contains), !temporary.contains(where: text.contains) else {
-                throw BotMemoryError.invalid("This is not a clear durable preference. Keep it in the conversation or ask the user.")
-            }
-        }
-    }
-
     @discardableResult
     func save(_ draft: BotMemoryEntry, replacing id: String? = nil, userInitiated: Bool = false) throws -> BotMemoryEntry {
         var entry = draft
@@ -159,8 +143,6 @@ enum BotMemoryError: LocalizedError {
             }
             previous = old
             entry.replaces = id
-        } else if !userInitiated, all.contains(where: { $0.status == "active" && $0.category == entry.category && $0.scope == entry.scope }) {
-            throw BotMemoryError.invalid("A memory already exists in this category and scope. Ask whether to replace it; do not silently overwrite.")
         }
         try execute("BEGIN IMMEDIATE")
         do {
@@ -222,6 +204,33 @@ enum BotMemoryError: LocalizedError {
     func visible(to owner: String) throws -> [BotMemoryEntry] {
         try entries().filter { $0.status == "active" && ($0.owner == owner || $0.grants.contains(owner)) }
             .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Match the original daily-log injection without reopening shared Markdown storage.
+    /// Visibility is resolved first, so date grouping cannot leak private Bot memories.
+    func recentContext(owner: String, now: Date = Date(), dateCalendar: Calendar = .current) throws -> String {
+        let entries = try visible(to: owner).sorted {
+            if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
+            return $0.id < $1.id
+        }
+        func line(_ entry: BotMemoryEntry) -> String {
+            "[\(entry.id)] [\(entry.category); \(entry.scope)] \(entry.content)"
+        }
+        var sections: [String] = []
+        let pinned = entries.filter(\.pinned)
+        if !pinned.isEmpty { sections.append("Pinned:\n" + pinned.map(line).joined(separator: "\n")) }
+        let today = dateCalendar.startOfDay(for: now)
+        guard let start = dateCalendar.date(byAdding: .day, value: -29, to: today) else { return sections.joined(separator: "\n\n") }
+        let recent = entries.filter { !$0.pinned && $0.createdAt >= start && $0.createdAt <= now }
+        let days = Dictionary(grouping: recent) { dateCalendar.startOfDay(for: $0.createdAt) }
+        let formatter = DateFormatter()
+        formatter.calendar = dateCalendar; formatter.timeZone = dateCalendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+        for day in days.keys.sorted(by: >).prefix(3) {
+            let lines = (days[day] ?? []).map(line).joined(separator: "\n").components(separatedBy: .newlines)
+            sections.append("\(formatter.string(from: day)):\n" + lines.prefix(200).joined(separator: "\n"))
+        }
+        return sections.joined(separator: "\n\n")
     }
 
     func recall(owner: String, query: String, limit: Int = 8, budget: Int = 4000) throws -> String {

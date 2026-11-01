@@ -121,11 +121,21 @@ jobs:
   ui-layout:
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-26
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Native settings row layout checks
         run: python3 src/ios/MinisTests/Standalone/run_settings_layout_tests.py
+      - name: Secure presentation and avatar native fixtures
+        run: python3 src/ios/MinisTests/Standalone/run_native_interaction_tests.py
+      - name: Upload native interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-native-interaction-evidence
+          path: build/validation/native-interactions
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload native layout snapshots
         if: always()
         uses: actions/upload-artifact@v4

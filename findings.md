@@ -178,3 +178,6 @@ Native failure detail: ARM worker SDK lookup exceeded60s after boot, not a Swift
 
 ### Final polish results
 Preflight-first native retry succeeded:20 cases passed, no layout failures. Standard list images show browser heading/time/menu in one horizontal header and empty instruction value on the far trailing side; AX metadata stacks without losing the time text. Maximum visible list cells112.67pt normal/212pt AX5. Device app compiled successfully, source checks passed and downloaded IPA provenance matches bedcc9d. Native test-only3807e07 changed no app code. Full app/device interaction still needs user acceptance.
+
+## 2026-11-01 execution findings
+Native secure_input fails at the pre-session active/first-scene/key-window guard; the screenshot does not establish which subcondition failed. Replace guard with lifecycle-aware retry while preserving cancellation and secret isolation. Memory gates require verbatim current-user evidence, durable keyword allowlists and a single category/scope entry, and store the quote instead of the summary; remove these ordinary-save gates, retain destructive-operation authorization and deletion suppression.

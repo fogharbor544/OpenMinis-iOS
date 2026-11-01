@@ -362,3 +362,11 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Added actual SQLite WAL snapshot/frozen resume/live-connection rollback fixture, awaiting macOS execution. Expanded specialist admission to respect any existing owned non-delegation conversation, and prevent explicitly configured missing Bot model groups from silently falling back.
 - New-format graph restore expires old approval requests only after commit, marks historical transcripts and blocks task admission throughout restoration. Restarted active/taking-over records clear old job IDs.
 - Implementation and acceptance boundaries documented in docs/bot-team-redesign.md. Original checkout remains separate; no merge/deployment requested.
+
+### Final Bot team verification — application d72b780
+- Run41299075459: source-checks SUCCESS, ui-layout SUCCESS, full unsigned device-build SUCCESS. The complete preceding application run41298285512 also passed all3 jobs.
+- Shipping command transitions, SQLite WAL frozen snapshot/resume/live-connection rollback, and explicit Bot model requirements with profile/config/auth cache invalidation all passed. No live inference was started by these boundary fixtures.
+- Native avatar lifecycle assertions passed; four actual light/dark/AX3 screenshots from the identical avatar components were downloaded and visually inspected.12 atlases/192 frames/SHA-256 checks and fresh schemas passed locally. Final diff whitespace check clean.
+- Main application code remains d72b780; final follow-up commit only records verification. New branch pushed to darkyuanbao06/codex/bot-team-original-avatars; original codex/bot-single-chat remains clean at7450d01.
+- No physical-device gesture/Reduce Motion switch, real-provider routing/review/takeover, or power-loss fault-injection acceptance claimed. No original-branch merge or deployment performed.
+- Final unsigned IPA downloaded and verified:123153522 bytes, arm64, Bundle ID com.openminis.app, ZIP CRC clean, exact d72b780 provenance, no main-app signature/profile. SHA-25652038278f24c1613f2073d45d2d4707b62c6e9748f279ffecf350b3ae030933c. Local artifact:build/validation/bot-team-d72b780/OpenMinis-unsigned.ipa.

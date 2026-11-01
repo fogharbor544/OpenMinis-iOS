@@ -204,6 +204,7 @@ struct BotAvatarPicker: View {
     @State private var draft: BotProfile
     let onConfirm: (BotAvatarChoice) -> Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var replayTrigger = UUID()
     @State private var loadingPhoto = false
@@ -212,13 +213,21 @@ struct BotAvatarPicker: View {
         _draft = State(initialValue: profile); self.onConfirm = onConfirm
     }
     private var available: [BotAvatarPreset] { BotAvatarPreset.all.filter { UIImage(named: $0.coverAsset) != nil } }
+    private var columns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 88), spacing: 12)]
+    }
+    private var previewName: String {
+        if draft.iconImageData != nil { return "自定义照片" }
+        if let preset = BotAvatarPreset.find(draft.avatarPresetID), UIImage(named: preset.coverAsset) != nil { return preset.name }
+        return "系统图标"
+    }
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     VStack(spacing: 8) {
                         BotAvatarPreview(profile: draft, replayTrigger: replayTrigger)
-                        Text(draft.iconImageData != nil ? "自定义照片" : BotAvatarPreset.find(draft.avatarPresetID)?.name ?? "系统图标")
+                        Text(previewName)
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 8)
@@ -228,7 +237,7 @@ struct BotAvatarPicker: View {
                         Text("头像素材暂不可用，可选择系统图标或自定义照片。")
                             .font(.subheadline).foregroundStyle(.secondary)
                     } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 12)], spacing: 16) {
+                        LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(available) { preset in
                                 choiceButton(name: preset.name, selected: draft.iconImageData == nil && draft.avatarPresetID == preset.id) {
                                     selectedPhoto = nil; loadingPhoto = false; replayTrigger = UUID()
@@ -242,13 +251,13 @@ struct BotAvatarPicker: View {
                     }
                 }
                 Section("系统图标") {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 12)], spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(SessionCategory.all, id: \.key) { category in
                             choiceButton(name: category.label, selected: draft.iconImageData == nil && draft.avatarPresetID == nil && draft.iconSymbol == category.icon) {
                                 selectedPhoto = nil; loadingPhoto = false; replayTrigger = UUID()
                                 draft.iconImageData = nil; draft.avatarPresetID = nil; draft.iconSymbol = category.icon
                             } icon: {
-                                Image(systemName: category.icon).font(.title3).foregroundStyle(category.color)
+                                Image(systemName: category.icon).font(.system(size: 20)).foregroundStyle(category.color)
                                     .frame(width: 44, height: 44).background(category.color.opacity(0.18), in: Circle())
                             }
                         }
@@ -290,14 +299,28 @@ struct BotAvatarPicker: View {
     private func choiceButton<Icon: View>(name: String, selected: Bool, action: @escaping () -> Void,
                                          @ViewBuilder icon: () -> Icon) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                icon().frame(height: 56)
-                Text(LocalizedStringKey(name)).font(.caption).foregroundStyle(.primary).multilineTextAlignment(.center)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.caption)
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.4))
-            }.frame(maxWidth: .infinity, minHeight: 88).contentShape(Rectangle())
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    HStack(spacing: 12) {
+                        icon().frame(width: 56, height: 56)
+                        Text(LocalizedStringKey(name)).font(.body).foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                        selectionMark(selected)
+                    }.frame(maxWidth: .infinity, minHeight: 56)
+                } else {
+                    VStack(spacing: 6) {
+                        icon().frame(height: 56)
+                        Text(LocalizedStringKey(name)).font(.caption).foregroundStyle(.primary).multilineTextAlignment(.center)
+                        selectionMark(selected)
+                    }.frame(maxWidth: .infinity, minHeight: 88)
+                }
+            }.contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityLabel(Text(LocalizedStringKey(name))).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+    private func selectionMark(_ selected: Bool) -> some View {
+        Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 16))
+            .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.4))
     }
     private static func thumbnail(_ image: UIImage) -> Data? {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1

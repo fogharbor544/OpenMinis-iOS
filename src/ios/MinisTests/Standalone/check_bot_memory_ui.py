@@ -128,7 +128,7 @@ with tempfile.TemporaryDirectory(prefix='minis-memory-ui-') as temp:
     sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
     folder = root / 'Views/ContentView/Bots'
     sources = [str(folder / (name + '.swift')) for name in [
-        'BotWorkspaceStore', 'BotWorkspaceStore+Sessions', 'BotMemoryStore', 'BotMemoryView', 'BotAvatar', 'BotWorkspaceView']]
+        'BotWorkspaceStore', 'BotWorkspaceStore+Sessions', 'BotMemoryStore', 'BotMemoryView', 'BotWorkspaceView']]
     sources += [str(root / path) for path in [
         'Views/Chat/SessionMemoryView.swift', 'Views/Settings/MemoryManagementView.swift',
         'Views/Sync/SyncStatusView.swift']]

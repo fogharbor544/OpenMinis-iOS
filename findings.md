@@ -181,3 +181,6 @@ Preflight-first native retry succeeded:20 cases passed, no layout failures. Stan
 
 ## 2026-11-01 execution findings
 Native secure_input fails at the pre-session active/first-scene/key-window guard; the screenshot does not establish which subcondition failed. Replace guard with lifecycle-aware retry while preserving cancellation and secret isolation. Memory gates require verbatim current-user evidence, durable keyword allowlists and a single category/scope entry, and store the quote instead of the summary; remove these ordinary-save gates, retain destructive-operation authorization and deletion suppression.
+
+## Avatar rollback decision
+User explicitly requests removing the avatar changes and restoring original behavior. Baseline1326902 differs in the selected six files only by the new avatar feature, so those files are restored exactly. Mixed native interaction fixtures retain only security tests. Browser/memory source hashes are unchanged; no device/workspace data is rewritten. Existing iconSymbol/iconImageData continue to decode; the unused optional preset field from the prior package is ignored by the restored Codable model.

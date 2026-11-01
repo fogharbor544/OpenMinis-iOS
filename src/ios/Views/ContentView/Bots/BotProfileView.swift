@@ -96,10 +96,10 @@ struct BotProfileView: View {
         return List {
             Section {
                 VStack(spacing: 8) {
-                    BotAvatarPreview(profile: bot, size: 72)
-                    Button("更改头像") { choosingAvatar = true }
-                        .font(.subheadline)
+                    Button { choosingAvatar = true } label: { BotAvatar(profile: bot, size: 72) }
+                        .buttonStyle(.plain)
                         .disabled(locked)
+                        .accessibilityLabel("更改头像")
                     Text(bot.name).font(.title2.weight(.semibold)).multilineTextAlignment(.center)
                         .accessibilityAddTraits(.isHeader)
                     BotRunStatusView(botID: bot.id, sessionID: sessionID, allowsWrapping: true)
@@ -184,13 +184,7 @@ struct BotProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .sheet(isPresented: $choosingAvatar) {
-            BotAvatarPicker(profile: bot) { choice in
-                guard !locked, var current = store.bot(bot.id) else { return false }
-                choice.apply(to: &current)
-                return store.save(current)
-            }
-        }
+        .sheet(isPresented: $choosingAvatar) { BotAvatarPicker(botID: bot.id) }
         .sheet(isPresented: $editingInstructions) { BotInstructionsEditor(botID: bot.id) }
         .sheet(item: $browserTarget, onDismiss: loadPreview) { target in
             BotBrowserHost(vm: target.vm)
@@ -559,6 +553,81 @@ private struct BotCapabilityToggles: View {
                     else { current.connectorOverrides = (current.connectorOverrides ?? [:]).merging([id: enabled]) { $1 } }
                     _ = workspace.save(current)
                 })
+    }
+}
+
+/// "更改头像": the existing icon set plus a photo, saved immediately.
+private struct BotAvatarPicker: View {
+    let botID: String
+    @ObservedObject private var store = BotWorkspaceStore.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let bot = store.bot(botID) {
+                    Section {
+                        HStack(spacing: 16) {
+                            BotAvatar(profile: bot, size: 56)
+                            PhotosPicker("Choose Custom Image", selection: $selectedPhoto, matching: .images)
+                        }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 12)], spacing: 12) {
+                            ForEach(SessionCategory.all, id: \.key) { category in
+                                let selected = bot.iconImageData == nil && bot.iconSymbol == category.icon
+                                Button { update { $0.iconImageData = nil; $0.iconSymbol = category.icon } } label: {
+                                    Image(systemName: category.icon).font(.title3)
+                                        .foregroundStyle(selected ? .white : category.color)
+                                        .frame(width: 44, height: 44)
+                                        .background(Circle().fill(selected ? category.color : category.color.opacity(0.18)))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(Text(LocalizedStringKey(category.label)))
+                                .accessibilityAddTraits(selected ? .isSelected : [])
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    if let error { Section { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) } }
+                }
+            }
+            .navigationTitle("更改头像")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .task(id: selectedPhoto) {
+                guard let selectedPhoto else { return }
+                do {
+                    guard let data = try await selectedPhoto.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else {
+                        error = String(localized: "Unable to read this image.")
+                        return
+                    }
+                    let jpeg = BotAvatarPicker.thumbnail(image)
+                    update { $0.iconImageData = jpeg }
+                    error = nil
+                } catch { self.error = error.localizedDescription }
+            }
+        }
+    }
+
+    private func update(_ change: (inout BotProfile) -> Void) {
+        guard var bot = store.bot(botID) else { return }
+        change(&bot)
+        _ = store.save(bot)
+    }
+
+    /// Same 192pt center-crop BotProfileEditor applies.
+    static func thumbnail(_ image: UIImage) -> Data? {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let side: CGFloat = 192
+        let rendered = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            let scale = max(side / image.size.width, side / image.size.height)
+            let w = image.size.width * scale, h = image.size.height * scale
+            image.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }
+        return rendered.jpegData(compressionQuality: 0.85)
     }
 }
 

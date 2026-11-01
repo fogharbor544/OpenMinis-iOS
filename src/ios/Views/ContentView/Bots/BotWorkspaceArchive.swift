@@ -2,7 +2,7 @@ import Foundation
 
 /// A versioned, logical snapshot; SQLite files, credentials and running jobs are not portable.
 struct BotWorkspaceArchive: Codable, Equatable {
-    var version = 2
+    var version = 3
     var includesHistory: Bool
     var workspace: BotWorkspaceData
     var memories: [BotMemoryEntry]
@@ -41,10 +41,16 @@ struct BotWorkspaceArchive: Codable, Equatable {
         let bots = Set(workspace.bots.map(\.id))
         let rooms = Set(workspace.rooms.map(\.id))
         result.workspace.sessionOwners = workspace.sessionOwners.filter { sid, owner in
-            includesHistory && sessionIDs.contains(sid) && bots.contains(owner.botId)
+            includesHistory && sessionIDs.contains(sid) && (bots.contains(owner.botId) || owner.delegationID != nil)
                 && (owner.roomId == nil || rooms.contains(owner.roomId!))
         }
         let sessions = Set(result.workspace.sessionOwners.keys)
+        result.workspace.delegations = workspace.delegations.filter {
+            includesHistory && sessions.contains($0.parentSessionID) && ($0.childSessionID == nil || sessions.contains($0.childSessionID!))
+        }
+        let delegationIDs = Set(result.workspace.delegations.map(\.id))
+        result.workspace.sessionOwners = result.workspace.sessionOwners.filter { $0.value.delegationID == nil || delegationIDs.contains($0.value.delegationID!) }
+        result.workspace.conversationStates = workspace.conversationStates.filter { includesHistory && sessions.contains($0.key) }
         for i in result.workspace.bots.indices {
             if let sid = result.workspace.bots[i].sessionId, !sessions.contains(sid) {
                 result.workspace.bots[i].sessionId = nil
@@ -82,13 +88,25 @@ struct BotWorkspaceArchive: Codable, Equatable {
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw BotWorkspaceError.rejected(message) }
         }
-        try require(version == 2, "Unsupported agent archive version.")
+        try require(version == 3, "Unsupported agent archive version.")
         let bots = Set(workspace.bots.map(\.id)), rooms = Set(workspace.rooms.map(\.id))
         try require(bots.count == workspace.bots.count && rooms.count == workspace.rooms.count,
                     "Duplicate agent or group IDs in the archive.")
         try require(Set(memories.map(\.id)).count == memories.count, "Duplicate memory IDs in the archive.")
+        try require(Set(workspace.delegations.map(\.id)).count == workspace.delegations.count, "Duplicate delegation IDs.")
+        for record in workspace.delegations {
+            try require(includesHistory && record.fromBotID == BotProfile.commanderID && !record.toBotID.isEmpty,
+                        "Invalid delegation identity.")
+            try require(workspace.sessionOwners[record.parentSessionID]?.botId == record.fromBotID,
+                        "A delegation parent is missing or belongs to another Bot.")
+            if let child = record.childSessionID {
+                try require(workspace.sessionOwners[child] == BotSessionOwner(botId: record.toBotID, delegationID: record.id),
+                            "A specialist conversation has conflicting ownership.")
+            }
+        }
+        try require(workspace.conversationStates.keys.allSatisfy { includesHistory && workspace.sessionOwners[$0] != nil }, "Invalid reading state.")
         for (sid, owner) in workspace.sessionOwners {
-            try require(includesHistory && !sid.isEmpty && bots.contains(owner.botId), "Invalid conversation ownership.")
+            try require(includesHistory && !sid.isEmpty && (bots.contains(owner.botId) || workspace.delegations.contains(where: { $0.id == owner.delegationID && $0.toBotID == owner.botId && $0.childSessionID == sid })), "Invalid conversation ownership.")
             if let room = owner.roomId {
                 try require(workspace.rooms.contains { $0.id == room && $0.members.contains(owner.botId) },
                             "Conversation references a missing group member.")
@@ -130,17 +148,27 @@ struct BotWorkspaceArchive: Codable, Equatable {
     /// Memory uses its own clock, including deleted/forgotten entries.
     func merging(into local: BotWorkspaceData, memories localMemories: [BotMemoryEntry]) throws -> Self {
         try validate()
+        var restoredWorkspace = workspace
+        for i in restoredWorkspace.delegations.indices where restoredWorkspace.delegations[i].state.isActive || restoredWorkspace.delegations[i].state == .takingOver {
+            restoredWorkspace.delegations[i].state = .interrupted
+            restoredWorkspace.delegations[i].jobID = nil
+        }
         if local.rooms.isEmpty && local.sessionOwners.isEmpty && localMemories.isEmpty,
            local.bots.isEmpty {
             // A fresh install has no user ordering to preserve, including Bot order.
             var restored = self
+            restored.workspace = restoredWorkspace
             for i in restored.workspace.rooms.indices { restored.workspace.rooms[i].interrupted = false }
             restored.memories.sort { $0.id < $1.id }
             return restored
         }
         var next = local
-        for incoming in workspace.bots {
+        for incoming in restoredWorkspace.bots {
             if let index = next.bots.firstIndex(where: { $0.id == incoming.id }) {
+                if incoming.isCommander && next.bots[index].isBootstrap == true && next.bots[index].sessionId == nil && !localMemories.contains(where: { $0.owner == "bot:" + incoming.id }) {
+                    next.bots[index] = incoming
+                    continue
+                }
                 if let existing = next.bots[index].sessionId, let restored = incoming.sessionId,
                    existing != restored {
                     throw BotWorkspaceError.rejected("同一 Bot 已绑定其他聊天，请在干净环境恢复。")
@@ -178,6 +206,14 @@ struct BotWorkspaceArchive: Codable, Equatable {
             }
             next.sessionOwners[sid] = owner
         }
+        for incoming in restoredWorkspace.delegations {
+            if let existing = next.delegations.first(where: { $0.id == incoming.id }) {
+                guard existing.fromBotID == incoming.fromBotID && existing.toBotID == incoming.toBotID && existing.parentSessionID == incoming.parentSessionID && existing.childSessionID == incoming.childSessionID else {
+                    throw BotWorkspaceError.rejected("Conflicting delegation identity. Restore on a clean device.")
+                }
+            } else { next.delegations.append(incoming) }
+        }
+        for (sid, state) in restoredWorkspace.conversationStates where next.conversationStates[sid] == nil { next.conversationStates[sid] = state }
         var entries = Dictionary(uniqueKeysWithValues: localMemories.map { ($0.id, $0) })
         for incoming in memories {
             if let local = entries[incoming.id] {

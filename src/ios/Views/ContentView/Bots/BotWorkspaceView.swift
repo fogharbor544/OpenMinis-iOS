@@ -39,7 +39,7 @@ struct BotWorkspaceView: View {
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var isWorkspaceEmpty: Bool { store.data.bots.isEmpty && store.data.rooms.isEmpty }
     private var visibleBots: [BotProfile] {
-        store.data.bots.filter { trimmedQuery.isEmpty || botSnippets[$0.id] != nil }
+        store.data.bots.filter { !$0.isCommander && (trimmedQuery.isEmpty || botSnippets[$0.id] != nil) }
     }
     private var visibleRooms: [BotRoom] {
         store.data.rooms.filter { trimmedQuery.isEmpty || roomSnippets[$0.id] != nil }
@@ -119,6 +119,19 @@ struct BotWorkspaceView: View {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         }
                     }
+                }
+                if let commander = store.data.bots.first(where: \.isCommander) {
+                    Section {
+                        VStack(spacing: 8) {
+                            BotAvatarPreview(profile: commander, size: 92)
+                            Button { open(commander) } label: {
+                                HStack(spacing: 6) { Text(commander.name).font(.title3.weight(.semibold)); Image(systemName: "chevron.right").font(.caption) }
+                                    .frame(minHeight: 44)
+                            }.buttonStyle(.plain).disabled(opening)
+                            BotRunStatusView(botID: commander.id, hidesWhenIdle: true)
+                        }.frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .contextMenu { Button { profileBot = BotChatTarget(id: commander.id) } label: { Label("Bot 资料", systemImage: "person.text.rectangle") } }
+                    }.listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
                 if isWorkspaceEmpty {
                     Section { emptyState.listRowBackground(Color.clear) }
@@ -268,6 +281,7 @@ struct BotWorkspaceView: View {
 
     private func botRow(_ bot: BotProfile, preview: ChatSession?) -> some View {
         let subtitle = botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
+            ?? store.delegationPreview(botID: bot.id)
             ?? preview?.lastMessage
             ?? bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
         return Button {
@@ -411,6 +425,7 @@ struct BotProfileEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var iconError: String?
+    @State private var choosingAvatar = false
 
     var body: some View {
         NavigationStack {
@@ -421,42 +436,12 @@ struct BotProfileEditor: View {
                         .submitLabel(.done)
                 }
                 Section("Bot Icon") {
-                    HStack(spacing: 16) {
-                        BotAvatar(profile: profile, size: 56)
-                        PhotosPicker("Choose Custom Image", selection: $selectedPhoto, matching: .images)
-                    }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 12)], spacing: 12) {
-                        ForEach(SessionCategory.all, id: \.key) { category in
-                            let symbol = category.icon
-                            Button {
-                                selectedPhoto = nil
-                                profile.iconImageData = nil
-                                profile.iconSymbol = symbol
-                            } label: {
-                                let selected = profile.iconImageData == nil && profile.iconSymbol == symbol
-                                VStack(spacing: 6) {
-                                    Image(systemName: symbol)
-                                        .font(.title3)
-                                        .foregroundStyle(selected ? .white : category.color)
-                                        .frame(width: 44, height: 44)
-                                        .background(Circle().fill(selected ? category.color : category.color.opacity(0.18)))
-                                    Text(LocalizedStringKey(category.label))
-                                        .font(.caption2)
-                                        .foregroundStyle(selected ? category.color : .secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
-                                }
-                                .frame(minWidth: 44, minHeight: 44)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(Text(LocalizedStringKey(category.label)))
-                            .accessibilityAddTraits(profile.iconImageData == nil && profile.iconSymbol == symbol ? .isSelected : [])
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    if let iconError {
-                        Label(iconError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    Button { choosingAvatar = true } label: {
+                        HStack(spacing: 16) {
+                            BotAvatar(profile: profile, size: 56)
+                            Text("更改头像").foregroundStyle(.primary)
+                            Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                        }.frame(minHeight: 56)
                     }
                 }
                 Section {
@@ -487,6 +472,9 @@ struct BotProfileEditor: View {
                 if let error = store.errorMessage {
                     Section { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) }
                 }
+            }
+            .sheet(isPresented: $choosingAvatar) {
+                BotAvatarPicker(profile: profile) { choice in choice.apply(to: &profile); return true }
             }
             .navigationTitle(store.bot(profile.id) == nil ? LocalizedStringKey("新建 Bot") : LocalizedStringKey("Edit Bot"))
             .navigationBarTitleDisplayMode(.inline)
@@ -776,31 +764,6 @@ private struct BotRoomView: View {
                 Spacer(minLength: 24)
             }
         }
-    }
-}
-
-struct BotAvatar: View {
-    let profile: BotProfile
-    var size: CGFloat = 32
-    private var iconColor: Color {
-        SessionCategory.all.first { $0.icon == profile.iconSymbol }?.color ?? .green
-    }
-    var body: some View {
-        Group {
-            if let data = profile.iconImageData, let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                Image(systemName: profile.iconSymbol ?? "bubble.left.fill")
-                    // Inset scales with the avatar so 22pt headers and 44pt rows look alike.
-                    .resizable().scaledToFit().padding(size * 0.24)
-                    .foregroundStyle(iconColor)
-                    // 18% tint matches the session-list category avatars (shared/design/category-colors.md).
-                    .background(iconColor.opacity(0.18), in: Circle())
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .accessibilityHidden(true)
     }
 }
 

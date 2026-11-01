@@ -19,6 +19,7 @@ import UniformTypeIdentifiers
 /// V3: No GeometryReader. Sheet moved to zero-size overlay to prevent
 /// inflated self-sizing from sheet-capable view modifiers.
 struct BridgedAssistantFooterV3: View {
+    var onQuote: (() -> Void)? = nil
     @ObservedObject var message: ChatMessage
     @ObservedObject var bridge: CellStateBridgeV2
     var maxWidth: CGFloat
@@ -122,6 +123,7 @@ struct BridgedAssistantFooterV3: View {
                     RetryLogSheet(key: retryLogKey)
                 }
                 .contextMenu {
+                    if let onQuote { Button(action: onQuote) { Label("引用", systemImage: "arrowshape.turn.up.left") } }
                     Button {
                         let text = message.blocks
                             .filter { if case .text = $0.kind { return true }; return false }

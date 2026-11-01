@@ -255,7 +255,8 @@ enum ChatStoreSyncHydrators {
             modelId: optionalStringField(record, "modelId"),
             modelDisplayName: optionalStringField(record, "modelDisplayName"),
             providerType: optionalStringField(record, "providerType"),
-            providerInstanceId: optionalStringField(record, "providerInstanceId")
+            providerInstanceId: optionalStringField(record, "providerInstanceId"),
+            presentationJSON: optionalStringField(record, "presentationJSON")
         )
     }
 

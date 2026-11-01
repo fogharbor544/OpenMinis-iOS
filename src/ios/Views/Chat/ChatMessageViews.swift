@@ -211,6 +211,7 @@ private struct PreviewContentSizeKey: PreferenceKey {
 // MARK: - Chat Message Row
 
 struct ChatMessageRow: View {
+    var onQuote: (() -> Void)? = nil
     @ObservedObject var message: ChatMessage
     /// Only the actively streaming message needs vm access (for typing indicator & stop button).
     let isActiveMessage: Bool
@@ -471,6 +472,7 @@ struct ChatMessageRow: View {
             // preview clip shape independently from the interaction shape.
             .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
             .contextMenu {
+                if let onQuote { Button(action: onQuote) { Label("引用", systemImage: "arrowshape.turn.up.left") } }
                 Button {
                     UIPasteboard.general.string = message.content
                 } label: {

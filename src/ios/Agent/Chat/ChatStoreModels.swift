@@ -347,6 +347,7 @@ struct StoredTokenUsage: Codable, Hashable {
 
 /// A single message in the conversation (one "turn").
 struct RawMessage: Identifiable, Codable, Hashable {
+    var presentationJSON: String? = nil
     let id: String
     let sessionId: String
     let role: MessageRole

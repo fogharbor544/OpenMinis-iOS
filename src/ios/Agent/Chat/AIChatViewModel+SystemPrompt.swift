@@ -23,7 +23,7 @@ extension AIChatViewModel {
     private var botProfileInstructions: String {
         guard helperConfig == nil, let sessionId,
               let profile = BotWorkspaceStore.shared.bot(forSession: sessionId) else { return "" }
-        return "\nBot profile: \(profile.name)\n\(profile.instructions)\n\n"
+        return "\nBot profile: \(profile.name)\n\(profile.instructions)\n\n" + commanderPolicy
     }
 
     private var approximateTimeString: String {

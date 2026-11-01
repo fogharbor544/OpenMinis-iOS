@@ -22,6 +22,8 @@ extension ChatStore {
     @discardableResult
     func createSession(modelId: String, title: String? = nil, source: String? = nil,
                        parentSessionId: String? = nil, parentToolUseId: String? = nil) -> ChatSession {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         // FULL: adds a row to the set.
         invalidateSessionListCache()
         let now = Date()

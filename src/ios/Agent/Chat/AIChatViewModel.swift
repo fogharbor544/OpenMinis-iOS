@@ -1309,13 +1309,20 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// branches run for every caller), and `cancelCompactBeforeSend` must not
     /// pour a job's prompt into the user's draft — it restores only their own
     /// text.
+    @Published var pendingQuote: BotMessageQuote?
+    let botOverviewMessage = ChatMessage(role: .systemInfo, content: "")
+    let botUnreadMessage = ChatMessage(role: .systemInfo, content: "")
+    var unreadBoundaryMessageID: String?
+    var readBoundaryInitialized = false
+    var knownPresentationMessageIDs: Set<UUID> = []
+    var botConversationVisible = false
     var pendingSendIsFromComposer = false
     /// When true, skip the needsCompactBeforeSend check (used after compactAndSend to avoid loop).
     var skipCompactCheck = false
     /// When false, memory_write tool calls are skipped (returns "Memory disabled") in this session.
     var memoryEnabled: Bool {
         get {
-            guard helperConfig == nil, let sessionId else { return false }
+            guard helperConfig == nil || helperConfig?.specialistBotID != nil, let sessionId else { return false }
             return BotWorkspaceStore.shared.memoryEnabled(forSession: sessionId)
         }
         set {

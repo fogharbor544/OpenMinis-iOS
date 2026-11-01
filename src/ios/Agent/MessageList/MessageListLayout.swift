@@ -294,6 +294,31 @@ final class MessageListLayout: UICollectionViewLayout {
     /// monotonic id in logs to count fires per second.
     private static var prepareCallCount: Int = 0
 
+    private var _replyGroupRanges: [Range<Int>] = []
+    func setReplyGroups(_ ranges: [Range<Int>]) {
+        register(BotReplyBackground.self, forDecorationViewOfKind: "bot-reply-background")
+        os_unfair_lock_lock(&_streamingLock)
+        let changed = _replyGroupRanges != ranges
+        _replyGroupRanges = ranges
+        os_unfair_lock_unlock(&_streamingLock)
+        if changed { invalidateLayout() }
+    }
+    private var replyGroupRanges: [Range<Int>] {
+        os_unfair_lock_lock(&_streamingLock)
+        defer { os_unfair_lock_unlock(&_streamingLock) }
+        return _replyGroupRanges
+    }
+    override func layoutAttributesForDecorationView(ofKind kind: String, at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        let groups = replyGroupRanges
+        guard kind == "bot-reply-background", groups.indices.contains(indexPath.item),
+              let first = groups[indexPath.item].first, let last = groups[indexPath.item].last,
+              itemAttributes.indices.contains(first), itemAttributes.indices.contains(last) else { return nil }
+        let attrs = UICollectionViewLayoutAttributes(forDecorationViewOfKind: kind, with: indexPath)
+        attrs.frame = itemAttributes[first].frame.union(itemAttributes[last].frame).insetBy(dx: 8, dy: 1)
+        attrs.zIndex = -1
+        return attrs
+    }
+
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
         // Return cells in the visible rect plus half-a-screen above and below.
         // A full screen caused too many UIHostingConfiguration cells to be created
@@ -317,6 +342,11 @@ final class MessageListLayout: UICollectionViewLayout {
             result.append(attrs)
         }
 
+        for i in replyGroupRanges.indices {
+            if let attrs = layoutAttributesForDecorationView(ofKind: "bot-reply-background", at: IndexPath(item: i, section: 0)), attrs.frame.intersects(expandedRect) {
+                result.append(attrs)
+            }
+        }
         // [ScrollStall] Sampled rate-limited log. Every 1s we emit one summary
         // line giving fire count + slowest one. Helps see whether this fn's
         // O(itemCount) walk is the hitch source on 100+ item sessions.
@@ -1638,3 +1668,15 @@ enum StreamGrowthPin {
     }
 }
 // END StreamGrowthPin
+
+
+private final class BotReplyBackground: UICollectionReusableView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .secondarySystemBackground
+        layer.cornerRadius = 22
+        layer.cornerCurve = .continuous
+        isUserInteractionEnabled = false
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}

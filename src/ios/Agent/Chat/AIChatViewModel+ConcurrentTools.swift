@@ -1002,6 +1002,15 @@ extension AIChatViewModel {
             toolOutput = askResult.output
             toolSuccess = askResult.success
 
+        case "bot_create", "bot_task":
+            let result = tu.name == "bot_create"
+                ? executeBotCreate(toolArgs, toolUseID: tu.id)
+                : executeBotTask(toolArgs, toolUseID: tu.id)
+            toolOutput = result.output; toolSuccess = result.success
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = toolOutput
+            }
+
         case SubAgentDefinition.toolName:
             // [T-agents-debug-only] A refusal in the sub-agent result dialect,
             // so HelperBlockInfo renders the block as "Rejected" (a plain

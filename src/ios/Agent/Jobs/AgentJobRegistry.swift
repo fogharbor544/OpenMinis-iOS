@@ -723,6 +723,11 @@ final class AgentJobRegistry: ObservableObject {
         PerfProbe.subAgentEnd(job: job.id, agent: job.subAgentName,
                               outcome: final.rawValue, started: job.startedAt)
         job.markFinished(final, result: result)
+        if let sid = job.runSessionId,
+           let record = BotWorkspaceStore.shared.data.delegations.first(where: { $0.childSessionID == sid && $0.jobID == job.id }) {
+            let state: BotDelegationState = final == .done ? .reviewing : (final == .cancelled ? .cancelled : .failed)
+            BotTeamRuntime.shared.finish(record.id, state: state, result: result)
+        }
         // [T-agent-model-identity] Last chance to read what the child really
         // ran on before the callback / completion hook serialise it.
         if let sid = job.runSessionId, let vm = ViewModelCache.shared.get(for: sid) {

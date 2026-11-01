@@ -32,6 +32,7 @@ extension AIChatViewModel {
     ///   the text here keeps a background turn from reading, overwriting, or
     ///   emptying whatever the user is typing at that moment.
     func send(overrideText: String? = nil) {
+        guard !BotRestoreControl.isRestoring else { errorMessage = "正在恢复 Bot 数据，请完成后再发送。"; return }
         settlePendingStop(before: "send")  // [T-stop-cleanup-before-new-turn]
         // Read-only mode — cannot send messages
         guard remoteDeviceId == nil else { return }
@@ -229,6 +230,7 @@ extension AIChatViewModel {
         let pastePlanned = planPastedCards(for: text)
         let displayText = text.isEmpty && pendingAttachments.isEmpty ? "" : text
         let userMsg = ChatMessage(role: .user, content: displayText)
+        if usingComposer { userMsg.quote = pendingQuote; pendingQuote = nil }
         userMsg.awaitingHistoryEntry = true  // [T-edit-anchor-link] cleared when the entry lands
         userMsg.attachments = pastePlanned.metas
         // [T-ios-user-attach-two-phase-birth] Attach the user's OWN selection before
@@ -505,6 +507,9 @@ extension AIChatViewModel {
             if self.abandonedPendingSendIds.remove(userMsg.id) != nil {
                 logger.info("[BubbleSpan] send: bubble removed before its history entry landed — dropping the stale turn")
                 return
+            }
+            if let quote = userMsg.quote {
+                userParts.append(.text(quote.modelContext))
             }
             let userMessage = AgentMessage(role: .user, parts: userParts)
             self.agentHistory.append(userMessage)

@@ -216,7 +216,7 @@ actor BackupImporter {
         var restoreOptions = options
         restoreOptions.categories = wanted
         if wanted.contains(.agents) {
-            _ = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
+            try await preflightBotGraph(root: root, options: restoreOptions)
             let active = await MainActor.run { Array(SessionActivityTracker.shared.activeSessions) }
             guard active.isEmpty else { throw ImportError.sessionsRunning(active) }
         }
@@ -241,7 +241,13 @@ actor BackupImporter {
                                    categories: orderedCategories(wanted).map(\.rawValue))
         // Cleared only on a clean finish; if the process dies first the marker
         // survives and the next launch reconciles.
-        defer { BackupRestoreJournal.finish(runId: String(runId)) }
+        var preserveRestoreJournal = false
+        var graphFilesSnapshot: BackupRollbackSnapshot?
+        if wanted.contains(.agents) {
+            let databaseURL = await ChatStore.shared.dbURL
+            try await BotGraphRestore.begin(databaseURL: databaseURL)
+        }
+        defer { if !preserveRestoreJournal { BackupRestoreJournal.finish(runId: String(runId)) } }
 
         // Order matters: sessions must exist before messages/markers reference
         // them, so chats runs as one unit internally.
@@ -264,6 +270,7 @@ actor BackupImporter {
                 // Agents use their own durable two-store journal, not an empty file snapshot.
                 if category != .agents {
                     snapshot = try snapshotForRollback(category: category, staging: staging)
+                    if category == .chats { graphFilesSnapshot = snapshot }
                 }
                 var cat = try await importCategory(category, root: root, fileIndex: fileIndex,
                                                    options: restoreOptions)
@@ -276,6 +283,7 @@ actor BackupImporter {
                 cat.notDownloadedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "not_downloaded" }.count
                 report.categories.append(cat)
+                if category == .agents { try await BotGraphRestore.commit() }
             } catch {
                 logger.error("[Restore] category \(category.rawValue) failed: \(error.localizedDescription)")
                 var cat = CategoryReport(category: category.rawValue)
@@ -284,7 +292,17 @@ actor BackupImporter {
                 if let snapshot, (try? rollback(snapshot)) != nil {
                     report.rolledBack.append(category.rawValue)
                 }
-                // §8.3: a failed category does not abort the ones already done.
+                if wanted.contains(.agents) && (category == .chats || category == .agents) {
+                    do {
+                        try await BotGraphRestore.recover()
+                        if let graphFilesSnapshot { try rollback(graphFilesSnapshot) }
+                        if !report.rolledBack.contains("bot_graph") { report.rolledBack.append("bot_graph") }
+                    } catch {
+                        preserveRestoreJournal = true
+                        throw error
+                    }
+                }
+                // §8.3: a failed independent category does not abort completed ones.
                 continue
             }
         }

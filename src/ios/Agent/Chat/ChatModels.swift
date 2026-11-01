@@ -49,6 +49,8 @@ struct AttachmentMeta: Identifiable, Equatable {
 
 final class ChatMessage: Identifiable, ObservableObject {
     let id = UUID()
+    @Published var persistedMessageID: String?
+    @Published var quote: BotMessageQuote?
     let role: ChatMessageRole
     @Published var content: String
     /// For assistant turns: ordered list of content blocks (text + tool calls)
@@ -210,6 +212,7 @@ final class ChatMessage: Identifiable, ObservableObject {
 
 /// A user prompt queued while the agent is processing.
 struct QueuedPrompt: Identifiable {
+    var quote: BotMessageQuote? = nil
     let id = UUID()
     let text: String
     let attachments: [InputAttachment]

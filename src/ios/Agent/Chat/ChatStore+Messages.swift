@@ -26,6 +26,8 @@ extension ChatStore {
     /// Batch-insert multiple messages in a single SQLite transaction.
     /// This reduces disk I/O by coalescing multiple writes into one fsync.
     func appendMessages(_ messages: [RawMessage]) {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         guard !messages.isEmpty else { return }
         // PER-SESSION: a batch can span sessions, so mark each one it touches.
         // Moved below the empty guard — an empty batch changes nothing and
@@ -113,6 +115,7 @@ extension ChatStore {
                     let errMsg = String(cString: sqlite3_errmsg(db))
                     logger.error("[Store] INSERT step failed rc=\(stepRC) sid=\(message.sessionId.prefix(8)) mid=\(message.id.prefix(8)) so=\(sortOrder) err=\(errMsg)")
                 } else {
+                    _ = setMessagePresentation(message.id, json: message.presentationJSON)
                     logger.info("[Store] INSERT ok sid=\(message.sessionId.prefix(8)) mid=\(message.id.prefix(8)) so=\(sortOrder) role=\(message.role.rawValue)")
                 }
             } else {
@@ -240,6 +243,7 @@ extension ChatStore {
                 msg.reasoningEchoJSON = sqlite3_column_text(stmt, 14).map { String(cString: $0) }
                 msg.providerType = sqlite3_column_text(stmt, 12).map { String(cString: $0) }
                 msg.providerInstanceId = sqlite3_column_text(stmt, 13).map { String(cString: $0) }
+                msg.presentationJSON = messagePresentation(id)
                 messages.append(msg)
             }
         } else {
@@ -440,6 +444,8 @@ extension ChatStore {
     /// boundary; it does not rewrite a kept row). Mirrors appendMessage's
     /// parts_json encoding.
     func updateMessageParts(messageId: String, parts: [ContentPart]) {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         // PER-SESSION: the row's session is resolved here once and reused by
         // the preview recompute at the end. This runs on every assistant-turn
         // finalize — the hottest path after appendMessages — and a FULL

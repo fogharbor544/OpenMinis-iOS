@@ -343,3 +343,8 @@ Rollback commit c64ad9d / run41280955705: source-checks and ui-layout SUCCESS, i
 
 ### Avatar rollback delivery complete
 c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry resolved the initial FFmpeg TLS download failure without code changes. New IPA downloaded:100901969 bytes; ZIP CRC, arm64, Bundle ID, unsigned status and exact artifact provenance verified. SHA2560f9781ef439d5bd33f269229e170fac6c15c998c564d50ce390fb9f5c4f0440d.13 secure-presentation+16 component+4 List checks passed, source regressions passed. Six avatar/model/test files exactly match1326902; eight security/memory application blobs unchanged from9f63f9c. New avatar file/symbols removed. Prior avatar art plans are cancelled at user request. Device acceptance remains unverified; no user device data rewritten.
+# Bot team execution — 2026-11-01
+
+- Created separate worktree and codex/bot-team-original-avatars at 7450d01. Original branch left untouched.
+- Read current implementation and approved plan. Started data/backup contracts; no app changes yet.
+- Tools: rg and git direct executable paths; Windows has no Swift/Xcode. Sandboxed gh auth status failed; will verify permitted unsandboxed credential access before publication.

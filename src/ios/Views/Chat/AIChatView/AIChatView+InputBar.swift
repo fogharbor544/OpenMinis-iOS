@@ -78,6 +78,9 @@ extension AIChatView {
 
     var inputBar: some View {
         VStack(spacing: 0) {
+            if let quote = vm.pendingQuote {
+                BotQuoteStrip(quote: quote) { vm.pendingQuote = nil }.padding(.horizontal, 12).padding(.top, 6)
+            }
             if vm.isSuspended {
                 HStack(spacing: 8) {
                     ProgressView()

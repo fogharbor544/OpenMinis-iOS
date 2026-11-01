@@ -61,6 +61,20 @@ extension AIChatView {
             // Confine scrolling cells to the reserved message viewport, so
             // they never draw through the navigation bar or pinned banners.
             .clipped()
+            .onAppear {
+                vm.botConversationVisible = true
+                vm.readBoundaryInitialized = false; vm.unreadBoundaryMessageID = nil
+            }
+            .onDisappear {
+                vm.botConversationVisible = false
+                if vm.isNearBottom, let sid = vm.sessionId, let id = vm.messages.last(where: { $0.persistedMessageID != nil })?.persistedMessageID {
+                    _ = BotWorkspaceStore.shared.updateConversation(sid) { $0.lastReadMessageID = id }
+                }
+            }
+            .sheet(item: $openedBot) { BotOpenedChat(botID: $0.id) }
+            .onReceive(NotificationCenter.default.publisher(for: .botQuoteSelected)) { note in
+                if note.object as? String == vm.sessionId { inputFocused = true }
+            }
             // Empty/loading overlay for tap-to-dismiss-keyboard.
             // Placed BEFORE the directory timeline in the ZStack so the
             // timeline can sit on top and receive its own taps (folder-card

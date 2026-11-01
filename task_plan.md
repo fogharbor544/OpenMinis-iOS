@@ -323,3 +323,17 @@ Final material state: user selected original pets briefly, then changed back to 
 3. Preserve secure-input and scoped-memory fixes (hash comparison passed).
 4. Verify, cloud-build with existing authorized account3 and download replacement IPA (complete: c64ad9d/run41280955705 attempt2 all3 jobs success; replacement IPA downloaded and CRC/arm64/Bundle ID/provenance/SHA256 verified).
 No repository reset and no user device data mutation. Earlier avatar plans are superseded, not pending work.
+# Bot team and original animated companions — 2026-11-01
+
+Authorized baseline: 7450d01, isolated worktree build/worktrees/bot-team-original-avatars, branch codex/bot-team-original-avatars. Implement the latest approved plan, commit and push this branch. Preserve the original checkout and unrelated secure-input/proactive-memory fixes. No subagents.
+
+1. Data contracts, stable commander, delegation ownership and new-only backup v4/archive v3 (in progress).
+2. Commander tools, specialist execution/memory, queue, review/follow-up/takeover and read-only delegation navigation (pending).
+3. Twelve original soft-3D animated companions, transactional shared picker and multi-select onboarding (pending).
+4. Rounded reply groups, unread boundary, persisted swipe-to-quote (pending).
+5. Snapshot consistency, restore preflight/rollback/idempotence/no replay; behavior and native checks (pending).
+6. Final review, commit, push new branch and available cloud validation (pending).
+
+Decisions: fixed protected commander; separate task conversations; specialist's own scoped memory, no private-chat history; home commander header; one unread divider; direct explicit Bot creation; 2-minute inactivity follow-up then 2-minute takeover; original 12 soft-3D characters; only new backup format, no import/migration of minisbak/3 or archive v2. Restore never executes tasks or carries approval grants.
+
+Environment: Windows, Python available; no swiftc/Xcode. Existing GitHub account credentials need checking outside sandbox before concluding they are invalid. Original checkout is clean. Use targeted local checks and actual macOS compilation before claiming build success.

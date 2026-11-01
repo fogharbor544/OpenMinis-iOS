@@ -412,6 +412,7 @@ extension ChatStore {
                     streamInterruptCount: streamInterruptCount
                 )
                 raw.sortOrder = sortOrder
+                raw.presentationJSON = messagePresentation(id)
                 message = raw
             }
         }

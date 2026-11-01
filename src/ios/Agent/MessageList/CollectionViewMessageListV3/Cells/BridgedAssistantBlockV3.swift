@@ -18,6 +18,7 @@ import UniformTypeIdentifiers
 /// Single block within an assistant turn — text, tool capsule, or info.
 /// V3: No GeometryReader — UIKit self-sizing is the sole height source.
 struct BridgedAssistantBlockV3: View {
+    var onQuote: (() -> Void)? = nil
     @ObservedObject var block: AssistantBlock
     @ObservedObject var message: ChatMessage
     @ObservedObject var bridge: CellStateBridgeV2
@@ -84,6 +85,7 @@ struct BridgedAssistantBlockV3: View {
         .overlay {
             Color.clear.frame(width: 0, height: 0)
                 .contextMenu {
+                    if let onQuote { Button(action: onQuote) { Label("引用", systemImage: "arrowshape.turn.up.left") } }
                     Button {
                         let text = message.blocks
                             .filter { if case .text = $0.kind { return true }; return false }

@@ -49,12 +49,25 @@ enum MessageListItem: Hashable {
 /// A plain UICollectionViewCell that correctly reports its preferred size
 /// for UIHostingConfiguration content with custom layouts.
 class SelfSizingCell: UICollectionViewCell {
+    var onQuote: (() -> Void)?
+    private lazy var quotePan = UIPanGestureRecognizer(target: self, action: #selector(handleQuotePan(_:)))
+    @objc private func handleQuotePan(_ pan: UIPanGestureRecognizer) {
+        let offset = pan.translation(in: self).x
+        if pan.state == .changed { contentView.transform = CGAffineTransform(translationX: min(52, max(0, offset * 0.4)), y: 0) }
+        if pan.state == .ended || pan.state == .cancelled {
+            if pan.state == .ended && offset > 65 { onQuote?() }
+            UIView.animate(withDuration: 0.18) { self.contentView.transform = .identity }
+        }
+    }
     /// Clip content to cell bounds so SwiftUI content doesn't visually overflow
     /// into adjacent cells during the brief window between content update and
     /// layout re-measurement (text drift onto tool capsule bug).
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.clipsToBounds = true
+        quotePan.delegate = self
+        quotePan.cancelsTouchesInView = false
+        addGestureRecognizer(quotePan)
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
@@ -664,6 +677,8 @@ class SelfSizingCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        onQuote = nil
+        contentView.transform = .identity
         rendersNonEmptyText = false
         lastComputedHeight = nil
         lastComputedWidth = nil
@@ -1235,4 +1250,23 @@ final class CellStateBridgeV2: ObservableObject {
     @Published var usageContentVisible: Bool = false
     /// Compact summary — presented from overlay outside cell tree for animation.
     var onShowCompactSummary: ((String) -> Void)?
+}
+
+
+extension SelfSizingCell: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, onQuote != nil else { return false }
+        let v = pan.velocity(in: self)
+        return pan.location(in: window).x > 28 && v.x > 0 && abs(v.x) > abs(v.y) * 2
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view, current !== self {
+            if current is UIControl { return false }
+            if let text = current as? UITextView, text.selectedRange.length > 0 { return false }
+            if let scroll = current as? UIScrollView, scroll.contentSize.width > scroll.bounds.width + 1 { return false }
+            view = current.superview
+        }
+        return onQuote != nil
+    }
 }

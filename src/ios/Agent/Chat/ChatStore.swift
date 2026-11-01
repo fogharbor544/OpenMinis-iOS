@@ -106,6 +106,13 @@ actor ChatStore {
         }
     }
 
+    init(snapshotURL: URL, mediaBaseURL: URL) throws {
+        self.dbURL = snapshotURL; self.minisBaseURL = mediaBaseURL
+        guard sqlite3_open_v2(snapshotURL.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+            throw BotWorkspaceError.storage
+        }
+    }
+
     // MARK: - [T-ios-reboot-config-loss] Protected-data reboot guard
 
     /// True when the DB cannot actually serve queries after open. After a

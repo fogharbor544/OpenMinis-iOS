@@ -350,6 +350,7 @@ struct MinisApp: App {
                     // been interrupted.
                     BackupRestoreJournal.reconcileAtLaunch()
                     do {
+                        try await BotGraphRestore.recover()
                         try BotWorkspaceTransfer.recover(workspace: .shared, memory: .shared, journal: BotWorkspaceTransfer.recoveryURL)
                     } catch {
                         BotWorkspaceStore.shared.errorMessage = "Agent restore recovery failed: \(error.localizedDescription)"

@@ -61,6 +61,12 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             let messages = snapshotMessages.isEmpty ? vm.messages : snapshotMessages
             let width = maxContentWidth
+            if let idx = messageIndex[item.messageId], idx < messages.count {
+                let message = messages[idx]
+                cell.onQuote = !vm.canQuoteMessage(message) ? nil : { [weak vm, weak message] in
+                    if let message { vm?.quoteMessage(message) }
+                }
+            } else { cell.onQuote = nil }
 
             // [T-viewgraph-race-lifetime 2026-05-20] All 4 cell config sites
             // route through `cell.applyContentConfiguration(_:)` (not raw
@@ -131,12 +137,18 @@ extension CollectionViewMessageListV3.Coordinator {
                 let bridge = getOrCreateBridge(for: message, in: messages)
                 cell.backgroundColor = .clear
                 let config = UIHostingConfiguration {
+                    VStack(alignment: .leading, spacing: 0) {
+                    if let record = BotWorkspaceStore.shared.data.delegations.first(where: { $0.toolUseID == block.toolUseId && $0.parentSessionID == vm.sessionId }) {
+                        BotDelegationLink(record: record).frame(maxWidth: .infinity)
+                    }
                     BridgedAssistantBlockV3(
+                        onQuote: vm.canQuoteMessage(message) ? { vm.quoteMessage(message) } : nil,
                         block: block,
                         message: message,
                         bridge: bridge,
                         maxWidth: width
                     )
+                    }
                     .transaction { $0.disablesAnimations = true }
                     .environmentObject(vm)
                     .environment(\.chatSearchHighlights, vm.chatSearch.highlights)
@@ -172,6 +184,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 cell.backgroundColor = .clear
                 let config = UIHostingConfiguration {
                     BridgedAssistantFooterV3(
+                        onQuote: vm.canQuoteMessage(message) ? { vm.quoteMessage(message) } : nil,
                         message: message,
                         bridge: bridge,
                         maxWidth: width,

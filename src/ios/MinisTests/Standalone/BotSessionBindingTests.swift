@@ -51,7 +51,7 @@ struct TestCapability { let id: String }
 @main struct BotSessionBindings {
     @MainActor static func main() async throws {
         let file = URL(fileURLWithPath: CommandLine.arguments[1])
-        let store = BotWorkspaceStore(fileURL: file)
+        let store = BotWorkspaceStore(fileURL: file, seedCommander: false)
         let bot = BotProfile(name: "Assistant")
         precondition(store.save(bot))
         async let firstCreation = store.session(botID: bot.id)
@@ -63,7 +63,7 @@ struct TestCapability { let id: String }
         precondition(privateID == reopened)
         let initialCount = await ChatStore.shared.count()
         precondition(initialCount == 1)
-        let reloaded = BotWorkspaceStore(fileURL: file)
+        let reloaded = BotWorkspaceStore(fileURL: file, seedCommander: false)
         let restored = try await reloaded.session(botID: bot.id)
         precondition(restored == privateID)
         SkillStore.shared.setSessionOverride(skillId: "skill", sessionId: privateID, enabled: false)
@@ -93,7 +93,7 @@ struct TestCapability { let id: String }
         async let secondOpen = store.session(botID: bot.id)
         let pair = try await (firstOpen, secondOpen)
         precondition(pair.0 == replacement && pair.1 == replacement)
-        let restoredWorkspace = BotWorkspaceStore(fileURL: file)
+        let restoredWorkspace = BotWorkspaceStore(fileURL: file, seedCommander: false)
         precondition(restoredWorkspace.bot(bot.id)?.sessionId == replacement)
         store.deleteBot(bot.id)
         precondition(store.owner(forSession: replacement)?.botId == bot.id)

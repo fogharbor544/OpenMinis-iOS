@@ -48,6 +48,8 @@ extension ChatStore {
     }
 
     func deleteSession(_ id: String) {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         // FULL: removes a row from the set.
         invalidateSessionListCache()
         // [T-p1-delegate-task] Cascade to child (helper) sessions FIRST — they

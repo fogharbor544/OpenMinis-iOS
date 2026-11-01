@@ -64,6 +64,8 @@ extension ChatStore {
     func restoreSession(_ session: ChatSession,
                         memoryEnabled: Bool,
                         modelBinding: String?) -> RestoreOutcome {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         // FULL: backup restore rewrites rows in bulk and can add sessions.
         invalidateSessionListCache()
 
@@ -152,6 +154,8 @@ extension ChatStore {
                         // nil for packages written before the fields existed.
                         modelId: String? = nil, modelDisplayName: String? = nil,
                         providerType: String? = nil, providerInstanceId: String? = nil) -> RestoreOutcome {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         var exists = false
         var stmt: OpaquePointer?
         if sqlite3_prepare_v2(db, "SELECT id FROM sessions WHERE id = ?", -1, &stmt, nil) == SQLITE_OK {

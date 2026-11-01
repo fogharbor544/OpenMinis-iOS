@@ -523,6 +523,8 @@ struct AIChatView: View {
     @State var safariURL: URL?
     @State var fullBrowserURL: URL?
     @State private var fullBrowserIsLocal = false
+    @State var openedBot: BotProfile?
+
     /// Filename to show in the "file missing" alert. Set by `handleMinisURLTap`
     /// when `resolveMinisFileURL` returns nil for a tapped `minis://` link
     /// (file was deleted, the session was pruned, or iCloud hasn't synced yet).

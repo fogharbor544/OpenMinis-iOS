@@ -1,5 +1,8 @@
 import SwiftUI
 
+enum BotDataSnapshotLock { static let lock = NSRecursiveLock() }
+@MainActor enum BotRestoreControl { static var isRestoring = false }
+
 enum SessionCategory {
     static let all: [(key: String, label: String, icon: String, color: Color)] = [
         ("code",         "Code",         "terminal.fill",               .orange),
@@ -32,6 +35,12 @@ struct BotProfile: Identifiable, Codable, Equatable {
     var conversationIds: [String] = []
     var iconSymbol: String?
     var iconImageData: Data?
+    var avatarPresetID: String?
+    var avatarResourceVersion: Int? = 1
+    var introduction: String?
+    var onboarding: BotOnboarding?
+    var creationRequestID: String?
+    var isBootstrap: Bool?
     var skillOverrides: [String: Bool]? = [:]
     var connectorOverrides: [String: Bool]? = [:]
     var memoryEnabled: Bool? = true
@@ -39,11 +48,96 @@ struct BotProfile: Identifiable, Codable, Equatable {
     var pinnedAt: Date?
 
     static let builtinIcons = SessionCategory.all.map(\.icon)
+    static let commanderID = "builtin-commander"
+    var isCommander: Bool { id == Self.commanderID }
+}
+
+struct BotOnboarding: Codable, Equatable {
+    var question: String
+    var options: [String]
+    var selected: [Int] = []
+    var dismissed = false
+}
+
+struct BotAvatarPreset: Identifiable, Equatable {
+    let id: String
+    let name: String
+    var coverAsset: String { "BotAvatar-" + id + "-atlas" }
+    var atlasAsset: String { "BotAvatar-" + id + "-atlas" }
+    static let all: [BotAvatarPreset] = [
+        .init(id: "cloud-bear", name: "云朵小熊"), .init(id: "mint-otter", name: "薄荷水獭"),
+        .init(id: "cream-sheep", name: "奶油小羊"), .init(id: "star-owl", name: "星空猫头鹰"),
+        .init(id: "peach-rabbit", name: "蜜桃垂耳兔"), .init(id: "amber-fox", name: "琥珀小狐狸"),
+        .init(id: "rice-seal", name: "糯米小海豹"), .init(id: "berry-capybara", name: "莓果水豚"),
+        .init(id: "grape-raccoon", name: "葡萄小浣熊"), .init(id: "rain-duck", name: "雨滴小鸭"),
+        .init(id: "fluff-alpaca", name: "绒球羊驼"), .init(id: "moon-cat", name: "月牙小猫")
+    ]
+    static func find(_ id: String?) -> Self? { all.first { $0.id == id } }
+}
+
+struct BotAvatarChoice: Equatable {
+    var presetID: String?
+    var symbol: String?
+    var imageData: Data?
+    init(profile: BotProfile) { presetID = profile.avatarPresetID; symbol = profile.iconSymbol; imageData = profile.iconImageData }
+    func apply(to profile: inout BotProfile) {
+        profile.avatarPresetID = presetID; profile.avatarResourceVersion = presetID == nil ? nil : 1
+        profile.iconSymbol = symbol; profile.iconImageData = imageData
+    }
+}
+
+enum BotDelegationState: String, Codable {
+    case queued, running, reviewing, completed, failed, cancelled, interrupted, takingOver
+    var isActive: Bool { self == .queued || self == .running }
+    var label: String {
+        switch self {
+        case .queued: return "排队中"
+        case .running: return "执行中"
+        case .reviewing: return "待核查"
+        case .completed: return "已完成"
+        case .failed: return "失败"
+        case .cancelled: return "已停止"
+        case .interrupted: return "已中断"
+        case .takingOver: return "指挥官接管"
+        }
+    }
+}
+
+struct BotDelegation: Identifiable, Codable, Equatable {
+    var id: String
+    var fromBotID: String
+    var toBotID: String
+    var fromName: String
+    var toName: String
+    var parentSessionID: String
+    var childSessionID: String?
+    var toolUseID: String
+    var jobID: String?
+    var title: String
+    var task: String
+    var state: BotDelegationState = .queued
+    var result: String?
+    var createdAt = Date()
+    var updatedAt = Date()
+    var followUpSent = false
+    var reworkCount = 0
+}
+
+struct BotMessageQuote: Codable, Equatable, Hashable {
+    var sessionID: String
+    var messageID: String
+    var author: String
+    var text: String
+}
+
+struct BotConversationState: Codable, Equatable {
+    var lastReadMessageID: String?
 }
 
 struct BotSessionOwner: Codable, Equatable {
     var botId: String
     var roomId: String?
+    var delegationID: String?
     var memoryKey: String { roomId.map { "room:\($0)" } ?? "bot:\(botId)" }
 }
 
@@ -71,6 +165,23 @@ struct BotWorkspaceData: Codable, Equatable {
     var bots: [BotProfile] = []
     var rooms: [BotRoom] = []
     var sessionOwners: [String: BotSessionOwner] = [:]
+    var delegations: [BotDelegation] = []
+    var conversationStates: [String: BotConversationState] = [:]
+
+    init(bots: [BotProfile] = [], rooms: [BotRoom] = [], sessionOwners: [String: BotSessionOwner] = [:],
+         delegations: [BotDelegation] = [], conversationStates: [String: BotConversationState] = [:]) {
+        self.bots = bots; self.rooms = rooms; self.sessionOwners = sessionOwners
+        self.delegations = delegations; self.conversationStates = conversationStates
+    }
+    enum CodingKeys: String, CodingKey { case bots, rooms, sessionOwners, delegations, conversationStates }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        bots = try c.decode([BotProfile].self, forKey: .bots)
+        rooms = try c.decode([BotRoom].self, forKey: .rooms)
+        sessionOwners = try c.decode([String: BotSessionOwner].self, forKey: .sessionOwners)
+        delegations = try c.decodeIfPresent([BotDelegation].self, forKey: .delegations) ?? []
+        conversationStates = try c.decodeIfPresent([String: BotConversationState].self, forKey: .conversationStates) ?? [:]
+    }
 }
 
 @MainActor
@@ -82,13 +193,27 @@ final class BotWorkspaceStore: ObservableObject {
     private let fileURL: URL
     private var unreadable = false
 
-    init(fileURL: URL? = nil) {
+    init(fileURL: URL? = nil, seedCommander: Bool = true) {
         self.fileURL = fileURL ?? Self.defaultFileURL
         do {
             if FileManager.default.fileExists(atPath: self.fileURL.path) {
                 data = try JSONDecoder().decode(BotWorkspaceData.self, from: Data(contentsOf: self.fileURL))
             }
         } catch { unreadable = true; errorMessage = error.localizedDescription }
+        if seedCommander && !unreadable {
+            var next = data
+            for i in next.delegations.indices where next.delegations[i].state.isActive {
+                next.delegations[i].state = .interrupted
+            }
+            if !next.bots.contains(where: \.isCommander) {
+                var commander = BotProfile(id: BotProfile.commanderID, name: "指挥官")
+                commander.avatarPresetID = "cloud-bear"
+                commander.isBootstrap = true
+                commander.introduction = "你好，我是指挥官。你可以直接告诉我目标，我会处理任务、协调专职 Bot，并核查结果。"
+                next.bots.insert(commander, at: 0)
+            }
+            if next != data { _ = persist(next) }
+        }
     }
 
     func bot(_ id: String) -> BotProfile? { data.bots.first { $0.id == id } }
@@ -129,7 +254,10 @@ final class BotWorkspaceStore: ObservableObject {
         let counts = Dictionary(grouping: data.bots.filter { $0.iconImageData == nil },
                                 by: { $0.iconSymbol ?? "sparkles" }).mapValues(\.count)
         let symbol = BotProfile.builtinIcons.min { counts[$0, default: 0] < counts[$1, default: 0] }
-        return BotProfile(name: "", iconSymbol: symbol, skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
+        var profile = BotProfile(name: "", iconSymbol: symbol, skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
+        let counts = Dictionary(grouping: data.bots.compactMap(\.avatarPresetID), by: { $0 }).mapValues(\.count)
+        profile.avatarPresetID = BotAvatarPreset.all.min { counts[$0.id, default: 0] < counts[$1.id, default: 0] }?.id
+        return profile
     }
 
     func bot(forSession id: String) -> BotProfile? {
@@ -207,6 +335,7 @@ final class BotWorkspaceStore: ObservableObject {
     @discardableResult
     func save(_ profile: BotProfile) -> Bool {
         var profile = profile
+        if profile.isCommander { profile.isBootstrap = false }
         profile.name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !profile.name.isEmpty else { return false }
         var next = data
@@ -227,10 +356,47 @@ final class BotWorkspaceStore: ObservableObject {
     }
 
     func deleteBot(_ id: String) {
+        guard id != BotProfile.commanderID else { return }
         var next = data
         next.bots.removeAll { $0.id == id }
         for index in next.rooms.indices { next.rooms[index].members.removeAll { $0 == id } }
         _ = persist(next) // ChatStore conversations and room history remain available.
+    }
+
+    func delegation(_ id: String) -> BotDelegation? { data.delegations.first { $0.id == id } }
+
+    @discardableResult
+    func saveDelegation(_ record: BotDelegation) -> Bool {
+        var next = data
+        if let index = next.delegations.firstIndex(where: { $0.id == record.id }) { next.delegations[index] = record }
+        else { next.delegations.append(record) }
+        return persist(next)
+    }
+
+    @discardableResult
+    func bindDelegation(_ id: String, childSessionID: String, jobID: String) -> Bool {
+        guard var record = delegation(id), bot(record.toBotID) != nil else { return false }
+        record.childSessionID = childSessionID; record.jobID = jobID
+        record.state = .running; record.updatedAt = Date()
+        var next = data
+        next.sessionOwners[childSessionID] = BotSessionOwner(botId: record.toBotID, delegationID: id)
+        guard let index = next.delegations.firstIndex(where: { $0.id == id }) else { return false }
+        next.delegations[index] = record
+        return persist(next)
+    }
+
+    @discardableResult
+    func updateConversation(_ sessionID: String, _ change: (inout BotConversationState) -> Void) -> Bool {
+        var next = data
+        var state = next.conversationStates[sessionID] ?? BotConversationState()
+        change(&state); next.conversationStates[sessionID] = state
+        return next == data || persist(next)
+    }
+
+    func delegationPreview(botID: String) -> String? {
+        guard let record = data.delegations.filter({ $0.toBotID == botID }).max(by: { $0.updatedAt < $1.updatedAt }) else { return nil }
+        let direction = record.state == .reviewing || record.state == .completed ? "已回复 \(record.fromName)" : "来自 \(record.fromName)"
+        return "\(direction) · \(record.state.label)：\(record.title)"
     }
 
     func deleteRoom(_ id: String) {
@@ -256,6 +422,8 @@ final class BotWorkspaceStore: ObservableObject {
     }
 
     func persist(_ next: BotWorkspaceData) -> Bool {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         guard !unreadable else { return false }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

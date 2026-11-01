@@ -21,8 +21,15 @@ struct BridgedWholeMessageV3: View {
     @ObservedObject var bridge: CellStateBridgeV2
     var maxWidth: CGFloat
 
+    @EnvironmentObject private var vm: AIChatViewModel
     var body: some View {
+        if message.systemIcon == "bot-overview" { BotConversationOverview() }
+        else if message.systemIcon == "bot-unread" { BotUnreadDivider() }
+        else { VStack(alignment: .leading, spacing: 6) {
+        BotSourceRow(message: message)
+        if let quote = message.quote { BotQuoteStrip(quote: quote).padding(.horizontal, 16) }
         ChatMessageRow(
+                onQuote: vm.canQuoteMessage(message) ? { vm.quoteMessage(message) } : nil,
             message: message,
             isActiveMessage: false,
             commandStartTime: nil,
@@ -69,5 +76,6 @@ struct BridgedWholeMessageV3: View {
         // search highlights use stronger colours to stay visible.
         .environment(\.chatSearchDimmed, message.isCompactedHistory)
         .accessibilityIdentifier(message.role == .user ? "userMessage" : "wholeMessage")
+        } }
     }
 }

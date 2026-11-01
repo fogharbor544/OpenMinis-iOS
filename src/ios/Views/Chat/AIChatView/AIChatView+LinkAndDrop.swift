@@ -157,6 +157,10 @@ extension AIChatView {
         }
         guard url.scheme == "minis" else { return .systemAction }
 
+        if url.host == "bot", let id = url.pathComponents.last, let bot = BotWorkspaceStore.shared.bot(id) {
+            openedBot = bot
+            return .handled
+        }
         // Terminal deep link: minis://open_terminal?init_command=...
         if url.host == "open_terminal" {
             let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)

@@ -132,9 +132,33 @@ extension CollectionViewMessageListV3.Coordinator {
             // chat bubble regardless of which path produced it — replacing the
             // former reliance on a single filter inside loadSession, which other
             // rebuild paths bypassed (the leak seen 2026-07-24).
-            let messages = rawMessages.contains(where: { $0.isInternalBridge })
+            var messages = rawMessages.contains(where: { $0.isInternalBridge })
                 ? rawMessages.filter { !$0.isInternalBridge }
                 : rawMessages
+            if !vm.isHelper, let sid = vm.sessionId,
+               let owner = BotWorkspaceStore.shared.owner(forSession: sid), owner.roomId == nil, owner.delegationID == nil,
+               let bot = BotWorkspaceStore.shared.bot(owner.botId),
+               bot.introduction != nil || bot.onboarding != nil || BotWorkspaceStore.shared.data.delegations.contains(where: { $0.toBotID == bot.id }) || bot.isCommander {
+                vm.botOverviewMessage.systemIcon = "bot-overview"
+                messages.insert(vm.botOverviewMessage, at: 0)
+            }
+            if vm.readBoundaryInitialized, vm.unreadBoundaryMessageID == nil,
+               let incoming = rawMessages.first(where: { !vm.knownPresentationMessageIDs.contains($0.id) && ($0.role == .assistant || $0.agentCallback != nil) }) {
+                vm.unreadBoundaryMessageID = incoming.persistedMessageID ?? incoming.id.uuidString
+            }
+            vm.knownPresentationMessageIDs = Set(rawMessages.map(\.id))
+            if !vm.readBoundaryInitialized, let sid = vm.sessionId {
+                let lastRead = BotWorkspaceStore.shared.data.conversationStates[sid]?.lastReadMessageID
+                if let lastRead, let index = messages.lastIndex(where: { $0.persistedMessageID == lastRead }) {
+                    vm.unreadBoundaryMessageID = messages.suffix(from: index + 1).first(where: { $0.role == .assistant || $0.agentCallback != nil })?.persistedMessageID
+                }
+                vm.readBoundaryInitialized = true
+            }
+            if let boundary = vm.unreadBoundaryMessageID,
+               let index = messages.firstIndex(where: { $0.persistedMessageID == boundary || $0.id.uuidString == boundary }) {
+                vm.botUnreadMessage.systemIcon = "bot-unread"
+                messages.insert(vm.botUnreadMessage, at: index)
+            }
             // [T-subagent-callback-visible] Every sub agent callback renders,
             // progress and final alike.
             //
@@ -391,9 +415,7 @@ extension CollectionViewMessageListV3.Coordinator {
                         lastSpeakerWasUser = true
                     }
                 case .assistant:
-                    if lastSpeakerWasUser {
-                        newItems.append(.assistantHeader(message.id))
-                    }
+                    newItems.append(.assistantHeader(message.id))
                     lastSpeakerWasUser = false
                     // [T-subagent-control-row] Control calls are no longer
                     // skipped here. They used to be: rendering one as an
@@ -448,6 +470,21 @@ extension CollectionViewMessageListV3.Coordinator {
                     }
                 }
             }
+
+            let assistantIDs = Set(messages.filter { $0.role == .assistant }.map(\.id))
+            var replyRanges: [Range<Int>] = []
+            var rangeStart: Int?
+            for i in newItems.indices {
+                let current = newItems[i].messageId
+                if assistantIDs.contains(current) {
+                    if rangeStart == nil { rangeStart = i }
+                    if i == newItems.count - 1 || newItems[i + 1].messageId != current {
+                        if let start = rangeStart { replyRanges.append(start..<(i + 1)) }
+                        rangeStart = nil
+                    }
+                } else { rangeStart = nil }
+            }
+            viewController?.messageListLayout.setReplyGroups(replyRanges)
 
             // [T-messagelist-snapshot-unique-ids] Diffable data sources abort
             // (NSInternalInconsistencyException, "identifiers are not unique")

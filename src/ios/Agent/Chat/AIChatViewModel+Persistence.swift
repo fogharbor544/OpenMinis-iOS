@@ -2209,12 +2209,22 @@ extension AIChatViewModel {
     func persistAgentMessage(_ msg: AgentMessage, tokenUsage: TokenUsage? = nil, snapshots: [String: (toolName: String, snapshot: ToolSnapshot)] = [:], thoughtSignatures: [String: String] = [:], reasoningContent: String? = nil, streamInterruptCount: Int = 0, modelEntryId: String? = nil, pastedParts: [String: [ContentPart]] = [:]) async -> String? {
         let sid = self.sessionId ?? "nil"
         logger.info("[Persist] enter sid=\(sid.prefix(8)) role=\(msg.role.rawValue) parts=\(msg.parts.count)")
-        guard let raw = await buildRawMessage(msg, tokenUsage: tokenUsage, snapshots: snapshots, thoughtSignatures: thoughtSignatures, reasoningContent: reasoningContent, streamInterruptCount: streamInterruptCount, modelEntryId: modelEntryId, pastedParts: pastedParts) else {
+        guard var raw = await buildRawMessage(msg, tokenUsage: tokenUsage, snapshots: snapshots, thoughtSignatures: thoughtSignatures, reasoningContent: reasoningContent, streamInterruptCount: streamInterruptCount, modelEntryId: modelEntryId, pastedParts: pastedParts) else {
             logger.warning("[Persist] buildRawMessage returned nil sid=\(sid.prefix(8)) role=\(msg.role.rawValue) — NOT WRITTEN")
             return nil
         }
         logger.info("[Persist] built raw.sid=\(raw.sessionId.prefix(8)) raw.id=\(raw.id.prefix(8)) role=\(raw.role.rawValue)")
+        let live = messages.first(where: { $0.historyAnchorId == msg.anchorId })
+            ?? (msg.role == .assistant ? messages.last(where: { $0.role == .assistant }) : nil)
+        if let live {
+            if live.persistedMessageID == nil { live.persistedMessageID = raw.id }
+            raw.presentationJSON = BotMessagePresentation(replyGroupID: live.persistedMessageID,
+                quote: live.quote, quotedPartIndex: live.quote == nil ? nil : raw.parts.count - 1).json
+        }
         await ChatStore.shared.appendMessage(raw)
+        if botConversationVisible && isNearBottom {
+            _ = BotWorkspaceStore.shared.updateConversation(raw.sessionId) { $0.lastReadMessageID = BotMessagePresentation.decode(raw.presentationJSON)?.replyGroupID ?? raw.id }
+        }
         // Post-write DB sanity check: query count + max(sort_order) for this session
         let stats = await ChatStore.shared.sessionWriteStats(sessionId: raw.sessionId)
         logger.info("[Persist] post-write sid=\(raw.sessionId.prefix(8)) dbCount=\(stats.count) dbMaxSortOrder=\(stats.maxSortOrder)")

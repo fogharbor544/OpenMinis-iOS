@@ -263,6 +263,7 @@ extension AIChatViewModel {
             }
 
             if let drainReminder { combinedParts.append(.text(drainReminder)) }
+            if let quote = queued.first?.quote { combinedParts.append(.text(quote.modelContext)) }
             let queueAgentMsg = AgentMessage(role: .user, parts: combinedParts)
             let qIdx = self.agentHistory.count
             self.agentHistory.append(queueAgentMsg)
@@ -454,6 +455,7 @@ extension AIChatViewModel {
             qCombinedParts.append(.text(RawMessage.queuedInterruptReminderText))
         }
 
+        if let quote = queued.first?.quote { qCombinedParts.append(.text(quote.modelContext)) }
         let queueMsg = AgentMessage(role: .user, parts: qCombinedParts)
         let queueIdx = agentHistory.count
         agentHistory.append(queueMsg)

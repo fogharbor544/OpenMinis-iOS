@@ -243,6 +243,8 @@ extension AIChatViewModel {
             ))
         }
 
+        if isCommander && Self.toolEnabled(.agents) { tools += [Self.botCreateTool, Self.botTaskTool] }
+
         // [T-user-ask] Present only when the setting is on AND this run can
         // reach the user (not a sub agent / Shortcut / job / background run).
         // Not in the list = does not exist: no schema, no retries on it.

@@ -184,3 +184,10 @@ Native secure_input fails at the pre-session active/first-scene/key-window guard
 
 ## Avatar rollback decision
 User explicitly requests removing the avatar changes and restoring original behavior. Baseline1326902 differs in the selected six files only by the new avatar feature, so those files are restored exactly. Mixed native interaction fixtures retain only security tests. Browser/memory source hashes are unchanged; no device/workspace data is rewritten. Existing iconSymbol/iconImageData continue to decode; the unused optional preset field from the prior package is ignored by the restored Codable model.
+# Bot team implementation findings — 2026-11-01
+
+- Baseline 7450d01 restored original avatar UI; security and proactive scoped memory fixes must remain intact.
+- Existing helpers own queue/cancel/timeout/callback/transcript infrastructure. Bot dispatch must explicitly use target configuration and allow only scoped memory reads; generic helper behavior remains unchanged.
+- Backup currently samples chats and Bot/memory at different instants. New delegation graph requires one staged snapshot and preflight before writes.
+- Current backups are minisbak/3 + Bot archive v2. User explicitly selected new formats only.
+- Original worktree clean; no project AGENTS.md found. Git writes require managed escalation. RTK inaccessible, use executable paths.

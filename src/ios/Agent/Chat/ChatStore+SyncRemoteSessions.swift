@@ -53,6 +53,8 @@ extension ChatStore {
     ///   remote is newer, that wins (folder_id rides the session's LWW).
     func mergeRemoteSession(_ session: ChatSession, fromDeviceId: String, memoryEnabled: Bool = true, modelBinding: String? = nil, remotePinnedAtRaw: Date? = nil, remoteFolderId: String? = nil, remoteHasFolderField: Bool = false,
                             remoteParentSessionId: String? = nil, remoteParentToolUseId: String? = nil, remoteHasParentField: Bool = false) {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         // FULL: a remote session may be one this device has never seen, so it
         // can ADD a row to the set — the incremental patch cannot express that.
         invalidateSessionListCache()
@@ -317,8 +319,11 @@ extension ChatStore {
         // says this is empty" — the UPDATE below preserves the local value in
         // that case. See the COALESCE note there.
         modelId: String? = nil, modelDisplayName: String? = nil,
-        providerType: String? = nil, providerInstanceId: String? = nil
+        providerType: String? = nil, providerInstanceId: String? = nil,
+        presentationJSON: String? = nil
     ) {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
         // PER-SESSION: a remote message lands in one known session. If that
         // session does not exist locally yet it arrives through
         // mergeRemoteSession first, which invalidates fully.
@@ -585,6 +590,7 @@ extension ChatStore {
         // rewrite an existing row's parts, so recompute rather than fold
         // forward. Sync batches are far rarer than agent appends, so the extra
         // query is not on a hot path.
+        _ = setMessagePresentation(id, json: presentationJSON)
         recomputeStoredPreview(sessionId: sessionId)
 
         let sid = sessionId

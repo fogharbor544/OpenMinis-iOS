@@ -89,11 +89,13 @@ extension AIChatViewModel {
         let pastePlanned = planPastedCards(for: text)
         var prompt = QueuedPrompt(text: text, attachments: pendingAttachments,
                                   pastePlan: pastePlanned.plan)
+        if usingComposer { prompt.quote = pendingQuote; pendingQuote = nil }
         prompt.deferUntilIdle = deferUntilIdle
         promptQueue.append(prompt)
         // Show in chat immediately with queued styling
         let chatMsg = ChatMessage(role: .user, content: text, isQueued: true)
         chatMsg.queuedPromptId = prompt.id
+        chatMsg.quote = prompt.quote
         chatMsg.inputAttachments = pendingAttachments
         chatMsg.attachments = pastePlanned.metas
         messages.append(chatMsg)

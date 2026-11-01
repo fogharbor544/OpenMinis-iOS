@@ -67,6 +67,8 @@ extension ChatStore {
             )
         """)
 
+        exec("CREATE TABLE IF NOT EXISTS message_presentation (message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE, json TEXT NOT NULL)")
+
         exec("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, sort_order)")
         // [T-ios-listsessions-part-flags] Supports listSessions' per-role
         // preview subqueries: SEARCH … (session_id=? AND role=?) ORDER BY

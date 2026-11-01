@@ -214,6 +214,12 @@ actor BackupExporter {
         let dataDir = staging.appendingPathComponent("data", isDirectory: true)
         try fm.createDirectory(at: dataDir, withIntermediateDirectories: true)
 
+        let graphSnapshot = BotBackupSnapshot(directory: staging.appendingPathComponent("bot-snapshot", isDirectory: true))
+        let liveDatabaseURL = await ChatStore.shared.dbURL
+        let liveMediaURL = await ChatStore.shared.minisBaseURL
+        options.snapshotAt = try await graphSnapshot.capture(sourceDatabase: liveDatabaseURL, resuming: resumed != nil)
+        let snapshotStore = try ChatStore(snapshotURL: graphSnapshot.databaseURL, mediaBaseURL: liveMediaURL)
+
         let blobStore = BackupBlobStore(stagingRoot: staging, maxFileBytes: options.maxFileBytes)
 
         // Stream blobs straight into the package instead of copying them into
@@ -305,7 +311,7 @@ actor BackupExporter {
         }
 
         try await run(.chats, AppLocalized("Exporting chats…"), announces: true) {
-            try await exportChats(dataDir: dataDir, trees: trees,
+            try await exportChats(dataDir: dataDir, trees: trees, store: snapshotStore,
                                   snapshotAt: options.snapshotAt,
                                   progress: { text, transient in
                 // Prefer the detailed channel when the caller supplied one;
@@ -319,7 +325,7 @@ actor BackupExporter {
             })
         }
         try await run(.agents, AppLocalized("Exporting agents and memory…")) {
-            try await exportAgents(dataDir: dataDir, includesHistory: options.categories.contains(.chats))
+            try await exportAgents(dataDir: dataDir, includesHistory: options.categories.contains(.chats), snapshot: graphSnapshot)
         }
         try await run(.sharedFiles, AppLocalized("Exporting shared files…")) {
             try exportSharedFiles(trees: trees)
@@ -522,11 +528,10 @@ actor BackupExporter {
     /// Chats = messages **plus the whole `<sid>/` directory** (§3, second-round
     /// decision). No "was this file referenced by a message" test: the category
     /// covers everything the in-app file browser shows.
-    private func exportChats(dataDir: URL, trees: BackupFileTreeExporter,
+    private func exportChats(dataDir: URL, trees: BackupFileTreeExporter, store: ChatStore,
                              snapshotAt: Date,
                              progress: (@Sendable (String, Bool) -> Void)? = nil) async throws
         -> BackupManifest.CategoryStat {
-        let store = ChatStore.shared
         let sessionIds = await store.allSessionIds()
         let tombstoned = Set(await store.tombstonedSessionIds())
 
@@ -567,16 +572,8 @@ actor BackupExporter {
             // would otherwise appear to stall just before finishing.
             reporter.step()
             guard let session = await store.getSession(sid) else { continue }
-            // Snapshot cut-off: a session created/updated after the user
-            // pressed Create Backup is not part of this backup's view of the
-            // data. Excluding the whole session (rather than trimming its
-            // messages) keeps the package internally consistent — a session row
-            // is never written without the messages that belong to it.
-            guard session.updatedAt <= snapshotAt else {
-                logger.info("[Backup] skip session newer than snapshot: \(sid)")
-                continue
-            }
-
+            // Rows come from the frozen SQLite snapshot, including all rows of
+            // a conversation that continued on the live device after capture.
             let extras = await store.getSessionExtras(sid)
             try sessions.write(BackupRecordEnvelope(t: "SessionV2", d: SessionRecord(
                 session: session,
@@ -590,7 +587,7 @@ actor BackupExporter {
             // sessions (the pool can't drain inside a loop that suspends).
             let sessionMsgs = await store.loadMessages(sessionId: sid)
             try autoreleasepool {
-                for msg in sessionMsgs where msg.createdAt <= snapshotAt {
+                for msg in sessionMsgs {
                     try messages.write(BackupRecordEnvelope(t: "MessageV2", d: msg))
                     messageCount += 1
                     sessionMessages += 1
@@ -708,16 +705,12 @@ actor BackupExporter {
 
     // MARK: - Agents and memory
 
-    private func exportAgents(dataDir: URL, includesHistory: Bool) async throws -> BackupManifest.CategoryStat {
+    private func exportAgents(dataDir: URL, includesHistory: Bool, snapshot: BotBackupSnapshot) async throws -> BackupManifest.CategoryStat {
         let exportedSessions = includesHistory ? try BotWorkspaceArchive.sessionIDs(in: dataDir) : []
-        let archive = try await MainActor.run {
-            try BotWorkspaceTransfer.recover(workspace: .shared, memory: .shared, journal: BotWorkspaceTransfer.recoveryURL)
-            let workspace = try BotWorkspaceStore.shared.dataForBackup()
-            // The staged rows define the history scope, including on resume.
-            // capture prunes references to sessions excluded by the snapshot cut-off.
-            return try BotWorkspaceArchive.capture(workspace: workspace, memories: BotMemoryStore.shared.entries(),
-                                                   sessionIDs: exportedSessions, includesHistory: includesHistory)
-        }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let frozen = try decoder.decode(BotWorkspaceArchive.self, from: Data(contentsOf: snapshot.archiveURL))
+        let archive = try BotWorkspaceArchive.capture(workspace: frozen.workspace, memories: frozen.memories,
+                                                       sessionIDs: exportedSessions, includesHistory: includesHistory)
         let url = dataDir.appendingPathComponent("agents.json")
         try BackupJSONFile.write(archive, to: url)
         let bytes = try fm.attributesOfItem(atPath: url.path)[.size] as? Int64 ?? 0

@@ -570,7 +570,13 @@ extension AIChatViewModel {
                                       interruptsAtToolGap: !prompt.deferUntilIdle,
                                       scheduledJobId: Self.scheduledCallback(inQueuedText: prompt.text)?.jobId)
         }
-        return QueueDeliveryPlanner.take(items, at: point)
+        guard let take = QueueDeliveryPlanner.take(items, at: point), take.scheduledJobId == nil else {
+            return QueueDeliveryPlanner.take(items, at: point)
+        }
+        let candidates = promptQueue.filter { take.deliver.contains($0.id) }
+        // A quoted follow-up keeps its own bubble and persisted source, including after reload.
+        let batch = candidates.first?.quote != nil ? Array(candidates.prefix(1)) : Array(candidates.prefix { $0.quote == nil })
+        return QueueTake(deliver: batch.map(\.id), coalesced: take.coalesced, scheduledJobId: nil)
     }
 
     /// Takes `take` out of the queue: returns the prompts to deliver (queue

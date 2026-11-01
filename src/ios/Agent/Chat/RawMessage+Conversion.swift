@@ -37,7 +37,9 @@ extension RawMessage {
         /// get_readable (which don't carry a url arg) can inherit it.
         var lastBrowserURL: String?
 
-        for part in parts {
+        let presentation = BotMessagePresentation.decode(presentationJSON)
+        for (partIndex, part) in parts.enumerated() {
+            if partIndex == presentation?.quotedPartIndex, let quote = presentation?.quote, case .text(let context) = part, context == quote.modelContext { continue }
             switch part {
             case .text(let s):
                 // [T-bridge-to-reminder] A bridge line the model copied into a
@@ -331,6 +333,8 @@ extension RawMessage {
         }
 
         let msg = ChatMessage(role: uiRole, content: textContent, blocks: blocks)
+        msg.persistedMessageID = id
+        msg.quote = presentation?.quote
         // Deduplicate attachments by path
         var seenPaths = Set<String>()
         msg.attachments = userAttachments.filter { seenPaths.insert($0.path).inserted }

@@ -7,7 +7,7 @@ struct BotWorkspacePersistenceTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("workspace.json")
-        let store = BotWorkspaceStore(fileURL: file)
+        let store = BotWorkspaceStore(fileURL: file, seedCommander: false)
         let researcher = BotProfile(name: "Researcher", instructions: "Find evidence")
         let reviewer = BotProfile(name: "Reviewer", instructions: "Check claims")
         precondition(store.save(researcher))
@@ -19,7 +19,7 @@ struct BotWorkspacePersistenceTests {
         owned.sessionOwners["group-session"] = BotSessionOwner(botId: researcher.id, roomId: room.id)
         precondition(store.persist(owned))
         precondition(store.append(BotRoomMessage(speaker: "Researcher", botId: researcher.id, text: "Evidence", sessionId: "group-session"), to: room.id))
-        let reload = BotWorkspaceStore(fileURL: file)
+        let reload = BotWorkspaceStore(fileURL: file, seedCommander: false)
         precondition(reload.data.bots.count == 2)
         precondition(reload.room(room.id)?.members == [researcher.id, reviewer.id])
         precondition(reload.room(room.id)?.messages.first?.text == "Evidence")
@@ -30,19 +30,19 @@ struct BotWorkspacePersistenceTests {
         precondition(!reload.inheritOwner(for: "unowned-copy", from: "missing"))
         precondition(reload.setMemoryEnabled(false, forSession: "group-session"))
         precondition(!reload.memoryEnabled(forSession: "group-copy"))
-        precondition(BotWorkspaceStore(fileURL: file).room(room.id)?.memoryEnabled == false)
+        precondition(BotWorkspaceStore(fileURL: file, seedCommander: false).room(room.id)?.memoryEnabled == false)
         var configured = reload.bot(researcher.id)!
         configured.skillOverrides = ["skill": false]
         configured.connectorOverrides = ["connector": false]
         configured.memoryEnabled = true
         precondition(reload.save(configured))
-        let settingsReload = BotWorkspaceStore(fileURL: file)
+        let settingsReload = BotWorkspaceStore(fileURL: file, seedCommander: false)
         precondition(settingsReload.bot(forSession: "group-copy")?.skillOverrides?["skill"] == false)
         precondition(settingsReload.bot(forSession: "group-session")?.connectorOverrides?["connector"] == false)
         precondition(!settingsReload.memoryEnabled(forSession: "group-session"))
         reload.deleteBot(researcher.id)
         precondition(!reload.inheritOwner(for: "deleted-bot-copy", from: "group-session"))
-        precondition(BotWorkspaceStore(fileURL: file).owner(forSession: "group-session")?.botId == researcher.id)
+        precondition(BotWorkspaceStore(fileURL: file, seedCommander: false).owner(forSession: "group-session")?.botId == researcher.id)
         precondition(reload.room(room.id)?.members == [reviewer.id])
         precondition(reload.room(room.id)?.messages.first?.speaker == "Researcher")
         precondition(reload.room(room.id)?.sessions[researcher.id] == "group-session")
@@ -50,14 +50,14 @@ struct BotWorkspacePersistenceTests {
         duplicate.members = [reviewer.id, reviewer.id]
         precondition(!reload.save(duplicate))
         precondition(reload.setRoundActive(true, roomID: room.id))
-        precondition(BotWorkspaceStore(fileURL: file).room(room.id)?.interrupted == true)
+        precondition(BotWorkspaceStore(fileURL: file, seedCommander: false).room(room.id)?.interrupted == true)
         let corrupt = root.appendingPathComponent("corrupt.json")
         try Data("invalid-json".utf8).write(to: corrupt)
-        let broken = BotWorkspaceStore(fileURL: corrupt)
+        let broken = BotWorkspaceStore(fileURL: corrupt, seedCommander: false)
         precondition(!broken.save(reviewer))
         let preserved = try String(contentsOf: corrupt, encoding: .utf8)
         precondition(preserved == "invalid-json")
-        let icons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"))
+        let icons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"), seedCommander: false)
         for index in BotProfile.builtinIcons.indices {
             var bot = icons.newBot()
             bot.name = "Bot \(index)"
@@ -68,18 +68,18 @@ struct BotWorkspacePersistenceTests {
         custom.name = "Custom"
         custom.iconImageData = Data([1, 2, 3])
         precondition(icons.save(custom))
-        let restoredIcons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"))
+        let restoredIcons = BotWorkspaceStore(fileURL: root.appendingPathComponent("icons.json"), seedCommander: false)
         precondition(restoredIcons.bot(custom.id)?.iconImageData == Data([1, 2, 3]))
         precondition(Set(restoredIcons.data.bots.compactMap(\.iconSymbol)).count == BotProfile.builtinIcons.count)
-        let team = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"))
+        let team = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"), seedCommander: false)
         precondition(team.data.bots.isEmpty)
-        let emptyReload = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"))
+        let emptyReload = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"), seedCommander: false)
         precondition(emptyReload.data.bots.isEmpty)
         var specialist = BotProfile(name: "Reviewer", instructions: "Review changes")
         precondition(team.save(specialist))
         specialist.name = "My reviewer"
         precondition(team.save(specialist))
-        let savedTeam = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"))
+        let savedTeam = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"), seedCommander: false)
         precondition(savedTeam.data.bots == [specialist])
         savedTeam.deleteBot(specialist.id)
         precondition(savedTeam.data.bots.isEmpty)
@@ -105,11 +105,11 @@ struct BotWorkspacePersistenceTests {
         precondition(globalPayload == nil)
 
         let destinationURL = root.appendingPathComponent("capability-destination.json")
-        let destination = BotWorkspaceStore(fileURL: destinationURL)
+        let destination = BotWorkspaceStore(fileURL: destinationURL, seedCommander: false)
         try destination.restoreCapabilityOwner(botID: portable.id, json: payload)
         try destination.restoreCapabilityOwner(botID: portable.id, json: payload)
         precondition(destination.data.bots.count == 1)
-        let restored = BotWorkspaceStore(fileURL: destinationURL).bot(portable.id)!
+        let restored = BotWorkspaceStore(fileURL: destinationURL, seedCommander: false).bot(portable.id)!
         precondition(restored.name == portable.name && restored.instructions == portable.instructions)
         precondition(restored.modelGroupId == portable.modelGroupId)
         precondition(restored.skillOverrides == portable.skillOverrides && restored.connectorOverrides == portable.connectorOverrides)
@@ -117,7 +117,7 @@ struct BotWorkspacePersistenceTests {
         precondition(restored.sessionId == nil && restored.conversationIds.isEmpty && restored.pinnedAt == nil)
         precondition(destination.data.sessionOwners.isEmpty && destination.data.rooms.isEmpty)
 
-        let unbound = BotWorkspaceStore(fileURL: root.appendingPathComponent("unbound-owner.json"))
+        let unbound = BotWorkspaceStore(fileURL: root.appendingPathComponent("unbound-owner.json"), seedCommander: false)
         let unsanitized = String(decoding: try JSONEncoder().encode(portable), as: UTF8.self)
         try unbound.restoreCapabilityOwner(botID: portable.id, json: unsanitized)
         precondition(unbound.bot(portable.id)?.sessionId == nil)

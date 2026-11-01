@@ -138,6 +138,69 @@ extension BackupImporter {
 
     // MARK: - Chats
 
+    /// Validate the complete Bot graph and every staged row before the first live write.
+    func preflightBotGraph(root: URL, options: Options) async throws {
+        var archive = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
+        let includesChats = options.categories?.contains(.chats) == true
+        if !includesChats {
+            archive = try BotWorkspaceArchive.capture(workspace: archive.workspace, memories: archive.memories,
+                                                       sessionIDs: [], includesHistory: false)
+        } else {
+            struct SessionRecord: Codable { let session: ChatSession; let memoryEnabled: Bool; let modelBinding: String? }
+            let data = root.appendingPathComponent("data", isDirectory: true)
+            let sessions = try readStrictJSONL(data, base: "sessions", as: SessionRecord.self)
+            let messages = try readStrictJSONL(data, base: "messages", as: RawMessage.self)
+            let sessionIDs = Set(sessions.map { $0.session.id })
+            guard sessionIDs.count == sessions.count, Set(messages.map(\.id)).count == messages.count,
+                  Set(archive.workspace.sessionOwners.keys).isSubset(of: sessionIDs),
+                  messages.allSatisfy({ sessionIDs.contains($0.sessionId) }) else {
+                throw BotWorkspaceError.rejected("备份中的会话、消息或 Bot 归属不完整，尚未写入任何数据。")
+            }
+            let messageOwners = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0.sessionId) })
+            for message in messages {
+                guard let json = message.presentationJSON else { continue }
+                guard let metadata = BotMessagePresentation.decode(json) else { throw BotWorkspaceError.rejected("消息显示数据已损坏。") }
+                if let group = metadata.replyGroupID, let owner = messageOwners[group], owner != message.sessionId {
+                    throw BotWorkspaceError.rejected("消息分组引用了其他会话。")
+                }
+                if let index = metadata.quotedPartIndex {
+                    guard metadata.quote != nil, message.parts.indices.contains(index), case .text = message.parts[index] else {
+                        throw BotWorkspaceError.rejected("引用与原始消息内容不匹配。")
+                    }
+                }
+                if let quote = metadata.quote {
+                    guard quote.text.count <= 12000, !quote.author.isEmpty,
+                          messageOwners[quote.messageID].map({ $0 == quote.sessionID }) ?? true else {
+                        throw BotWorkspaceError.rejected("引用消息的来源归属不匹配。")
+                    }
+                }
+            }
+        }
+        let incoming = archive
+        try await MainActor.run {
+            guard SessionActivityTracker.shared.activeSessions.isEmpty && BotRoomRunner.shared.activeRooms.isEmpty && BotWorkspaceStore.shared.pendingSessions.isEmpty else {
+                throw BotWorkspaceError.rejected("请先停止正在运行的 Bot 和群任务，再恢复备份。")
+            }
+            _ = try incoming.merging(local: BotWorkspaceStore.shared.data, localMemories: BotMemoryStore.shared.entries())
+        }
+    }
+
+    private func readStrictJSONL<T: Codable>(_ directory: URL, base: String, as type: T.Type) throws -> [T] {
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter {
+            $0 == "\(base).jsonl" || ($0.hasPrefix("\(base)-") && $0.hasSuffix(".jsonl"))
+        }.sorted()
+        guard !names.isEmpty else { throw BotWorkspaceError.rejected("备份缺少 \(base) 数据。") }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        var rows: [T] = []
+        for name in names {
+            let data = try Data(contentsOf: directory.appendingPathComponent(name))
+            for line in data.split(separator: 0x0A) where !line.isEmpty {
+                rows.append(try decoder.decode(BackupRecordEnvelope<T>.self, from: Data(line)).d)
+            }
+        }
+        return rows
+    }
+
     private func importAgents(root: URL, options: Options) async throws -> CategoryReport {
         var archive = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
         if options.categories?.contains(.chats) != true {
@@ -262,8 +325,9 @@ extension BackupImporter {
                 providerType: msg.providerType,
                 providerInstanceId: msg.providerInstanceId)
             switch outcome {
-            case .inserted: report.imported += 1
-            case .updated: report.updated += 1
+            case .inserted, .updated:
+                guard await store.setMessagePresentation(msg.id, json: msg.presentationJSON) else { throw BotWorkspaceError.storage }
+                if case .inserted = outcome { report.imported += 1 } else { report.updated += 1 }
             case .skippedLocalNewer, .skippedNoParent: report.skipped += 1
             }
         }

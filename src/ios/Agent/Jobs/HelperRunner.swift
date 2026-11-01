@@ -28,6 +28,8 @@ struct HelperConfig {
     let maxTurns: Int
     let title: String
     let modelOrigin: HelperModelOrigin
+    var specialistBotID: String? = nil
+    var delegationID: String? = nil
     /// [T-sub-agents-v1] Which sub agent definition this run uses. Snapshotted
     /// at start: deleting or renaming the definition mid-run must not change
     /// what an in-flight job reports.
@@ -332,7 +334,7 @@ extension AIChatViewModel {
     func executeDelegateTask(args: [String: Any],
                              toolUseId: String,
                              msgIdx: Int,
-                             blockIdx: Int) async -> (output: String, success: Bool) {
+                             blockIdx: Int, specialist: BotProfile? = nil, delegationID: String? = nil) async -> (output: String, success: Bool) {
         // ── Argument parsing ─────────────────────────────────────────────
         let title = (args["tool_title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let task = (args["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -407,7 +409,10 @@ extension AIChatViewModel {
         // count. A start coming back from the queue already holds a
         // reservation under this tool_use id, so it is not counted against
         // itself.
-        if overTurnAllowance || !registry.canStartChildJob(parent: parentSid, excludingReservation: toolUseId) {
+        if specialist != nil && !registry.canStartChildJob(parent: parentSid, excludingReservation: toolUseId) {
+            return (Self.jsonString(["ok": true, "status": "queued"]), true)
+        }
+        if specialist == nil && (overTurnAllowance || !registry.canStartChildJob(parent: parentSid, excludingReservation: toolUseId)) {
             let queued = registry.enqueueDelegation(
                 .init(parentSessionId: parentSid, args: args, toolUseId: toolUseId))
             guard queued else {
@@ -436,7 +441,12 @@ extension AIChatViewModel {
         // definition overrides the requested tier. Another Bot's private
         // definitions are not reachable from this conversation.
         let roster = SubAgentStore.shared.roster(forSession: parentSid)
-        guard let subAgent = SubAgentRoster.resolve(name: requestedAgentName, in: roster) else {
+        let specialistDefinition = specialist.map {
+            SubAgentDefinition(id: "bot:" + $0.id, name: $0.name, description: String($0.instructions.prefix(200)),
+                instructions: $0.instructions + "\nApproval-dependent external sending, payment or deletion must be returned as a draft for the commander and user to authorize. Never execute them based only on the delegation. Do not write long-term memory from this task.",
+                modelGroupId: $0.modelGroupId ?? ProviderConfigStore.shared.defaultPrimaryGroupId, ownerBotId: $0.id)
+        }
+        guard let subAgent = specialistDefinition ?? SubAgentRoster.resolve(name: requestedAgentName, in: roster) else {
             let known = roster.map(\.name).joined(separator: ", ")
             return reject("unknown_agent", "No sub agent named \"\(requestedAgentName ?? "")\". Available: \(known). Omit `agent` to use the general one.")
         }
@@ -449,13 +459,19 @@ extension AIChatViewModel {
 
         // ── Child session ────────────────────────────────────────────────
         let displayTitle = title.isEmpty ? String(task.prefix(40)) : title
-        let session = await ChatStore.shared.createSession(
+        let reusableID = delegationID.flatMap { BotWorkspaceStore.shared.delegation($0)?.childSessionID }
+        let session: ChatSession
+        if let reusableID, let existing = await ChatStore.shared.getSession(reusableID) {
+            session = existing
+        } else {
+        session = await ChatStore.shared.createSession(
             modelId: resolution.entry.model.id,
             title: AgentJobRegistry.childSessionTitle(displayTitle, subAgentName: subAgent.isBuiltIn ? nil : subAgent.name),
             source: sessionSource,
             parentSessionId: parentSid,
             parentToolUseId: toolUseId
         )
+        }
         let childId = session.id
         ProviderConfigStore.shared.setBinding(
             SessionModelBinding(sessionId: childId, primarySource: resolution.source), for: childId)
@@ -478,6 +494,13 @@ extension AIChatViewModel {
         // the effective half fills in from the child's loop as it runs.
         job.modelIdentity = HelperModelIdentity.make(resolution: resolution)
 
+        if let delegationID {
+            guard BotWorkspaceStore.shared.bindDelegation(delegationID, childSessionID: childId, jobID: job.id) else {
+                job.then = .none; registry.finish(job.id, state: .failed, result: nil)
+                return reject("storage", "Unable to bind specialist conversation.")
+            }
+        }
+
         // ── Child VM ─────────────────────────────────────────────────────
         // [T-vmcache-pools] Children live in their own LRU pool so a fan-out
         // cannot evict the conversations the user is actually working in.
@@ -490,10 +513,12 @@ extension AIChatViewModel {
                                           subAgentId: subAgent.id,
                                           subAgentName: subAgent.name,
                                           subAgentInstructions: subAgent.instructions)
-        // helperConfig gates memory tools/injection without changing the Bot's shared memory setting.
+        child.helperConfig?.specialistBotID = specialist?.id
+        child.helperConfig?.delegationID = delegationID
+        // Generic helpers remain memoryless. Specialist ownership is bound before load/run.
         child.suppressGeneralCompletionNotification = true
         // Shared browser: same tab set as the parent (T-p2-shared-workspace).
-        child.browserTabPool = browserTabPool
+        if specialist == nil { child.browserTabPool = browserTabPool }
 
         if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
             messages[msgIdx].blocks[blockIdx].helperChildSessionId = childId

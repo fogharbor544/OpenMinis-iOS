@@ -77,6 +77,7 @@ struct SyncedSession: Syncable {
 // MARK: - SyncedMessage
 
 struct SyncedMessage: Syncable {
+    var presentationJSON: String? = nil
     var id: String
     var sessionId: String
     var role: String
@@ -112,6 +113,7 @@ struct SyncedMessage: Syncable {
             idKeyPath: \SyncedMessage.id,
             scope: .perParent(parentType: "SessionV2", \SyncedMessage.sessionId),
             fields: [
+                F.optionalString("presentationJSON",  \SyncedMessage.presentationJSON),
                 F.string("messageId",                 \SyncedMessage.id),
                 F.string("sessionId",                 \SyncedMessage.sessionId),
                 F.string("role",                      \SyncedMessage.role),
@@ -138,6 +140,7 @@ struct SyncedMessage: Syncable {
             (try? JSONEncoder().encode($0)).flatMap { String(data: $0, encoding: .utf8) }
         }
         return SyncedMessage(
+            presentationJSON: m.presentationJSON,
             id: m.id,
             sessionId: m.sessionId,
             role: m.role.rawValue,

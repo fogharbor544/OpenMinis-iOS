@@ -41,7 +41,7 @@ import Foundation
         precondition(decoded.workspace.rooms.first?.interrupted == false)
         precondition(decoded.memories.contains { $0.status == "deleted" })
 
-        let store = BotWorkspaceStore(fileURL: root.appendingPathComponent("workspace.json"))
+        let store = BotWorkspaceStore(fileURL: root.appendingPathComponent("workspace.json"), seedCommander: false)
         precondition(store.data.bots.isEmpty)
         let memory = BotMemoryStore(fileURL: root.appendingPathComponent("memory.sqlite"))
         let journal = root.appendingPathComponent("recovery/pending.json")
@@ -71,7 +71,7 @@ import Foundation
             _ = try conflict.merging(into: store.data, memories: restoredMemory)
             preconditionFailure("Conflicting canonical chat accepted")
         } catch { precondition(store.data == before) }
-        let reload = BotWorkspaceStore(fileURL: root.appendingPathComponent("workspace.json"))
+        let reload = BotWorkspaceStore(fileURL: root.appendingPathComponent("workspace.json"), seedCommander: false)
         precondition(reload.data == store.data)
 
         var local = store.bot(bot.id)!
@@ -130,7 +130,7 @@ import Foundation
         // A filesystem write failure after memory write retains recovery data if rollback fails.
         let blocker = root.appendingPathComponent("not-a-directory")
         try Data("file".utf8).write(to: blocker)
-        let blockedStore = BotWorkspaceStore(fileURL: blocker.appendingPathComponent("workspace.json"))
+        let blockedStore = BotWorkspaceStore(fileURL: blocker.appendingPathComponent("workspace.json"), seedCommander: false)
         let blockedJournal = root.appendingPathComponent("blocked-restore.json")
         let untouchedMemory = try memory.entries()
         do {

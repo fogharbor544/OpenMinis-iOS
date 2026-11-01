@@ -191,3 +191,9 @@ User explicitly requests removing the avatar changes and restoring original beha
 - Backup currently samples chats and Bot/memory at different instants. New delegation graph requires one staged snapshot and preflight before writes.
 - Current backups are minisbak/3 + Bot archive v2. User explicitly selected new formats only.
 - Original worktree clean; no project AGENTS.md found. Git writes require managed escalation. RTK inaccessible, use executable paths.
+### Bot team / original avatar findings
+- Generated atlases are 1254 x 1254, so native cropping must support fractional 4 x 4 cell coordinates.
+- Transparent first drafts had matte speckles; final warm-neutral opaque plush atlases were regenerated and visually inspected. Prompts and SHA-256 are recorded in `docs/bot-avatar-generation.json`.
+- ContentView uses synchronized Xcode file membership; Agent/Chat and Agent/Backup require explicit project entries.
+- Frozen graph files are private resumable staging under `.bot-snapshot`; every encryption/checksum/ZIP walk must skip this directory, including configuration-only backups.
+- Restoring only the new minisbak/4 and Bot v3 formats is explicit user scope. Old backup files must remain untouched and must not be imported.

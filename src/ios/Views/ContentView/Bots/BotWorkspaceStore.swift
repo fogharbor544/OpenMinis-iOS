@@ -57,6 +57,7 @@ struct BotOnboarding: Codable, Equatable {
     var options: [String]
     var selected: [Int] = []
     var dismissed = false
+    var memorySaved: Bool? = nil
 }
 
 struct BotAvatarPreset: Identifiable, Equatable {
@@ -121,6 +122,7 @@ struct BotDelegation: Identifiable, Codable, Equatable {
     var updatedAt = Date()
     var followUpSent = false
     var reworkCount = 0
+    var resumesDelegationID: String? = nil
 }
 
 struct BotMessageQuote: Codable, Equatable, Hashable {
@@ -255,8 +257,8 @@ final class BotWorkspaceStore: ObservableObject {
                                 by: { $0.iconSymbol ?? "sparkles" }).mapValues(\.count)
         let symbol = BotProfile.builtinIcons.min { counts[$0, default: 0] < counts[$1, default: 0] }
         var profile = BotProfile(name: "", iconSymbol: symbol, skillOverrides: [:], connectorOverrides: [:], memoryEnabled: true)
-        let counts = Dictionary(grouping: data.bots.compactMap(\.avatarPresetID), by: { $0 }).mapValues(\.count)
-        profile.avatarPresetID = BotAvatarPreset.all.min { counts[$0.id, default: 0] < counts[$1.id, default: 0] }?.id
+        let avatarCounts = Dictionary(grouping: data.bots.compactMap(\.avatarPresetID), by: { $0 }).mapValues(\.count)
+        profile.avatarPresetID = BotAvatarPreset.all.min { avatarCounts[$0.id, default: 0] < avatarCounts[$1.id, default: 0] }?.id
         return profile
     }
 
@@ -334,6 +336,7 @@ final class BotWorkspaceStore: ObservableObject {
 
     @discardableResult
     func save(_ profile: BotProfile) -> Bool {
+        guard !BotRestoreControl.isRestoring else { return false }
         var profile = profile
         if profile.isCommander { profile.isBootstrap = false }
         profile.name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -346,6 +349,7 @@ final class BotWorkspaceStore: ObservableObject {
 
     @discardableResult
     func save(_ room: BotRoom) -> Bool {
+        guard !BotRestoreControl.isRestoring else { return false }
         guard !room.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !room.members.isEmpty, Set(room.members).count == room.members.count,
               room.members.allSatisfy({ bot($0) != nil }) else { return false }
@@ -356,6 +360,7 @@ final class BotWorkspaceStore: ObservableObject {
     }
 
     func deleteBot(_ id: String) {
+        guard !BotRestoreControl.isRestoring else { return }
         guard id != BotProfile.commanderID else { return }
         var next = data
         next.bots.removeAll { $0.id == id }
@@ -375,7 +380,7 @@ final class BotWorkspaceStore: ObservableObject {
 
     @discardableResult
     func bindDelegation(_ id: String, childSessionID: String, jobID: String) -> Bool {
-        guard var record = delegation(id), bot(record.toBotID) != nil else { return false }
+        guard var record = delegation(id), record.state == .queued, bot(record.toBotID) != nil else { return false }
         record.childSessionID = childSessionID; record.jobID = jobID
         record.state = .running; record.updatedAt = Date()
         var next = data
@@ -400,6 +405,7 @@ final class BotWorkspaceStore: ObservableObject {
     }
 
     func deleteRoom(_ id: String) {
+        guard !BotRestoreControl.isRestoring else { return }
         var next = data
         next.rooms.removeAll { $0.id == id }
         _ = persist(next)

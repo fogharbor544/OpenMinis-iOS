@@ -143,10 +143,13 @@ extension CollectionViewMessageListV3.Coordinator {
                 messages.insert(vm.botOverviewMessage, at: 0)
             }
             if vm.readBoundaryInitialized, vm.unreadBoundaryMessageID == nil,
-               let incoming = rawMessages.first(where: { !vm.knownPresentationMessageIDs.contains($0.id) && ($0.role == .assistant || $0.agentCallback != nil) }) {
+               let incoming = rawMessages.first(where: { !vm.knownPresentationMessageIDs.contains($0.id.uuidString) && !vm.knownPresentationMessageIDs.contains($0.persistedMessageID ?? "") && ($0.role == .assistant || $0.agentCallback != nil) }) {
                 vm.unreadBoundaryMessageID = incoming.persistedMessageID ?? incoming.id.uuidString
             }
-            vm.knownPresentationMessageIDs = Set(rawMessages.map(\.id))
+            vm.knownPresentationMessageIDs = Set(rawMessages.flatMap { [$0.id.uuidString] + ($0.persistedMessageID.map { [$0] } ?? []) })
+            if let live = rawMessages.first(where: { $0.id.uuidString == vm.unreadBoundaryMessageID }), let stable = live.persistedMessageID {
+                vm.unreadBoundaryMessageID = stable
+            }
             if !vm.readBoundaryInitialized, let sid = vm.sessionId {
                 let lastRead = BotWorkspaceStore.shared.data.conversationStates[sid]?.lastReadMessageID
                 if let lastRead, let index = messages.lastIndex(where: { $0.persistedMessageID == lastRead }) {

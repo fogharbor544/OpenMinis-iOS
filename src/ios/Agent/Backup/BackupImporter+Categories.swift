@@ -156,6 +156,12 @@ extension BackupImporter {
                   messages.allSatisfy({ sessionIDs.contains($0.sessionId) }) else {
                 throw BotWorkspaceError.rejected("备份中的会话、消息或 Bot 归属不完整，尚未写入任何数据。")
             }
+            let localOwners = await MainActor.run { BotWorkspaceStore.shared.data.sessionOwners }
+            for (sid, owner) in archive.workspace.sessionOwners {
+                if await ChatStore.shared.getSession(sid) != nil && localOwners[sid] != owner {
+                    throw BotWorkspaceError.rejected("本机会话已有其他归属；尚未写入任何数据，请在空白设备恢复。")
+                }
+            }
             let messageOwners = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0.sessionId) })
             for message in messages {
                 guard let json = message.presentationJSON else { continue }

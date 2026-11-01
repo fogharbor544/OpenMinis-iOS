@@ -11,11 +11,12 @@ struct BotBackupSnapshot {
     var markerURL: URL { directory.appendingPathComponent("ready.json") }
     struct Marker: Codable { var format: String; var capturedAt: Date }
 
-    @MainActor func capture(sourceDatabase: URL, resuming: Bool) throws -> Date {
+    @MainActor func capture(sourceDatabase: URL?, resuming: Bool, includesHistory: Bool) throws -> Date {
         if FileManager.default.fileExists(atPath: markerURL.path) {
             let marker = try JSONDecoder().decode(Marker.self, from: Data(contentsOf: markerURL))
             guard marker.format == BackupFormat.current,
-                  FileManager.default.fileExists(atPath: databaseURL.path),
+                  (!includesHistory || FileManager.default.fileExists(atPath: databaseURL.path)),
+                  marker.includesHistory == includesHistory,
                   FileManager.default.fileExists(atPath: archiveURL.path) else { throw BotWorkspaceError.storage }
             return marker.capturedAt
         }
@@ -28,7 +29,10 @@ struct BotBackupSnapshot {
         let timestamp = Date()
         let archive = BotWorkspaceArchive(includesHistory: true,
             workspace: try BotWorkspaceStore.shared.dataForBackup(), memories: try BotMemoryStore.shared.entries())
-        try Self.copyDatabase(from: sourceDatabase, to: databaseURL)
+        if includesHistory {
+            guard let sourceDatabase else { throw BotWorkspaceError.storage }
+            try Self.copyDatabase(from: sourceDatabase, to: databaseURL)
+        }
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(archive).write(to: archiveURL, options: .atomic)
         try JSONEncoder().encode(Marker(format: BackupFormat.current, capturedAt: timestamp)).write(to: markerURL, options: .atomic)
@@ -73,22 +77,32 @@ extension ChatStore {
             .appendingPathComponent("BotGraphRestore", isDirectory: true)
     }
     static var ready: URL { directory.appendingPathComponent("ready") }
-    static func begin(databaseURL: URL) throws {
+    static func begin(databaseURL: URL) async throws {
+        guard SessionActivityTracker.shared.activeSessions.isEmpty, BotRoomRunner.shared.activeRooms.isEmpty,
+              !AgentJobRegistry.shared.hasPendingSpecialistStop else { throw BotWorkspaceError.rejected("请等待正在运行或停止中的任务结束。") }
         guard !FileManager.default.fileExists(atPath: ready.path) else {
             throw BotWorkspaceError.rejected("上次 Bot 恢复尚未恢复，请重新启动应用。")
         }
-        BotDataSnapshotLock.lock.lock()
-        defer { BotDataSnapshotLock.lock.unlock() }
+        BotRestoreControl.isRestoring = true
+        await SyncCore.shared.holdInboundForBotRestore()
+        do { try stageCheckpoint(databaseURL: databaseURL) }
+        catch { BotRestoreControl.isRestoring = false; throw error }
+    }
+    private static func stageCheckpoint(databaseURL: URL) throws {
+        BotDataSnapshotLock.lock.lock(); defer { BotDataSnapshotLock.lock.unlock() }
+        guard BotWorkspaceStore.shared.pendingSessions.isEmpty else { throw BotWorkspaceError.rejected("请等待 Bot 会话创建完成后再备份。") }
+
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try BotBackupSnapshot.copyDatabase(from: databaseURL, to: directory.appendingPathComponent("chat.sqlite"))
         let prior = BotWorkspaceArchive(includesHistory: true, workspace: try BotWorkspaceStore.shared.dataForBackup(), memories: try BotMemoryStore.shared.entries())
         try JSONEncoder().encode(prior).write(to: directory.appendingPathComponent("agents.json"), options: .atomic)
         try Data("ready".utf8).write(to: ready, options: .atomic)
-        BotRestoreControl.isRestoring = true
     }
+
     static func recover() async throws {
         guard FileManager.default.fileExists(atPath: ready.path) else { return }
         BotRestoreControl.isRestoring = true
+        await SyncCore.shared.holdInboundForBotRestore()
         let prior = try JSONDecoder().decode(BotWorkspaceArchive.self, from: Data(contentsOf: directory.appendingPathComponent("agents.json")))
         try await ChatStore.shared.restoreGraphDatabase(from: directory.appendingPathComponent("chat.sqlite"))
         try BotMemoryStore.shared.replaceForRestore(prior.memories)
@@ -96,8 +110,11 @@ extension ChatStore {
         try commit()
     }
     static func commit() throws {
-        defer { BotRestoreControl.isRestoring = false }
         if FileManager.default.fileExists(atPath: ready.path) { try FileManager.default.removeItem(at: ready) }
-        if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+        BotRestoreControl.isRestoring = false
+        if FileManager.default.fileExists(atPath: directory.path) {
+            do { try FileManager.default.removeItem(at: directory) }
+            catch { AppLogger(category: "Backup").warning("[Restore] Committed checkpoint cleanup failed: \(error.localizedDescription)") }
+        }
     }
 }

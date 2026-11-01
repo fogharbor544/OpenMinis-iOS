@@ -71,6 +71,11 @@ extension AIChatView {
                     _ = BotWorkspaceStore.shared.updateConversation(sid) { $0.lastReadMessageID = id }
                 }
             }
+            .onChange(of: vm.isNearBottom) { near in
+                if near, let sid = vm.sessionId, let id = vm.messages.last(where: { $0.persistedMessageID != nil })?.persistedMessageID {
+                    _ = BotWorkspaceStore.shared.updateConversation(sid) { $0.lastReadMessageID = id }
+                }
+            }
             .sheet(item: $openedBot) { BotOpenedChat(botID: $0.id) }
             .onReceive(NotificationCenter.default.publisher(for: .botQuoteSelected)) { note in
                 if note.object as? String == vm.sessionId { inputFocused = true }

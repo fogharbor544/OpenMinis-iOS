@@ -348,3 +348,9 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Created separate worktree and codex/bot-team-original-avatars at 7450d01. Original branch left untouched.
 - Read current implementation and approved plan. Started data/backup contracts; no app changes yet.
 - Tools: rg and git direct executable paths; Windows has no Swift/Xcode. Sandboxed gh auth status failed; will verify permitted unsandboxed credential access before publication.
+### Bot team implementation checkpoint — 2026-11-01
+- New isolated worktree `build/worktrees/bot-team-original-avatars`, branch `codex/bot-team-original-avatars`, pushed to the original tracking remote `darkyuanbao06`.
+- Commander, typed creation/delegation, original 12 plush atlases, optional onboarding, reply groups, quote metadata and minisbak/4 + Bot archive v3 implemented; verification ongoing.
+- Local: 55 production secure-input JS assertions, 7 chat-setting checks, fresh-schema checks and 12 atlas/192-frame resource checks passed.
+- CI run 41287213950: native existing layout/interaction jobs passed; initial source/device jobs exposed duplicate local names and missing explicit Xcode source membership. Fixed locally, not yet revalidated.
+- Added graph checkpoint, frozen export source, strict preflight, sync admission barrier and no-history snapshot exclusion. New standalone roundtrip and ownership contracts await macOS execution.

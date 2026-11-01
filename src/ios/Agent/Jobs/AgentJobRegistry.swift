@@ -310,6 +310,10 @@ final class AgentJob: Identifiable {
 
 @MainActor
 final class AgentJobRegistry: ObservableObject {
+    private var specialistStops: [String: (task: Task<Void, Never>, reason: String)] = [:]
+    func isAwaitingSpecialistStop(_ jobID: String) -> Bool { specialistStops[jobID] != nil }
+    var hasPendingSpecialistStop: Bool { !specialistStops.isEmpty }
+
     static let shared = AgentJobRegistry()
 
     /// [T-limits-per-parent] Cap on child-session jobs (sub agents: delegate_task
@@ -699,6 +703,15 @@ final class AgentJobRegistry: ObservableObject {
     func finish(_ jobId: String, state final: AgentJobState, result: String?,
                 keepIfChildRunning: Bool = false) {
         guard let job = jobs[jobId], job.state == .running || job.state == .pending else { return }
+        if let stopping = specialistStops[jobId] {
+            Task { @MainActor [weak self] in
+                await stopping.task.value
+                guard let self, self.specialistStops.removeValue(forKey: jobId) != nil else { return }
+                self.finish(jobId, state: .cancelled, result: "Specialist execution has stopped. " + stopping.reason)
+            }
+            return
+        }
+
         // A timer whose last fire spawned a child that is still running must
         // stay open: the child's loop end closes it (and runs `then`).
         if keepIfChildRunning, job.state == .running, let sid = job.runSessionId,
@@ -850,6 +863,13 @@ final class AgentJobRegistry: ObservableObject {
     ///   touched nothing. Stop means the conversation goes quiet.
     func cancel(jobId: String, reason: String, silent: Bool = false) {
         guard let job = jobs[jobId], job.state == .running || job.state == .pending else { return }
+
+        if silent { job.then = .none }
+        if let sid = job.runSessionId,
+           BotWorkspaceStore.shared.owner(forSession: sid)?.delegationID != nil,
+           let child = ViewModelCache.shared.get(for: sid), let task = child.currentTask {
+            specialistStops[jobId] = (task, reason)
+        }
         logger.info("[Jobs] CANCEL \(job.logLabel) reason=\(reason)\(silent ? " (silent)" : "")")
         if job.state == .running, let sid = job.runSessionId,
            let vm = ViewModelCache.shared.get(for: sid), vm.isProcessing {

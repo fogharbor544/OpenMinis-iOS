@@ -244,7 +244,7 @@ struct BotAvatarPicker: View {
                 Section("系统图标") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 12)], spacing: 16) {
                         ForEach(SessionCategory.all, id: \.key) { category in
-                            choiceButton(name: AppLocalized(category.label), selected: draft.iconImageData == nil && draft.avatarPresetID == nil && draft.iconSymbol == category.icon) {
+                            choiceButton(name: category.label, selected: draft.iconImageData == nil && draft.avatarPresetID == nil && draft.iconSymbol == category.icon) {
                                 selectedPhoto = nil; loadingPhoto = false; replayTrigger = UUID()
                                 draft.iconImageData = nil; draft.avatarPresetID = nil; draft.iconSymbol = category.icon
                             } icon: {
@@ -292,12 +292,12 @@ struct BotAvatarPicker: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 icon().frame(height: 56)
-                Text(name).font(.caption).foregroundStyle(.primary).multilineTextAlignment(.center)
+                Text(LocalizedStringKey(name)).font(.caption).foregroundStyle(.primary).multilineTextAlignment(.center)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.caption)
                     .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.4))
             }.frame(maxWidth: .infinity, minHeight: 88).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).accessibilityLabel(name).accessibilityAddTraits(selected ? .isSelected : [])
+        .buttonStyle(.plain).accessibilityLabel(Text(LocalizedStringKey(name))).accessibilityAddTraits(selected ? .isSelected : [])
     }
     private static func thumbnail(_ image: UIImage) -> Data? {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1

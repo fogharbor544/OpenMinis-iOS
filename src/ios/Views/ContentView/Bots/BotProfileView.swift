@@ -405,6 +405,7 @@ struct BotProfileView: View {
 
     private func deleteBot(_ bot: BotProfile) {
         guard !bot.isCommander else { return }
+        BotTeamRuntime.shared.cancelSpecialist(botID)
         do {
             try memory.forgetOwner("bot:\(bot.id)")
             SubAgentStore.shared.removeSubAgents(ownedBy: bot.id)

@@ -132,12 +132,18 @@ extension AIChatViewModel {
             } else {
                 guard let message = args["message"] as? String, !message.isEmpty, message.count <= 12000 else { return ("A concrete follow-up is required.", false) }
                 if record.state == .running, let jobID = record.jobID {
-                    return executeAgentStatus(args: ["action": "steer", "job_id": jobID, "message": message])
+                    let response = executeAgentStatus(args: ["action": "steer", "job_id": jobID, "message": message])
+                    if response.success {
+                        record.toolUseHistory = (record.toolUseHistory ?? []) + [toolUseID]
+                        record.updatedAt = Date()
+                        guard store.saveDelegation(record) else { return ("Follow-up sent, but its display record could not be saved.", false) }
+                    }
+                    return response
                 }
                 guard !record.state.isActive, record.reworkCount < 1 else { return ("Only one rework is allowed. Handle this task yourself or explain what is missing.", false) }
                 record.task += "\n\nPrevious result:\n" + String((record.result ?? "").prefix(16000)) + "\n\nCorrection:\n" + message
                 record.reworkCount += 1; record.followUpSent = false; record.state = .queued
-                record.jobID = nil; record.toolUseID = toolUseID; record.updatedAt = Date()
+                record.jobID = nil; record.toolUseHistory = (record.toolUseHistory ?? []) + [record.toolUseID]; record.toolUseID = toolUseID; record.updatedAt = Date()
                 guard store.saveDelegation(record) else { return ("Unable to save rework.", false) }
                 BotTeamRuntime.shared.start()
             }
@@ -148,7 +154,7 @@ extension AIChatViewModel {
 
     static func botTaskJSON(_ record: BotDelegation) -> String {
         jsonString(["ok": true, "delegation_id": record.id, "bot_id": record.toBotID, "name": record.toName,
-                    "status": record.state.rawValue, "task": record.title, "result": record.result ?? "",
+                    "status": record.state.rawValue, "follow_up_sent": record.followUpSent, "rework_count": record.reworkCount, "resumes_delegation_id": record.resumesDelegationID ?? "", "task": record.title, "result": record.result ?? "",
                     "detail": "Queued work and results are delivered automatically; do not duplicate or poll."])
     }
 }
@@ -166,6 +172,15 @@ extension AIChatViewModel {
         let store = BotWorkspaceStore.shared
         for var record in store.data.delegations where record.parentSessionID == parent && record.state == .queued {
             record.state = .cancelled; record.updatedAt = Date(); _ = store.saveDelegation(record)
+        }
+    }
+
+    func cancelSpecialist(_ botID: String) {
+        let store = BotWorkspaceStore.shared
+        for var record in store.data.delegations where record.toBotID == botID && record.state.isActive {
+            record.state = .cancelled; record.updatedAt = Date()
+            guard store.saveDelegation(record) else { continue }
+            if let jobID = record.jobID { AgentJobRegistry.shared.cancel(jobId: jobID, reason: "The user deleted the specialist Bot") }
         }
     }
 
@@ -195,7 +210,12 @@ extension AIChatViewModel {
             return
         }
         for record in store.data.delegations.filter({ $0.state == .queued && !starting.contains($0.id) }).sorted(by: { $0.updatedAt < $1.updatedAt }) {
-            guard let target = store.bot(record.toBotID) else { finish(record.id, state: .failed, result: "Specialist was deleted."); continue }
+            guard let target = store.bot(record.toBotID) else {
+                let parent = ViewModelCache.shared.getOrCreate(for: record.parentSessionID).vm
+                if parent.messages.isEmpty { await parent.loadSession() }
+                finish(record.id, state: .failed, result: "Specialist was deleted.", notify: parent.isCommander ? parent : nil)
+                continue
+            }
             let busy = store.data.delegations.contains { $0.id != record.id && $0.toBotID == target.id && ($0.state == .running || $0.state == .takingOver || $0.jobID.map { AgentJobRegistry.shared.isAwaitingSpecialistStop($0) } == true) }
             let privateBusy = target.sessionId.flatMap { ViewModelCache.shared.get(for: $0) }?.isProcessing == true
             guard !busy, !privateBusy, AgentJobRegistry.shared.canStartChildJob(parent: record.parentSessionID) else { continue }
@@ -208,7 +228,7 @@ extension AIChatViewModel {
             let output = await parent.executeDelegateTask(args: ["tool_title": record.title, "task": record.task, "wait": false],
                 toolUseId: record.toolUseID, msgIdx: m, blockIdx: b, specialist: target, delegationID: record.id)
             starting.remove(record.id)
-            if !output.success { finish(record.id, state: .failed, result: output.output) }
+            if !output.success { finish(record.id, state: .failed, result: output.output, notify: parent) }
         }
         for var record in store.data.delegations where record.state == .running {
             guard let sid = record.childSessionID, let child = ViewModelCache.shared.get(for: sid) else { continue }
@@ -229,12 +249,22 @@ extension AIChatViewModel {
         }
     }
 
-    func finish(_ id: String, state: BotDelegationState, result: String?) {
+    func finish(_ id: String, state: BotDelegationState, result: String?, notify parent: AIChatViewModel? = nil) {
         let store = BotWorkspaceStore.shared
         guard var record = store.delegation(id) else { return }
+        let admissionFailed = record.state == .queued && state == .failed
         if record.state == .takingOver { record.state = .failed }
         else if record.state != .cancelled { record.state = state }
-        record.result = result; record.updatedAt = Date(); _ = store.saveDelegation(record)
+        record.result = result; record.updatedAt = Date()
+        guard store.saveDelegation(record) else { return }
         signatures[id] = nil; activity[id] = nil
+        if admissionFailed, let parent, !parent.userDidCancel {
+            let callbackID = "bot:" + record.id
+            let callback = AgentCallback(kind: .finished, jobId: callbackID, childSessionId: record.childSessionID,
+                title: record.title, status: "failed", tier: nil, elapsed: nil, tool: nil, activity: nil, turn: nil,
+                summary: "专职 Bot 未能启动", body: result ?? "Explain the missing configuration or handle the task yourself.",
+                siblings: nil, modelIdentity: nil, agent: record.toName)
+            _ = parent.submitProgrammaticPrompt(callback.xml, origin: .job(jobId: callbackID), silent: true)
+        }
     }
 }

@@ -127,6 +127,9 @@ struct BotDelegation: Identifiable, Codable, Equatable {
     var followUpSent = false
     var reworkCount = 0
     var resumesDelegationID: String? = nil
+    var toolUseHistory: [String]? = nil
+    var statusLabel: String { state == .running && followUpSent ? "已追问，等待进展" : state.label }
+
 }
 
 struct BotMessageQuote: Codable, Equatable, Hashable {
@@ -402,10 +405,13 @@ final class BotWorkspaceStore: ObservableObject {
         return next == data || persist(next)
     }
 
-    func delegationPreview(botID: String) -> String? {
-        guard let record = data.delegations.filter({ $0.toBotID == botID }).max(by: { $0.updatedAt < $1.updatedAt }) else { return nil }
+    func latestDelegation(botID: String) -> BotDelegation? {
+        data.delegations.filter { $0.toBotID == botID }.max { $0.updatedAt < $1.updatedAt }
+    }
+    func delegationPreview(botID: String, after date: Date? = nil) -> String? {
+        guard let record = latestDelegation(botID: botID), date.map({ record.updatedAt >= $0 }) ?? true else { return nil }
         let direction = record.state == .reviewing || record.state == .completed ? "已回复 \(record.fromName)" : "来自 \(record.fromName)"
-        return "\(direction) · \(record.state.label)：\(record.title)"
+        return "\(direction) · \(record.statusLabel)：\(record.title)"
     }
 
     func deleteRoom(_ id: String) {

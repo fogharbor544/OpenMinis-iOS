@@ -92,7 +92,7 @@ struct BotWorkspaceView: View {
 
     private func lastActivity(_ item: HomeItem, _ previews: [String: ChatSession]) -> Date {
         switch item {
-        case .bot(let bot): return bot.sessionId.flatMap { previews[$0]?.updatedAt } ?? .distantPast
+        case .bot(let bot): return max(bot.sessionId.flatMap { previews[$0]?.updatedAt } ?? .distantPast, store.latestDelegation(botID: bot.id)?.updatedAt ?? .distantPast)
         case .room(let room): return room.messages.last?.date ?? .distantPast
         }
     }
@@ -281,14 +281,14 @@ struct BotWorkspaceView: View {
 
     private func botRow(_ bot: BotProfile, preview: ChatSession?) -> some View {
         let subtitle = botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
-            ?? store.delegationPreview(botID: bot.id)
+            ?? store.delegationPreview(botID: bot.id, after: preview?.updatedAt)
             ?? preview?.lastMessage
             ?? bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
         return Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             open(bot)
         } label: {
-            homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: preview?.updatedAt,
+            homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: max(preview?.updatedAt ?? .distantPast, store.latestDelegation(botID: bot.id)?.updatedAt ?? .distantPast),
                     subtitle: subtitle, busy: openingBotID == bot.id,
                     avatar: { BotAvatar(profile: bot, size: 54) },
                     status: { BotRunStatusView(botID: bot.id, hidesWhenIdle: true) })

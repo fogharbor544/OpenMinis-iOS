@@ -15,6 +15,7 @@ struct BotDelegationLink: View {
                 Text(incoming ? "消息来自" : "发消息给")
                 if let bot = store.bot(labelBotID) { BotAvatar(profile: bot, size: 20) }
                 Text(store.bot(labelBotID)?.name ?? labelName)
+                Text(current.statusLabel).font(.caption2)
                 Image(systemName: "chevron.right").font(.caption2)
             }.font(.caption).foregroundStyle(.secondary).frame(minHeight: 44)
         }.buttonStyle(.plain)
@@ -26,7 +27,7 @@ struct BotDelegationLink: View {
                 NavigationStack {
                     List {
                         Text(current.title).font(.headline)
-                        Text(current.state.label).foregroundStyle(.secondary)
+                        Text(current.statusLabel).foregroundStyle(.secondary)
                         Text(current.task).textSelection(.enabled)
                         if let result = current.result { Text(result).textSelection(.enabled) }
                     }
@@ -93,7 +94,7 @@ struct BotConversationOverview: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 BotDelegationLink(record: record, incoming: true, fromCommander: true)
                                 Text(record.title).font(.subheadline).lineLimit(2)
-                                Text(record.state.label).font(.caption).foregroundStyle(.secondary)
+                                Text(record.statusLabel).font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 4)
                         }
                         if records.count > 3 {
@@ -131,7 +132,7 @@ struct BotConversationOverview: View {
                     VStack(alignment: .leading, spacing: 4) {
                         BotDelegationLink(record: record, incoming: true, fromCommander: true)
                         Text(record.title)
-                        Text(record.state.label).font(.caption).foregroundStyle(.secondary)
+                        Text(record.statusLabel).font(.caption).foregroundStyle(.secondary)
                     }
                 }.navigationTitle("委派记录")
             }
@@ -194,7 +195,7 @@ struct BotSourceRow: View {
     @ObservedObject private var store = BotWorkspaceStore.shared
     var body: some View {
         if let callback = message.agentCallback,
-           let record = store.data.delegations.first(where: { $0.childSessionID == callback.childSessionId }) {
+           let record = store.data.delegations.first(where: { ($0.childSessionID != nil && $0.childSessionID == callback.childSessionId) || "bot:" + $0.id == callback.jobId }) {
             BotDelegationLink(record: record, incoming: true).frame(maxWidth: .infinity)
         } else if let sid = vm.sessionId,
                   let record = store.data.delegations.first(where: { $0.childSessionID == sid }), message.role == .user {

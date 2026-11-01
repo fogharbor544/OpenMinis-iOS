@@ -616,6 +616,7 @@ final class AgentJobRegistry: ObservableObject {
     }
 
     func hasActiveChildren(parent parentSessionId: String) -> Bool {
+        if BotWorkspaceStore.shared.data.delegations.contains(where: { $0.parentSessionID == parentSessionId && $0.state.isActive }) { return true }
         // [T-sub-agents-queue] A queued delegation counts: it will start on its
         // own, so the conversation is not finished.
         if queuedCount(parent: parentSessionId) > 0 { return true }

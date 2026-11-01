@@ -138,7 +138,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 cell.backgroundColor = .clear
                 let config = UIHostingConfiguration {
                     VStack(alignment: .leading, spacing: 0) {
-                    if let record = BotWorkspaceStore.shared.data.delegations.first(where: { $0.toolUseID == block.toolUseId && $0.parentSessionID == vm.sessionId }) {
+                    if let record = BotWorkspaceStore.shared.data.delegations.first(where: { ($0.toolUseID == block.toolUseId || $0.toolUseHistory?.contains(block.toolUseId ?? "") == true) && $0.parentSessionID == vm.sessionId }) {
                         BotDelegationLink(record: record).frame(maxWidth: .infinity)
                     }
                     BridgedAssistantBlockV3(

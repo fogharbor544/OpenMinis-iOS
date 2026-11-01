@@ -328,11 +328,11 @@ No repository reset and no user device data mutation. Earlier avatar plans are s
 Authorized baseline: 7450d01, isolated worktree build/worktrees/bot-team-original-avatars, branch codex/bot-team-original-avatars. Implement the latest approved plan, commit and push this branch. Preserve the original checkout and unrelated secure-input/proactive-memory fixes. No subagents.
 
 1. Data contracts, stable commander, delegation ownership and new-only backup v4/archive v3 (implemented; core contracts passed).
-2. Commander tools, specialist execution/memory, queue, review/follow-up/takeover and read-only delegation navigation (implemented; final command behavior checks in progress).
+2. Commander tools, specialist execution/memory, queue, review/follow-up/takeover and read-only delegation navigation (complete; shipping command behavior checks passed).
 3. Twelve original soft-3D animated companions, transactional shared picker and multi-select onboarding (implemented; 23 native assertions passed; four screenshots inspected).
 4. Rounded reply groups, unread boundary, persisted swipe-to-quote (implemented; persistence/transport contracts and device build passed; physical gesture acceptance remains).
-5. Snapshot consistency, restore preflight/rollback/idempotence/no replay (implemented; graph roundtrips passed; added shipping SQLite snapshot/rollback test awaits macOS execution).
-6. Commit/push isolated branch (done through 1d50977); final review and latest cloud verification in progress. Full device-build + native UI passed run41297310329; a new command fixture incorrectly parsed a plain-text steer receipt as JSON, corrected for the final run.
+5. Snapshot consistency, restore preflight/rollback/idempotence/no replay (complete; graph roundtrips and shipping SQLite WAL snapshot/frozen resume/live-connection rollback tests passed).
+6. Final review, isolated branch commit/push and cloud verification complete. Application commit d72b780 / run41299075459: source-checks, ui-layout and full unsigned device-build all SUCCESS. Model requirement/cache invalidation, shipping command transitions and SQLite frozen snapshot/rollback behavior passed. Physical-device/live-provider end-to-end acceptance remains explicitly unverified.
 
 Decisions: fixed protected commander; separate task conversations; specialist's own scoped memory, no private-chat history; home commander header; one unread divider; direct explicit Bot creation; 2-minute inactivity follow-up then 2-minute takeover; original 12 soft-3D characters; only new backup format, no import/migration of minisbak/3 or archive v2. Restore never executes tasks or carries approval grants.
 

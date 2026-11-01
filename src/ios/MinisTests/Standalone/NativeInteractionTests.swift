@@ -3,8 +3,6 @@
 import SwiftUI
 import UIKit
 
-func AppLocalized(_ text: String) -> String { text }
-
 @MainActor final class InteractionAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {

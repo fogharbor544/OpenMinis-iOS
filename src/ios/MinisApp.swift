@@ -323,7 +323,8 @@ struct MinisApp: App {
                         pendingWebAppPresentation = nil
                     }
                 }
-                .onAppear {
+                .task {
+                    // Recover the Bot graph before starting sync and other launch services.
                     // Populate ConfigRegistry once. Idempotent — every
                     // appearance after the first is a no-op.
                     ConfigRegistry.shared.registerBuiltinsIfNeeded()

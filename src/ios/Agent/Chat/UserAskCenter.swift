@@ -45,6 +45,19 @@ final class UserAskCenter: ObservableObject {
         })
     }
 
+    var hasWaitingCalls: Bool { !waiters.isEmpty }
+
+    /// A restored transcript cannot carry a pending permission or recovered
+    /// answer into a new execution. Unlike dismiss(), this never delivers it.
+    func discardForRestoredSessions(_ sessions: Set<String>) {
+        for (id, record) in store.all() where sessions.contains(record.ask.sessionId) {
+            removeNotification(requestId: id)
+            store.remove(id); records[id] = nil; asks[id] = nil
+            requestIdByToolUse[record.ask.toolCallId] = nil
+            inProcess.remove(id)
+        }
+    }
+
     // MARK: - Lookup
 
     func ask(forToolUseId id: String?) -> PendingAsk? {

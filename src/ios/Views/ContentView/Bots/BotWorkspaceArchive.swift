@@ -153,6 +153,11 @@ struct BotWorkspaceArchive: Codable, Equatable {
             restoredWorkspace.delegations[i].state = .interrupted
             restoredWorkspace.delegations[i].jobID = nil
         }
+        for sid in restoredWorkspace.sessionOwners.keys {
+            var state = restoredWorkspace.conversationStates[sid] ?? BotConversationState()
+            state.restoredHistory = true
+            restoredWorkspace.conversationStates[sid] = state
+        }
         if local.rooms.isEmpty && local.sessionOwners.isEmpty && localMemories.isEmpty,
            local.bots.isEmpty {
             // A fresh install has no user ordering to preserve, including Bot order.
@@ -213,7 +218,10 @@ struct BotWorkspaceArchive: Codable, Equatable {
                 }
             } else { next.delegations.append(incoming) }
         }
-        for (sid, state) in restoredWorkspace.conversationStates where next.conversationStates[sid] == nil { next.conversationStates[sid] = state }
+        for (sid, state) in restoredWorkspace.conversationStates {
+            if var localState = next.conversationStates[sid] { localState.restoredHistory = true; next.conversationStates[sid] = localState }
+            else { next.conversationStates[sid] = state }
+        }
         var entries = Dictionary(uniqueKeysWithValues: localMemories.map { ($0.id, $0) })
         for incoming in memories {
             if let local = entries[incoming.id] {

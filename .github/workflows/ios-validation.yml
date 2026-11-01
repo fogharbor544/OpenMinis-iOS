@@ -118,6 +118,9 @@ jobs:
             src/ios/MinisTests/Standalone/BotWorkspaceArchiveTests.swift \
             -lsqlite3 -o "$RUNNER_TEMP/bot-archive-tests"
           "$RUNNER_TEMP/bot-archive-tests"
+      - name: Shipping Bot command state transitions
+        if: ${{ !cancelled() }}
+        run: python3 src/ios/MinisTests/Standalone/run_bot_tool_command_tests.py
       - name: Commander, task restore and quoted message contracts
         if: ${{ !cancelled() }}
         run: |

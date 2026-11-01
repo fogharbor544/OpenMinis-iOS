@@ -4,6 +4,11 @@ import UIKit
 extension AIChatViewModel {
     var isCommander: Bool { sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0) }?.isCommander == true && !isHelper }
 
+    private var botQueueIsFull: Bool {
+        guard let parent = sessionId else { return true }
+        return BotWorkspaceStore.shared.data.delegations.filter { $0.parentSessionID == parent && $0.state == .queued }.count >= AgentJobRegistry.maxQueuedDelegationsPerParent
+    }
+
     var commanderPolicy: String {
         guard isCommander else { return "" }
         let roster = BotWorkspaceStore.shared.data.bots.filter { !$0.isCommander }.map {
@@ -59,8 +64,8 @@ extension AIChatViewModel {
 
     func executeBotCreate(_ args: [String: Any], toolUseID: String) -> (output: String, success: Bool) {
         let store = BotWorkspaceStore.shared
-        guard isCommander, Self.toolEnabled(.agents) else { return ("Bot creation is unavailable in this conversation.", false) }
-        if let bot = store.data.bots.first(where: { $0.creationRequestID == toolUseID }) {
+        guard isCommander, !BotRestoreControl.isRestoring, Self.toolEnabled(.agents) else { return ("Bot creation is unavailable in this conversation.", false) }
+        if let bot = store.data.bots.first(where: { $0.creationRequestID == (sessionId ?? "") + ":" + toolUseID }) {
             return (Self.jsonString(["ok": true, "bot_id": bot.id, "url": "minis://bot/\(bot.id)", "name": bot.name]), true)
         }
         let keys: Set<String> = ["name", "instructions", "introduction", "question", "options", "avatar_id"]
@@ -84,13 +89,14 @@ extension AIChatViewModel {
     func executeBotTask(_ args: [String: Any], toolUseID: String) -> (output: String, success: Bool) {
         let store = BotWorkspaceStore.shared
         let keys: Set<String> = ["action", "bot_id", "task", "tool_title", "delegation_id", "message"]
-        guard isCommander, Self.toolEnabled(.agents), let parent = sessionId, Set(args.keys).isSubset(of: keys) else {
+        guard isCommander, !BotRestoreControl.isRestoring, Self.toolEnabled(.agents), let parent = sessionId, Set(args.keys).isSubset(of: keys) else {
             return ("Bot delegation is unavailable or arguments are invalid.", false)
         }
         let requestID = parent + ":" + toolUseID
         switch args["action"] as? String {
         case "delegate":
             if let existing = store.delegation(requestID) { return (Self.botTaskJSON(existing), true) }
+            guard !botQueueIsFull else { return ("The delegation queue is full; wait for a slot or cancel queued work.", false) }
             guard let targetID = args["bot_id"] as? String, let target = store.bot(targetID), !target.isCommander,
                   let task = args["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, task.count <= 24000,
                   let commander = store.bot(forSession: parent) else { return ("A live specialist and complete task are required.", false) }
@@ -112,6 +118,7 @@ extension AIChatViewModel {
             return (Self.botTaskJSON(record), true)
         case "resume":
             if let existing = store.delegation(requestID) { return (Self.botTaskJSON(existing), true) }
+            guard !botQueueIsFull else { return ("The delegation queue is full; wait for a slot or cancel queued work.", false) }
             guard programmaticTurnOrigin == nil, let id = args["delegation_id"] as? String,
                   let previous = store.delegation(id), previous.parentSessionID == parent,
                   previous.state == .interrupted, let target = store.bot(previous.toBotID), !target.isCommander,
@@ -131,6 +138,14 @@ extension AIChatViewModel {
                 if let job = record.jobID { AgentJobRegistry.shared.cancel(jobId: job, reason: "Commander cancelled specialist task") }
             } else {
                 guard let message = args["message"] as? String, !message.isEmpty, message.count <= 12000 else { return ("A concrete follow-up is required.", false) }
+                if record.toolUseHistory?.contains(toolUseID) == true { return (Self.botTaskJSON(record), true) }
+                if record.state == .queued {
+                    record.task += "\n\nAdditional user context:\n" + message
+                    record.toolUseHistory = (record.toolUseHistory ?? []) + [toolUseID]
+                    record.updatedAt = Date()
+                    guard store.saveDelegation(record) else { return ("Unable to update queued context.", false) }
+                    return (Self.botTaskJSON(record), true)
+                }
                 if record.state == .running, let jobID = record.jobID {
                     let response = executeAgentStatus(args: ["action": "steer", "job_id": jobID, "message": message])
                     if response.success {
@@ -141,8 +156,9 @@ extension AIChatViewModel {
                     return response
                 }
                 guard !record.state.isActive, record.reworkCount < 1 else { return ("Only one rework is allowed. Handle this task yourself or explain what is missing.", false) }
+                guard !botQueueIsFull else { return ("The delegation queue is full; wait before requesting rework.", false) }
                 record.task += "\n\nPrevious result:\n" + String((record.result ?? "").prefix(16000)) + "\n\nCorrection:\n" + message
-                record.reworkCount += 1; record.followUpSent = false; record.state = .queued
+                record.reworkCount += 1; record.followUpSent = false; record.state = .queued; record.queuedAt = Date()
                 record.jobID = nil; record.toolUseHistory = (record.toolUseHistory ?? []) + [record.toolUseID]; record.toolUseID = toolUseID; record.updatedAt = Date()
                 guard store.saveDelegation(record) else { return ("Unable to save rework.", false) }
                 BotTeamRuntime.shared.start()
@@ -209,7 +225,7 @@ extension AIChatViewModel {
             for record in store.data.delegations where record.state == .running { activity[record.id] = now }
             return
         }
-        for record in store.data.delegations.filter({ $0.state == .queued && !starting.contains($0.id) }).sorted(by: { $0.updatedAt < $1.updatedAt }) {
+        for record in store.data.delegations.filter({ $0.state == .queued && !starting.contains($0.id) }).sorted(by: { ($0.queuedAt ?? $0.createdAt) < ($1.queuedAt ?? $1.createdAt) }) {
             guard let target = store.bot(record.toBotID) else {
                 let parent = ViewModelCache.shared.getOrCreate(for: record.parentSessionID).vm
                 if parent.messages.isEmpty { await parent.loadSession() }

@@ -190,7 +190,7 @@ extension BackupImporter {
         }
         let incoming = archive
         try await MainActor.run {
-            guard SessionActivityTracker.shared.activeSessions.isEmpty && !BotWorkspaceStore.shared.data.delegations.contains(where: { $0.state.isActive || $0.state == .takingOver }) && BotRoomRunner.shared.activeRooms.isEmpty && BotWorkspaceStore.shared.pendingSessions.isEmpty else {
+            guard SessionActivityTracker.shared.activeSessions.isEmpty && !UserAskCenter.shared.hasWaitingCalls && !BotWorkspaceStore.shared.data.delegations.contains(where: { $0.state.isActive || $0.state == .takingOver }) && BotRoomRunner.shared.activeRooms.isEmpty && BotWorkspaceStore.shared.pendingSessions.isEmpty else {
                 throw BotWorkspaceError.rejected("请先停止正在运行的 Bot 和群任务，再恢复备份。")
             }
             _ = try incoming.merging(into: BotWorkspaceStore.shared.data, memories: BotMemoryStore.shared.entries())
@@ -226,7 +226,7 @@ extension BackupImporter {
         }
         let incoming = archive
         return try await MainActor.run {
-            guard SessionActivityTracker.shared.activeSessions.isEmpty && !BotWorkspaceStore.shared.data.delegations.contains(where: { $0.state.isActive || $0.state == .takingOver }) && BotRoomRunner.shared.activeRooms.isEmpty else {
+            guard SessionActivityTracker.shared.activeSessions.isEmpty && !UserAskCenter.shared.hasWaitingCalls && !BotWorkspaceStore.shared.data.delegations.contains(where: { $0.state.isActive || $0.state == .takingOver }) && BotRoomRunner.shared.activeRooms.isEmpty else {
                 throw BotWorkspaceError.rejected("Stop running agents and groups before restoring.")
             }
             let store = BotWorkspaceStore.shared

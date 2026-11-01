@@ -128,6 +128,7 @@ struct BotDelegation: Identifiable, Codable, Equatable {
     var reworkCount = 0
     var resumesDelegationID: String? = nil
     var toolUseHistory: [String]? = nil
+    var queuedAt: Date? = nil
     var statusLabel: String { state == .running && followUpSent ? "已追问，等待进展" : state.label }
 
 }
@@ -140,6 +141,7 @@ struct BotMessageQuote: Codable, Equatable, Hashable {
 }
 
 struct BotConversationState: Codable, Equatable {
+    var restoredHistory: Bool? = nil
     var lastReadMessageID: String?
 }
 
@@ -211,8 +213,9 @@ final class BotWorkspaceStore: ObservableObject {
         } catch { unreadable = true; errorMessage = error.localizedDescription }
         if seedCommander && !unreadable {
             var next = data
-            for i in next.delegations.indices where next.delegations[i].state.isActive {
+            for i in next.delegations.indices where next.delegations[i].state.isActive || next.delegations[i].state == .takingOver {
                 next.delegations[i].state = .interrupted
+                next.delegations[i].jobID = nil
             }
             if !next.bots.contains(where: \.isCommander) {
                 var commander = BotProfile(id: BotProfile.commanderID, name: "指挥官")

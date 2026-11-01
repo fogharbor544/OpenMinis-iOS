@@ -83,14 +83,15 @@ private struct AvatarGallery: View {
             }
             let profile = BotProfile(name: "指挥官", avatarPresetID: "cloud-bear")
             window.overrideUserInterfaceStyle = .light
-            host.rootView = AnyView(BotAvatarPicker(profile: profile) { _ in true }.environment(\.accessibilityReduceMotion, true))
-            await pause(0.6); try snapshot(window, name: "avatar-picker-light")
+            host.rootView = AnyView(BotAvatarPicker(profile: profile) { _ in true })
+            await pause(2.4); try snapshot(window, name: "avatar-picker-light")
             window.overrideUserInterfaceStyle = .dark
             host.rootView = AnyView(BotAvatarPicker(profile: profile) { _ in true }
-                .environment(\.accessibilityReduceMotion, true).environment(\.dynamicTypeSize, .accessibility3))
-            await pause(0.6); try snapshot(window, name: "avatar-picker-accessibility-dark")
+                .environment(\.dynamicTypeSize, .accessibility3))
+            await pause(2.4); try snapshot(window, name: "avatar-picker-accessibility-dark")
             func images(_ view: UIView) -> [UIImageView] { (view as? UIImageView).map { [$0] } ?? view.subviews.flatMap(images) }
-            check(images(host.view).allSatisfy { !$0.isAnimating }, "reduce-motion-static-picker")
+            check(images(host.view).allSatisfy { !$0.isAnimating }, "picker-static-after-one-shot")
+            if !UIAccessibility.isReduceMotionEnabled { limitations.append("System Reduce Motion is not enabled; its setting transition still requires device acceptance.") }
         } catch { failures.append(error.localizedDescription) }
         do {
             let result: [String: Any] = ["cases": cases, "failures": failures, "limitations": limitations]

@@ -288,7 +288,12 @@ actor BackupImporter {
                         BotWorkspaceStore.shared.data.bots.filter { $0.iconImageData == nil && $0.avatarPresetID != nil && $0.originalAvatar == nil }.map(\.name)
                     }
                     if !unavailable.isEmpty { report.warnings.append("部分内置头像在当前版本不可用，已显示系统头像：" + unavailable.joined(separator: "、")) }
-                    try await BotGraphRestore.commit()
+                    let discardedSessions: Set<String>
+                    if wanted.contains(.chats) {
+                        let restored = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
+                        discardedSessions = Set(restored.workspace.sessionOwners.keys)
+                    } else { discardedSessions = [] }
+                    try await BotGraphRestore.commit(discardingSessions: discardedSessions)
                 }
             } catch {
                 logger.error("[Restore] category \(category.rawValue) failed: \(error.localizedDescription)")

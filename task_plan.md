@@ -321,5 +321,5 @@ Final material state: user selected original pets briefly, then changed back to 
 1. Restore new/edit/profile avatar UI, profile model and new-Bot icon allocation exactly to1326902 (complete).
 2. Remove preset catalog/ID, shared draft picker, animation/cache, added avatar tests and runner dependencies; retain13 secure-presentation checks (implemented).
 3. Preserve secure-input and scoped-memory fixes (hash comparison passed).
-4. Verify, cloud-build with existing authorized account3 and download replacement IPA (pending).
+4. Verify, cloud-build with existing authorized account3 and download replacement IPA (complete: c64ad9d/run41280955705 attempt2 all3 jobs success; replacement IPA downloaded and CRC/arm64/Bundle ID/provenance/SHA256 verified).
 No repository reset and no user device data mutation. Earlier avatar plans are superseded, not pending work.

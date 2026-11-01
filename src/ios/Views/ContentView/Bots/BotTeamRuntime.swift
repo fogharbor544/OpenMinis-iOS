@@ -233,7 +233,9 @@ extension AIChatViewModel {
                 continue
             }
             let busy = store.data.delegations.contains { $0.id != record.id && $0.toBotID == target.id && ($0.state == .running || $0.state == .takingOver || $0.jobID.map { AgentJobRegistry.shared.isAwaitingSpecialistStop($0) } == true) }
-            let privateBusy = target.sessionId.flatMap { ViewModelCache.shared.get(for: $0) }?.isProcessing == true
+            let privateBusy = store.data.sessionOwners.contains { sessionID, owner in
+                owner.botId == target.id && owner.delegationID == nil && ViewModelCache.shared.get(for: sessionID)?.isProcessing == true
+            }
             guard !busy, !privateBusy, AgentJobRegistry.shared.canStartChildJob(parent: record.parentSessionID) else { continue }
             let parent = ViewModelCache.shared.getOrCreate(for: record.parentSessionID).vm
             if parent.messages.isEmpty { await parent.loadSession() }

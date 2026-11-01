@@ -177,6 +177,12 @@ extension AIChatViewModel {
 
     func resolveCurrentEntry() -> ModelEntry? {
         let store = ProviderConfigStore.shared
+        // A Bot's explicitly configured group must survive restore as a requirement,
+        // rather than silently billing a different global/default model.
+        if let sid = sessionId, let groupID = BotWorkspaceStore.shared.bot(forSession: sid)?.modelGroupId {
+            guard let group = store.group(for: groupID),
+                  ModelGroupRouter.resolve(group: group, sessionId: sid, store: store) != nil else { return nil }
+        }
         let key = ResolveCacheKey(
             sessionId: sessionId ?? "",
             cachedModelId: cachedSessionModelId,

@@ -354,3 +354,11 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Local: 55 production secure-input JS assertions, 7 chat-setting checks, fresh-schema checks and 12 atlas/192-frame resource checks passed.
 - CI run 41287213950: native existing layout/interaction jobs passed; initial source/device jobs exposed duplicate local names and missing explicit Xcode source membership. Fixed locally, not yet revalidated.
 - Added graph checkpoint, frozen export source, strict preflight, sync admission barrier and no-history snapshot exclusion. New standalone roundtrip and ownership contracts await macOS execution.
+
+### Native build and behavior verification checkpoint
+- Run41294942587: all source checks passed; UIKit avatar test needed a read-only accessibility-environment correction, and async startup recovery required a SwiftUI task. Both fixed.
+- Run41297310329 / 1d50977: full unsigned device build and all native UI fixtures SUCCESS. Downloaded actual avatar result.json:23 assertions, no failures; four light/dark/AX3 PNGs visually inspected. System Reduce Motion transition and complete app/live-provider navigation remain untested.
+- Added shipping Bot command harness. Its sole failure was interpreting the running-steer stub's ordinary text receipt as JSON; changed the assertion to check success and actual steer/state effects. Creation retry, scoped request IDs, queue capacity and one-rework behavior use production command bodies.
+- Added actual SQLite WAL snapshot/frozen resume/live-connection rollback fixture, awaiting macOS execution. Expanded specialist admission to respect any existing owned non-delegation conversation, and prevent explicitly configured missing Bot model groups from silently falling back.
+- New-format graph restore expires old approval requests only after commit, marks historical transcripts and blocks task admission throughout restoration. Restarted active/taking-over records clear old job IDs.
+- Implementation and acceptance boundaries documented in docs/bot-team-redesign.md. Original checkout remains separate; no merge/deployment requested.

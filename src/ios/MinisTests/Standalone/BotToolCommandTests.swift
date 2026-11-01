@@ -83,7 +83,7 @@ struct AgentToolDefinition {
         precondition(other.executeBotTask(["action": "status", "delegation_id": delegationID], toolUseID: "other-status").output == "[]")
         precondition(!vm.executeBotTask(["action": "delegate", "bot_id": commander.id, "task": "recursive"], toolUseID: "recursive").success)
         precondition(store.bindDelegation(delegationID, childSessionID: "specialist-child", jobID: "job"))
-        _ = try object(vm.executeBotTask(follow, toolUseID: "running-context"))
+        precondition(vm.executeBotTask(follow, toolUseID: "running-context").success)
         precondition(vm.steers.count == 1 && store.delegation(delegationID)?.toolUseHistory?.contains("running-context") == true)
         var record = store.delegation(delegationID)!; record.state = .reviewing; record.result = "Partial result"
         precondition(store.saveDelegation(record))

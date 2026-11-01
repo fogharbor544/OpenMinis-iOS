@@ -167,6 +167,7 @@ extension AIChatViewModel {
         let sessionId: String
         let cachedModelId: String
         let defaultGroupId: String
+        let botGroupId: String
         let configRevision: UInt
         let authRevision: UInt
     }
@@ -177,16 +178,12 @@ extension AIChatViewModel {
 
     func resolveCurrentEntry() -> ModelEntry? {
         let store = ProviderConfigStore.shared
-        // A Bot's explicitly configured group must survive restore as a requirement,
-        // rather than silently billing a different global/default model.
-        if let sid = sessionId, let groupID = BotWorkspaceStore.shared.bot(forSession: sid)?.modelGroupId {
-            guard let group = store.group(for: groupID),
-                  ModelGroupRouter.resolve(group: group, sessionId: sid, store: store) != nil else { return nil }
-        }
+        let botGroupID = sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.modelGroupId }
         let key = ResolveCacheKey(
             sessionId: sessionId ?? "",
             cachedModelId: cachedSessionModelId,
             defaultGroupId: store.defaultPrimaryGroupId ?? "",
+            botGroupId: botGroupID ?? "",
             configRevision: store.configRevision,
             authRevision: store.authRevision
         )
@@ -196,6 +193,15 @@ extension AIChatViewModel {
             // epoch only via a save() (which bumps configRevision → new key),
             // so a present cache value always still resolves; but guard anyway.
             if let entry = store.entry(for: cachedId) { return entry }
+        }
+        // Validate explicit Bot routing on a cache miss. Profile changes are in
+        // the key; provider/credential changes use their existing revisions.
+        if let groupID = botGroupID {
+            guard let group = store.group(for: groupID),
+                  ModelGroupRouter.resolve(group: group, sessionId: sessionId ?? "", store: store) != nil else {
+                Self.resolveCache[key] = Self.resolveNilSentinel
+                return nil
+            }
         }
         let resolved = resolveCurrentEntryUncached()
         Self.resolveCache[key] = resolved?.id ?? Self.resolveNilSentinel

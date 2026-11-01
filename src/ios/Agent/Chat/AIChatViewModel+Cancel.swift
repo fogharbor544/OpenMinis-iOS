@@ -152,6 +152,7 @@ extension AIChatViewModel {
             // button back to Stop and post a result the user just cancelled.
             // Each cancelled job still reports back through its own callback.
             if !isHelper {
+                BotTeamRuntime.shared.cancelQueued(parent: sid)
                 // [T-sub-agents-queue] Drop the backlog FIRST: cancelling a
                 // running job drains the queue, which would start the very
                 // delegations the user just stopped.

@@ -199,6 +199,26 @@ final class SyncCore {
     /// record, so batches apply strictly in hand-off order. See
     /// `processInbound` for why.
     private var inboundTail: Task<Void, Never>?
+    private var holdsInboundForBotRestore = false
+
+    /// Finish already admitted inbound work, then hold later batches behind a
+    /// serial barrier until the Bot graph has committed or rolled back.
+    func holdInboundForBotRestore() async {
+        guard !holdsInboundForBotRestore else { return }
+        holdsInboundForBotRestore = true
+        let preceding = inboundTail
+        await withCheckedContinuation { (ready: CheckedContinuation<Void, Never>) in
+            inboundTail = Task { @MainActor [weak self] in
+                if let preceding { await preceding.value }
+                ready.resume()
+                while BotRestoreControl.isRestoring {
+                    do { try await Task.sleep(nanoseconds: 100_000_000) } catch { break }
+                }
+                self?.holdsInboundForBotRestore = false
+            }
+        }
+    }
+
     private var inboundHandlers: [(SyncInboundBatch) -> Void] = []
     private var isSending = false
 
@@ -403,6 +423,7 @@ final class SyncCore {
     /// every transport. Returns when all transports have completed (or
     /// errored).
     func sendNow(trigger: SyncSendTrigger) async {
+        guard !BotRestoreControl.isRestoring else { return }
         guard isRunning, !transports.isEmpty else {
             logger.warning("[SyncCore] sendNow skipped — not running (isRunning=\(self.isRunning) transports=\(self.transports.count)) trigger=\(trigger.rawValue)")
             return

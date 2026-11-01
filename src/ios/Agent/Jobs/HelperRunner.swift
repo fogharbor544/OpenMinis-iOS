@@ -335,6 +335,9 @@ extension AIChatViewModel {
                              toolUseId: String,
                              msgIdx: Int,
                              blockIdx: Int, specialist: BotProfile? = nil, delegationID: String? = nil) async -> (output: String, success: Bool) {
+        guard helperConfig?.specialistBotID == nil, !BotRestoreControl.isRestoring else {
+            return (Self.jsonString(["ok": false, "error": "specialist_cannot_delegate_or_restore_in_progress"]), false)
+        }
         // ── Argument parsing ─────────────────────────────────────────────
         let title = (args["tool_title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let task = (args["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -457,6 +460,10 @@ extension AIChatViewModel {
             return reject("no_model", "No model is configured for a helper to run on.")
         }
 
+        if specialist != nil && (subAgent.modelGroupId == nil || resolution.modelGroupUnavailable) {
+            return reject("model_group_unavailable", "Configure this specialist's Model Group before retrying; the commander model is not substituted.")
+        }
+
         // ── Child session ────────────────────────────────────────────────
         let displayTitle = title.isEmpty ? String(task.prefix(40)) : title
         let reusableID = delegationID.flatMap { BotWorkspaceStore.shared.delegation($0)?.childSessionID }
@@ -506,6 +513,10 @@ extension AIChatViewModel {
         // cannot evict the conversations the user is actually working in.
         let (child, _) = ViewModelCache.shared.getOrCreate(for: childId, kind: .child)
         await child.loadSession()
+        if let delegationID, BotWorkspaceStore.shared.delegation(delegationID)?.state != .running {
+            job.then = .none; registry.finish(job.id, state: .cancelled, result: nil)
+            return reject("cancelled", "The specialist task was stopped before execution.")
+        }
         child.sessionSource = sessionSource
         child.helperConfig = HelperConfig(parentSessionId: parentSid, parentToolUseId: toolUseId,
                                           jobId: job.id, maxTurns: Self.helperMaxTurns,
@@ -1626,6 +1637,10 @@ extension AIChatViewModel {
 
     @discardableResult
     func resumeInterruptedHelper(childSessionId childId: String) async -> String? {
+        if BotWorkspaceStore.shared.owner(forSession: childId)?.delegationID != nil {
+            return "This is a specialist Bot task. Ask the commander to use bot_task resume; restored runs are never replayed."
+        }
+
         guard !isHelper else { return "a sub agent cannot resume another" }
         guard let parentSid = sessionId else { return "no session" }
         guard await ChatStore.shared.sessionExists(id: childId) else {

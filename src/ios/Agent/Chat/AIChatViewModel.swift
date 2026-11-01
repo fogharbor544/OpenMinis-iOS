@@ -1314,7 +1314,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     let botUnreadMessage = ChatMessage(role: .systemInfo, content: "")
     var unreadBoundaryMessageID: String?
     var readBoundaryInitialized = false
-    var knownPresentationMessageIDs: Set<UUID> = []
+    var knownPresentationMessageIDs: Set<String> = []
     var botConversationVisible = false
     var pendingSendIsFromComposer = false
     /// When true, skip the needsCompactBeforeSend check (used after compactAndSend to avoid loop).

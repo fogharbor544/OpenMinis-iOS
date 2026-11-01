@@ -101,6 +101,16 @@ jobs:
             src/ios/MinisTests/Standalone/BotWorkspaceArchiveTests.swift \
             -lsqlite3 -o "$RUNNER_TEMP/bot-archive-tests"
           "$RUNNER_TEMP/bot-archive-tests"
+      - name: Commander, task restore and quoted message contracts
+        run: |
+          swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
+            src/ios/Views/ContentView/Bots/BotMemoryStore.swift \
+            src/ios/Views/ContentView/Bots/BotWorkspaceArchive.swift \
+            src/ios/Agent/Chat/ChatMessagePresentation.swift \
+            src/ios/MinisTests/Standalone/BotTeamContractTests.swift \
+            -lsqlite3 -o "$RUNNER_TEMP/bot-team-tests"
+          "$RUNNER_TEMP/bot-team-tests"
+          python3 src/ios/MinisTests/Standalone/check_bot_avatar_assets.py
       - name: Bot room orchestration behavior tests
         run: python3 src/ios/MinisTests/Standalone/run_bot_room_tests.py
       - name: Browser form WebKit tests

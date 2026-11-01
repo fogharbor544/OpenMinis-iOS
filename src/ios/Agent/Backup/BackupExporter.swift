@@ -214,11 +214,18 @@ actor BackupExporter {
         let dataDir = staging.appendingPathComponent("data", isDirectory: true)
         try fm.createDirectory(at: dataDir, withIntermediateDirectories: true)
 
-        let graphSnapshot = BotBackupSnapshot(directory: staging.appendingPathComponent("bot-snapshot", isDirectory: true))
-        let liveDatabaseURL = await ChatStore.shared.dbURL
-        let liveMediaURL = await ChatStore.shared.minisBaseURL
-        options.snapshotAt = try await graphSnapshot.capture(sourceDatabase: liveDatabaseURL, resuming: resumed != nil)
-        let snapshotStore = try ChatStore(snapshotURL: graphSnapshot.databaseURL, mediaBaseURL: liveMediaURL)
+        let graphSnapshot = BotBackupSnapshot(directory: staging.appendingPathComponent(".bot-snapshot", isDirectory: true))
+        var snapshotStore: ChatStore?
+        if options.categories.contains(.agents) || options.categories.contains(.chats) {
+            let includesHistory = options.categories.contains(.chats)
+            let liveDatabaseURL = includesHistory ? await ChatStore.shared.dbURL : nil
+            options.snapshotAt = try await graphSnapshot.capture(sourceDatabase: liveDatabaseURL,
+                resuming: resumed != nil, includesHistory: includesHistory)
+            if includesHistory {
+                let mediaURL = await ChatStore.shared.minisBaseURL
+                snapshotStore = try ChatStore(snapshotURL: graphSnapshot.databaseURL, mediaBaseURL: mediaURL)
+            }
+        }
 
         let blobStore = BackupBlobStore(stagingRoot: staging, maxFileBytes: options.maxFileBytes)
 
@@ -1032,6 +1039,7 @@ actor BackupExporter {
         var members: [URL] = []
         if let e = fm.enumerator(at: staging, includingPropertiesForKeys: [.isRegularFileKey]) {
             for case let url as URL in e {
+                if url.lastPathComponent == ".bot-snapshot" { e.skipDescendants(); continue }
                 guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
                 else { continue }
                 // manifest.json is plaintext by §2.1 so a user can see what a
@@ -1102,6 +1110,7 @@ actor BackupExporter {
         var integrity: [String: String] = [:]
         if let e = fm.enumerator(at: staging, includingPropertiesForKeys: [.isRegularFileKey]) {
             for case let url as URL in e {
+                if url.lastPathComponent == ".bot-snapshot" { e.skipDescendants(); continue }
                 guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
                 else { continue }
                 // Standardize BOTH sides before the prefix strip. Application
@@ -1167,6 +1176,7 @@ actor BackupExporter {
         // resume scan sees a stable order.
         var members: [(URL, String)] = []
         for case let url as URL in e {
+                if url.lastPathComponent == ".bot-snapshot" { e.skipDescendants(); continue }
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
             else { continue }
             var rel = url.standardizedFileURL.path

@@ -19,6 +19,7 @@ extension AIChatViewModel {
         A queued task is already accepted: never duplicate it or poll repeatedly. Results return automatically.
         Before delivery review the actual result against the request. For factual claims check real cited sources,
         original dates and official pages when available. Mark gaps and uncertainty; never invent verification.
+        After a successful review use bot_task complete before delivering your final answer. Never mark an unverified result verified.
         If deficient, use follow_up once with concrete corrections. If it still fails, take over or explain the missing capability.
         The runtime asks once after 2 active minutes without progress, and stops/tells you to take over after 2 more.
         When an external send/payment/deletion lacks the user's own specific authorization, use user_ask confirm
@@ -46,12 +47,12 @@ extension AIChatViewModel {
     }
 
     static var botTaskTool: AgentToolDefinition {
-        AgentToolDefinition(name: "bot_task", description: "Commander only. Delegate a complete task to a specialist in its own conversation. Queued work starts automatically; result returns here. follow_up steers running work or requests one rework. No private-chat history is shared.", parameters: [
-            "action": AgentToolParam(type: .string, description: "Operation.", enumValues: ["delegate", "status", "follow_up", "cancel"]),
+        AgentToolDefinition(name: "bot_task", description: "Commander only. Delegate a complete task to a specialist in its own conversation. Queued work starts automatically; result returns here. follow_up steers running work or requests one rework. complete records a finished review; resume starts a NEW attempt only after the user asks to continue an interrupted task. No private-chat history is shared.", parameters: [
+            "action": AgentToolParam(type: .string, description: "Operation.", enumValues: ["delegate", "status", "follow_up", "cancel", "complete", "resume"]),
             "bot_id": AgentToolParam(type: .string, description: "delegate: specialist ID from roster."),
             "task": AgentToolParam(type: .string, description: "delegate: complete brief, context, constraints and expected deliverable."),
             "tool_title": AgentToolParam(type: .string, description: "Short task title."),
-            "delegation_id": AgentToolParam(type: .string, description: "status/follow_up/cancel: exact delegation ID returned by this tool."),
+            "delegation_id": AgentToolParam(type: .string, description: "status/follow_up/cancel/complete/resume: exact delegation ID returned by this tool."),
             "message": AgentToolParam(type: .string, description: "follow_up: concrete correction.")
         ], required: ["action"])
     }
@@ -74,7 +75,7 @@ extension AIChatViewModel {
         else { return ("Invalid Bot configuration. Provide a name, instructions, introduction, preference question and 2–6 distinct choices.", false) }
         var bot = store.newBot(); bot.name = name; bot.instructions = instructions; bot.introduction = introduction
         bot.onboarding = BotOnboarding(question: question, options: options)
-        bot.creationRequestID = toolUseID
+        bot.creationRequestID = (sessionId ?? "") + ":" + toolUseID
         if let avatar = args["avatar_id"] as? String { bot.avatarPresetID = avatar }
         guard store.save(bot) else { return (store.errorMessage ?? "Unable to save Bot.", false) }
         return (Self.jsonString(["ok": true, "bot_id": bot.id, "url": "minis://bot/\(bot.id)", "name": bot.name, "instructions": instructions]), true)
@@ -86,13 +87,14 @@ extension AIChatViewModel {
         guard isCommander, Self.toolEnabled(.agents), let parent = sessionId, Set(args.keys).isSubset(of: keys) else {
             return ("Bot delegation is unavailable or arguments are invalid.", false)
         }
+        let requestID = parent + ":" + toolUseID
         switch args["action"] as? String {
         case "delegate":
-            if let existing = store.delegation(toolUseID) { return (Self.botTaskJSON(existing), true) }
+            if let existing = store.delegation(requestID) { return (Self.botTaskJSON(existing), true) }
             guard let targetID = args["bot_id"] as? String, let target = store.bot(targetID), !target.isCommander,
                   let task = args["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, task.count <= 24000,
                   let commander = store.bot(forSession: parent) else { return ("A live specialist and complete task are required.", false) }
-            let record = BotDelegation(id: toolUseID, fromBotID: commander.id, toBotID: target.id,
+            let record = BotDelegation(id: requestID, fromBotID: commander.id, toBotID: target.id,
                 fromName: commander.name, toName: target.name, parentSessionID: parent, toolUseID: toolUseID,
                 title: String((args["tool_title"] as? String ?? task).prefix(120)), task: task)
             guard store.saveDelegation(record) else { return ("Unable to save delegation.", false) }
@@ -102,6 +104,25 @@ extension AIChatViewModel {
             let wanted = args["delegation_id"] as? String
             let records = store.data.delegations.filter { $0.parentSessionID == parent && (wanted == nil || $0.id == wanted) }
             return ("[" + records.map(Self.botTaskJSON).joined(separator: ",") + "]", true)
+        case "complete":
+            guard let id = args["delegation_id"] as? String, var record = store.delegation(id),
+                  record.parentSessionID == parent, record.state == .reviewing else { return ("Only a returned result awaiting review can be completed.", false) }
+            record.state = .completed; record.updatedAt = Date()
+            guard store.saveDelegation(record) else { return ("Unable to save review status.", false) }
+            return (Self.botTaskJSON(record), true)
+        case "resume":
+            if let existing = store.delegation(requestID) { return (Self.botTaskJSON(existing), true) }
+            guard programmaticTurnOrigin == nil, let id = args["delegation_id"] as? String,
+                  let previous = store.delegation(id), previous.parentSessionID == parent,
+                  previous.state == .interrupted, let target = store.bot(previous.toBotID), !target.isCommander,
+                  let commander = store.bot(forSession: parent) else { return ("Resume requires a new user request and an interrupted task with a configured specialist.", false) }
+            var attempt = BotDelegation(id: requestID, fromBotID: commander.id, toBotID: target.id,
+                fromName: commander.name, toName: target.name, parentSessionID: parent, toolUseID: toolUseID,
+                title: previous.title, task: previous.task)
+            attempt.resumesDelegationID = previous.id
+            guard store.saveDelegation(attempt) else { return ("Unable to save the new execution attempt.", false) }
+            BotTeamRuntime.shared.start()
+            return (Self.botTaskJSON(attempt), true)
         case "cancel", "follow_up":
             guard let id = args["delegation_id"] as? String, var record = store.delegation(id), record.parentSessionID == parent else { return ("Delegation not found in this conversation.", false) }
             if args["action"] as? String == "cancel" {
@@ -139,6 +160,14 @@ extension AIChatViewModel {
     private var signatures: [String: String] = [:]
     private var activity: [String: Date] = [:]
     private var starting: Set<String> = []
+    private var lastTick = Date()
+
+    func cancelQueued(parent: String) {
+        let store = BotWorkspaceStore.shared
+        for var record in store.data.delegations where record.parentSessionID == parent && record.state == .queued {
+            record.state = .cancelled; record.updatedAt = Date(); _ = store.saveDelegation(record)
+        }
+    }
 
     func start() {
         guard loop == nil else { return }
@@ -156,13 +185,18 @@ extension AIChatViewModel {
         guard !BotRestoreControl.isRestoring else { return }
         let store = BotWorkspaceStore.shared
         let now = Date()
+        let resumedAfterSuspension = now.timeIntervalSince(lastTick) > 5
+        lastTick = now
+        if resumedAfterSuspension {
+            for record in store.data.delegations where record.state == .running { activity[record.id] = now }
+        }
         guard UIApplication.shared.applicationState == .active else {
             for record in store.data.delegations where record.state == .running { activity[record.id] = now }
             return
         }
-        for record in store.data.delegations where record.state == .queued && !starting.contains(record.id) {
+        for record in store.data.delegations.filter({ $0.state == .queued && !starting.contains($0.id) }).sorted(by: { $0.updatedAt < $1.updatedAt }) {
             guard let target = store.bot(record.toBotID) else { finish(record.id, state: .failed, result: "Specialist was deleted."); continue }
-            let busy = store.data.delegations.contains { $0.id != record.id && $0.toBotID == target.id && $0.state == .running }
+            let busy = store.data.delegations.contains { $0.id != record.id && $0.toBotID == target.id && ($0.state == .running || $0.state == .takingOver || $0.jobID.map { AgentJobRegistry.shared.isAwaitingSpecialistStop($0) } == true) }
             let privateBusy = target.sessionId.flatMap { ViewModelCache.shared.get(for: $0) }?.isProcessing == true
             guard !busy, !privateBusy, AgentJobRegistry.shared.canStartChildJob(parent: record.parentSessionID) else { continue }
             let parent = ViewModelCache.shared.getOrCreate(for: record.parentSessionID).vm
@@ -198,7 +232,8 @@ extension AIChatViewModel {
     func finish(_ id: String, state: BotDelegationState, result: String?) {
         let store = BotWorkspaceStore.shared
         guard var record = store.delegation(id) else { return }
-        if record.state != .takingOver && record.state != .cancelled { record.state = state }
+        if record.state == .takingOver { record.state = .failed }
+        else if record.state != .cancelled { record.state = state }
         record.result = result; record.updatedAt = Date(); _ = store.saveDelegation(record)
         signatures[id] = nil; activity[id] = nil
     }

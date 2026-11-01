@@ -15,6 +15,7 @@ extension BotWorkspaceStore {
 
     /// Creates only a normal ChatStore session; model/tools/streaming remain owned by the existing runtime.
     func session(botID: String, roomID: String? = nil) async throws -> String {
+        guard !BotRestoreControl.isRestoring else { throw BotWorkspaceError.rejected("正在恢复 Bot 数据，请稍后再打开会话。") }
         let key = roomID.map { "room:\($0):\(botID)" } ?? "bot:\(botID)"
         if let pending = pendingSessions[key] { return try await pending.value }
         let task = Task { @MainActor in try await self.prepareSession(botID: botID, roomID: roomID) }

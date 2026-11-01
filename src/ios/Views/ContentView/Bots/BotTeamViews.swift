@@ -43,6 +43,7 @@ struct BotConversationOverview: View {
     @EnvironmentObject private var vm: AIChatViewModel
     @ObservedObject private var store = BotWorkspaceStore.shared
     @State private var selected: Set<Int> = []
+    @State private var showTaskHistory = false
     @State private var error: String?
     @State private var openBot: BotProfile?
     private var bot: BotProfile? { vm.sessionId.flatMap { store.bot(forSession: $0) } }
@@ -87,21 +88,28 @@ struct BotConversationOverview: View {
                 if !records.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("来自指挥官的任务").font(.headline)
-                        ForEach(records) { record in
+                        ForEach(Array(records.prefix(3))) { record in
                             VStack(alignment: .leading, spacing: 0) {
                                 BotDelegationLink(record: record, incoming: true, fromCommander: true)
                                 Text(record.title).font(.subheadline).lineLimit(2)
                                 Text(record.state.label).font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 4)
                         }
+                        if records.count > 3 {
+                            Button("查看全部 \(records.count) 项任务") { showTaskHistory = true }.frame(minHeight: 44)
+                        }
                     }.padding(16).background(Color(UIColor.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
+                }
+                if let onboarding = bot.onboarding, onboarding.dismissed, !onboarding.selected.isEmpty {
+                    Text((onboarding.memorySaved == true ? "已记住：" : "已选择（未写入长期记忆）：") + onboarding.selected.filter { onboarding.options.indices.contains($0) }.map { onboarding.options[$0] }.joined(separator: "、"))
+                        .font(.subheadline).foregroundStyle(.secondary).padding(16)
                 }
                 if bot.isCommander {
                     let created = store.data.bots.filter { $0.creationRequestID != nil }
                     if !created.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("已创建的 Bot").font(.headline)
-                            ForEach(created) { target in
+                            ForEach(Array(created.suffix(3))) { target in
                                 Button { openBot = target } label: {
                                     HStack { BotAvatar(profile: target, size: 28); Text(target.name); Spacer(); Image(systemName: "chevron.right") }
                                         .frame(minHeight: 44)
@@ -115,11 +123,24 @@ struct BotConversationOverview: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .sheet(item: $openBot) { BotOpenedChat(botID: $0.id) }
-        .onChange(of: store.data) { _ in
-            NotificationCenter.default.post(name: .minisAttachmentSizeChanged, object: "bot-overview")
+        .sheet(isPresented: $showTaskHistory) {
+            NavigationStack {
+                List(records) { record in
+                    VStack(alignment: .leading, spacing: 4) {
+                        BotDelegationLink(record: record, incoming: true, fromCommander: true)
+                        Text(record.title)
+                        Text(record.state.label).font(.caption).foregroundStyle(.secondary)
+                    }
+                }.navigationTitle("委派记录")
+            }
         }
+        .onChange(of: bot) { _ in resizeOverview() }
+        .onChange(of: records) { _ in resizeOverview() }
     }
 
+    private func resizeOverview() {
+        NotificationCenter.default.post(name: .minisAttachmentSizeChanged, object: "bot-overview")
+    }
     private func dismissOnboarding(_ bot: BotProfile) {
         guard var current = store.bot(bot.id) else { return }
         current.onboarding?.dismissed = true
@@ -133,11 +154,12 @@ struct BotConversationOverview: View {
         if current.memoryEnabled != false {
             do {
                 let text = "常用需求：" + choices.joined(separator: "；")
-                let entry = BotMemoryEntry(owner: "bot:\(bot.id)", content: text, category: "preference", scope: "onboarding",
-                    sourceSession: vm.sessionId, sourceMessage: "onboarding:\(bot.id)", evidence: choices.joined(separator: "；"), automatic: false)
+                let entry = BotMemoryEntry(id: "onboarding:" + bot.id, owner: "bot:\(bot.id)", content: text, category: "preference", scope: "onboarding",
+                    sourceSession: nil, sourceMessage: nil, evidence: "用户在 Bot 引导中明确选择：" + choices.joined(separator: "；"), automatic: false)
                 _ = try BotMemoryStore.shared.save(entry, userInitiated: true)
             } catch { self.error = error.localizedDescription; return }
         }
+        current.onboarding?.memorySaved = current.memoryEnabled != false
         current.onboarding?.selected = selected.sorted(); current.onboarding?.dismissed = true
         if !store.save(current) { error = "偏好处理完成，但卡片状态保存失败，请重试。" }
     }

@@ -151,6 +151,44 @@ struct BotWorkspacePersistenceTests {
             try broken.restoreCapabilityOwner(botID: portable.id, json: payload)
             preconditionFailure("An unreadable workspace must not accept imported owners")
         } catch { precondition(broken.bot(portable.id) == nil) }
+
+        // Unread-state saves come from SwiftUI's synchronous value-update phase.
+        // They must not wait behind a long snapshot-lock holder on another
+        // thread; doing so kept the main run loop pinned until watchdog kill.
+        let unreadURL = root.appendingPathComponent("unread-state.json")
+        let unreadStore = BotWorkspaceStore(fileURL: unreadURL, seedCommander: false)
+        precondition(unreadStore.save(reviewer))
+        let lockHeld = DispatchSemaphore(value: 0)
+        let releaseLock = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            BotDataSnapshotLock.lock.lock()
+            lockHeld.signal()
+            _ = releaseLock.wait(timeout: .now() + 2)
+            BotDataSnapshotLock.lock.unlock()
+        }
+        precondition(lockHeld.wait(timeout: .now() + 2) == .success)
+        let updateStarted = Date()
+        precondition(unreadStore.updateConversation("destination-chat") { $0.lastReadMessageID = "latest" })
+        let elapsed = Date().timeIntervalSince(updateStarted)
+        precondition(elapsed < 0.2, "conversation state update blocked on snapshot lock")
+        releaseLock.signal()
+
+        let written = DispatchGroup()
+        written.enter()
+        DispatchQueue.global().async {
+            defer { written.leave() }
+            let deadline = Date().addingTimeInterval(2)
+            while Date() < deadline {
+                let raw = try? Data(contentsOf: unreadURL)
+                let workspace = raw.flatMap { try? JSONDecoder().decode(BotWorkspaceData.self, from: $0) }
+                if workspace?.conversationStates["destination-chat"]?.lastReadMessageID == "latest" { return }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
+        precondition(written.wait(timeout: .now() + 3) == .success)
+        let persistedData = try Data(contentsOf: unreadURL)
+        let persistedWorkspace = try JSONDecoder().decode(BotWorkspaceData.self, from: persistedData)
+        precondition(persistedWorkspace.conversationStates["destination-chat"]?.lastReadMessageID == "latest")
         print("PASS: Bot/room persistence, order, session mapping, deletion preservation, interrupted rounds and corrupt-store protection")
     }
 }

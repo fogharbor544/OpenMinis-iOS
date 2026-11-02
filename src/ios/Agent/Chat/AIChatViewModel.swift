@@ -1731,11 +1731,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// completion haptics for that turn only. Cleared on every
     /// isProcessing → false transition.
     var programmaticSilentTurn = false
+    /// Result versions consumed by the active reply; task cards are presentation only.
+    var botResultDeliveries: [String: Date] = [:]
+    var botDelegationMessages: [String: ChatMessage] = [:]
     /// [T-user-ask] Origin of a programmatic prompt that STARTED the current
     /// run (Shortcut / CLI / job) — such a run has no one to ask, so user_ask
     /// is not exposed. Cleared on every isProcessing → false transition.
-    var botResultDeliveries: [String: Date] = [:]
-    var botDelegationMessages: [String: ChatMessage] = [:]
     var programmaticTurnOrigin: ProgrammaticPromptOrigin?
     /// [T-user-ask] Whether this run exposes user_ask, decided with the tool
     /// list so the system prompt's fragment agrees with it for the whole run.

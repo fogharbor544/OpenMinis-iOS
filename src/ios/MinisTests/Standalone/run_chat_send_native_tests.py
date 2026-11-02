@@ -39,7 +39,10 @@ def build_sources(folder):
     core=layout.split("/// Height of the assistant header row",1)[0]
     stream=layout.split("enum StreamGrowthPin",1)[1].split("// END StreamGrowthPin",1)[0]
     background=layout.split("private final class BotReplyBackground",1)[1]
-    (folder/"Layout.swift").write_text(core+"\n"+"enum StreamGrowthPin"+stream+"\nprivate final class BotReplyBackground"+background,encoding="utf-8")
+    infrastructure=(ROOT/"Agent/MessageList/MessageListInfrastructure.swift").read_text(encoding="utf-8")
+    item="enum MessageListItem"+infrastructure.split("enum MessageListItem",1)[1].split("// MARK: - Self-Sizing Cell",1)[0]
+    spacing=(ROOT/"Agent/MessageList/CollectionViewMessageListV3/Support/QueuedCandidateSpacing.swift").read_text(encoding="utf-8")
+    (folder/"Layout.swift").write_text(core+"\n"+item+"\n"+spacing+"\nenum StreamGrowthPin"+stream+"\nprivate final class BotReplyBackground"+background,encoding="utf-8")
 
 
 def main():

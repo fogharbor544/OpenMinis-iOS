@@ -201,7 +201,10 @@ struct TestJob {
         precondition(store.delegation(third)?.state == .queued)
         AIChatViewModel.holdAnswers = false
         precondition(parent.executeBotTask(["action": "cancel", "delegation_id": second], toolUseID: "cancel").success)
-        try await wait { store.delegation(third)?.state == .reviewing }
+        try await wait {
+            store.delegation(third)?.state == .reviewing
+                && parent.callbacks.contains { AgentCallback.parse($0)?.jobId == "bot:" + third }
+        }
         precondition(running.cancelCount == 1 && store.delegation(second)?.state == .cancelled)
         precondition(store.bot(target.id)?.sessionId == privateID)
         parent.beginBotResultDelivery(texts: parent.callbacks)

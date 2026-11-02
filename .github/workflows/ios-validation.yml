@@ -233,7 +233,7 @@ jobs:
           retention-days: 7
   device-build:
     if: github.event_name == 'workflow_dispatch' && inputs.full_build
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

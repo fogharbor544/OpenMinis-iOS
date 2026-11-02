@@ -624,28 +624,10 @@ static void *monitorThreadMain(void *arg) {
 
         // ---- POST-CAPTURE: now we can do whatever (no main lock contention). ----
 
-        // First: idle filter. The main thread's RunLoop spends most of its
-        // time blocked in mach_msg waiting for the next event — that is
-        // not a hang. If the PC (frames[0]) lives inside
-        // libsystem_kernel.dylib (any mach_msg* / __semwait_signal etc.)
-        // and the immediate caller is CoreFoundation's runloop kernel, we
-        // discard the event before it pollutes the ring buffer.
-        //
-        // We do this with dladdr on at most the first two frames so the
-        // common "idle" case bails out before we allocate the full
-        // resolved array.
-        Dl_info leafInfo;
-        if (dladdr((const void *)frames[0], &leafInfo) != 0 && leafInfo.dli_fname) {
-            const char *base = strrchr(leafInfo.dli_fname, '/');
-            base = base ? base + 1 : leafInfo.dli_fname;
-            if (strstr(base, "libsystem_kernel") != NULL) {
-                // Almost certainly RunLoop idle. Refresh the heartbeat so
-                // we don't fire again next loop on the same wait.
-                atomic_store_explicit(&g_lastBeat, mach_continuous_time(), memory_order_relaxed);
-                continue;
-            }
-        }
-
+        // BeforeWaiting already excludes ordinary run-loop idle. Do not also
+        // reject every kernel leaf: a deadlocked lock/semaphore and run-loop
+        // mach_msg have the same kernel image, and this old filter discarded
+        // exactly the blocking stacks needed to diagnose a foreground SIGKILL.
         // Compute a fast 64-bit hash of the PC frames so we can de-dup
         // when the main thread is spinning on the same call site across
         // multiple samples (typical for a 10s watchdog wait — N samples

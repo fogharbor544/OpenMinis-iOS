@@ -1,6 +1,50 @@
 // Consumed by run_browser_automation_tests.py. Only WebKit/platform boundaries
 // below are fakes; dispatcher, postprocessing, deadlines and takeover are shipping code.
-import CoreFoundation
+import Foundation
+#if canImport(CoreGraphics)
+// The extracted production code uses CGRect/CGPoint/CGSize. Those types only
+// carry their Swift conveniences (CGRect.zero, CGRect(x:y:width:height:))
+// when the CoreGraphics overlay is imported, so import it explicitly.
+import CoreGraphics
+#else
+// Toolchains without CoreGraphics get the members the harness touches.
+struct CGPoint {
+    var x: Double = 0
+    var y: Double = 0
+    static var zero: CGPoint { CGPoint() }
+}
+
+struct CGSize {
+    var width: Double = 0
+    var height: Double = 0
+    static var zero: CGSize { CGSize() }
+}
+
+struct CGRect {
+    var origin: CGPoint = CGPoint()
+    var size: CGSize = CGSize()
+    var width: Double {
+        get { size.width }
+        set { size.width = newValue }
+    }
+    var height: Double {
+        get { size.height }
+        set { size.height = newValue }
+    }
+    init() {}
+    init(x: Double, y: Double, width: Double, height: Double) {
+        origin = CGPoint(x: x, y: y)
+        size = CGSize(width: width, height: height)
+    }
+    init(origin: CGPoint, size: CGSize) {
+        self.origin = origin
+        self.size = size
+    }
+    static var zero: CGRect { CGRect() }
+}
+
+typealias CGFloat = Double
+#endif
 
 @propertyWrapper struct Published<Value> { var wrappedValue: Value }
 struct TestLogger { func info(_ text: String) {}; func warning(_ text: String) {} }

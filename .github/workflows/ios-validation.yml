@@ -212,6 +212,9 @@ jobs:
       - name: Native history send and snapshot serialization
         if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_chat_send_native_tests.py
+      - name: Kernel blocking hang stack regression
+        if: ${{ !cancelled() }}
+        run: swift src/ios/MinisTests/Standalone/HangKernelLeafTests.swift
       - name: Upload chat send evidence
         if: always()
         uses: actions/upload-artifact@v4

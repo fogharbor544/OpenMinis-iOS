@@ -122,14 +122,15 @@ extension CollectionViewMessageListV3.Coordinator {
             return unique
         }
 
-        func applySnapshot(messages rawMessages: [ChatMessage], caller: String = "?") {
+        func applySnapshot(messages rawMessages: [ChatMessage], caller: String = "?", positioningLatest: Bool = false) {
             guard let vm, !vm.isLoadingSession else { return }
             // A resume hook / hosted-cell layout must never recursively apply a
             // diffable snapshot. Keep only the VM's newest state for the next turn.
-            if snapshotApplyInProgress || (latestPositionPending && !performingLatestPosition) {
+            if snapshotApplyInProgress || (latestPositionPending && !positioningLatest) {
                 hasPendingSnapshot = true
-                if latestPositionPending { requestLatestPosition() }
-                else { scheduleSnapshotFlush(caller: caller) }
+                if latestPositionPending {
+                    if !performingLatestPosition { requestLatestPosition() }
+                } else { scheduleSnapshotFlush(caller: caller) }
                 return
             }
             snapshotApplyInProgress = true

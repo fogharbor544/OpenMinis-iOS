@@ -523,12 +523,18 @@ extension CollectionViewMessageListV3.Coordinator {
                 layout.applyDeferredHeights()
                 vm.setStreamingUIUpdatesSuspended(false)
                 self.hasPendingSnapshot = false
-                self.applySnapshot(messages: vm.messages, caller: "user-latest-position")
+                self.applySnapshot(messages: vm.messages, caller: "user-latest-position", positioningLatest: true)
+                cv.layoutIfNeeded()
+                self.scrollToBottomNow(animated: false)
+                // The first jump exposes cold tail cells. Measure them before
+                // the final pin, otherwise their newly learned height leaves
+                // the viewport above the last message (native top-send case).
                 cv.layoutIfNeeded()
                 self.scrollToBottomNow(animated: false)
                 self.latestPositionPending = false
                 self.performingLatestPosition = false
                 self.isFlushing = false
+                if self.hasPendingSnapshot { self.scheduleSnapshotFlush(caller: "latest-completion") }
                 self.syncScrollFlags()
                 AppLogger(category: "ScrollDiag").info("[SendLatest] completed ms=\((CFAbsoluteTimeGetCurrent() - start) * 1000) items=\(cv.numberOfSections > 0 ? cv.numberOfItems(inSection: 0) : 0)")
             }

@@ -92,9 +92,7 @@ extension RawMessage {
 
                             if body.contains("<file ") {
                                 // New XML format: <file path="..." url="..." size="..." modified="..." />
-                                let filePattern = try? NSRegularExpression(
-                                    pattern: #"<file\s+path="([^"]*)"(?:\s+url="([^"]*)")?(?:\s+size="([^"]*)")?(?:\s+modified="([^"]*)")?\s*/>"#
-                                )
+                                let filePattern = SystemReminderStripper.attachmentFilePattern
                                 let nsBody = body as NSString
                                 let matches = filePattern?.matches(in: body, range: NSRange(location: 0, length: nsBody.length)) ?? []
                                 for match in matches {
@@ -505,6 +503,22 @@ enum SystemReminderStripper {
         }
         // Tags are pure ASCII, so every cut fell on a character boundary.
         return String(decoding: out, as: UTF8.self)
+    }
+
+    // Shared by attachment rendering and the logical task-conversation count.
+    static let attachmentFilePattern = try? NSRegularExpression(
+        pattern: #"<file\s+path="([^"]*)"(?:\s+url="([^"]*)")?(?:\s+size="([^"]*)")?(?:\s+modified="([^"]*)")?\s*/>"#
+    )
+
+    static func hasVisibleUserAttachmentMetadata(_ content: String) -> Bool {
+        guard let start = content.range(of: "<user-attached-files>"),
+              let end = content.range(of: "</user-attached-files>", range: start.upperBound..<content.endIndex) else { return false }
+        let body = String(content[start.upperBound..<end.lowerBound])
+        if body.contains("<file ") {
+            let matches = attachmentFilePattern?.matches(in: body, range: NSRange(body.startIndex..., in: body)) ?? []
+            return matches.contains { $0.range(at: 1).length > 0 }
+        }
+        return body.components(separatedBy: "\n").contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("- path: ") }
     }
 
     /// The text a user bubble shows: the message minus the attached-files

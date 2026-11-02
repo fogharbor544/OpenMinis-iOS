@@ -14,6 +14,14 @@ assert "static let shared = BotWorkspaceStore()" in store
 assert 'static let commanderID = "builtin-commander"' in store
 assert "seedCommander" in store and "guard id != BotProfile.commanderID" in store
 assert "func capabilitySessionID" in store and "func inheritOwner" in store
+unread = store.split("func updateConversation", 1)[1].split("func latestDelegation", 1)[0]
+assert "return next == data || persist(next)" not in unread
+assert "writeQueue.async" in unread
+merge = store.split("private static func mergeConversationState", 1)[1]
+assert "if FileManager.default.fileExists(atPath: fileURL.path)" in merge
+assert "workspace = fallback" in merge
+assert "BotDataSnapshotLock.lock.lock()" in merge
+assert "BotDataSnapshotLock.lock.unlock()" in merge
 schema = read("Agent/Chat/AIChatViewModel+ToolDefinitions.swift")
 assert '"bot_id"' not in schema
 assert '"agent": AgentToolParam' in schema

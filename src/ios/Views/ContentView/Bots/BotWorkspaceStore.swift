@@ -208,6 +208,7 @@ final class BotWorkspaceStore: ObservableObject {
     var pendingSessions: [String: Task<String, Error>] = [:]
     private let fileURL: URL
     private var unreadable = false
+    private static let conversationWriteQueue = DispatchQueue(label: "Minis.BotWorkspaceStore.conversationState", qos: .utility)
 
     init(fileURL: URL? = nil, seedCommander: Bool = true) {
         self.fileURL = fileURL ?? Self.defaultFileURL
@@ -494,10 +495,28 @@ final class BotWorkspaceStore: ObservableObject {
 
     @discardableResult
     func updateConversation(_ sessionID: String, _ change: (inout BotConversationState) -> Void) -> Bool {
+        guard !unreadable else { return false }
         var next = data
         var state = next.conversationStates[sessionID] ?? BotConversationState()
         change(&state); next.conversationStates[sessionID] = state
-        return next == data || persist(next)
+        guard next != data else { return false }
+        data = next
+
+        // Changes originate from SwiftUI's synchronous value-update phase. Keep
+        // the main actor responsive while ChatStore/backup work holds the shared
+        // snapshot lock; the file write is not needed to render the new state.
+        let writeQueue = Self.conversationWriteQueue
+        let workspaceURL = fileURL
+        let workspaceFallback = next
+        let conversationState = state
+        writeQueue.async { [weak self, workspaceURL, sessionID, conversationState, workspaceFallback] in
+            do {
+                try Self.mergeConversationState(sessionID, conversationState, into: workspaceURL, fallback: workspaceFallback)
+            } catch {
+                DispatchQueue.main.async { self?.errorMessage = error.localizedDescription }
+            }
+        }
+        return true
     }
 
     func latestDelegation(botID: String) -> BotDelegation? {
@@ -543,6 +562,30 @@ final class BotWorkspaceStore: ObservableObject {
             errorMessage = nil
             return true
         } catch { errorMessage = error.localizedDescription; return false }
+    }
+
+    /// Merge one conversation-state update into the latest on-disk data.
+    ///
+    /// This runs off the main actor while the shared lock is held. Decoding the
+    /// file fresh here prevents a queued unread-state write from overwriting a
+    /// newer Bot profile or room saved after this update was scheduled.
+    private static func mergeConversationState(_ sessionID: String,
+                                                _ state: BotConversationState,
+                                                into fileURL: URL,
+                                                fallback: BotWorkspaceData) throws {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
+
+        var workspace: BotWorkspaceData
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            workspace = try JSONDecoder().decode(BotWorkspaceData.self, from: Data(contentsOf: fileURL))
+        } else {
+            workspace = fallback
+        }
+        workspace.conversationStates[sessionID] = state
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try JSONEncoder().encode(workspace).write(to: fileURL, options: .atomic)
     }
 
 

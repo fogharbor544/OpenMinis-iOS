@@ -79,7 +79,7 @@ final class BrowserTabPoolRegistry {
         var busyVictim: (pool: BrowserTabPool, tabId: Int, idle: TimeInterval)? = nil
         let now = Date()
         for (id, weak) in pools where id != requesterId {
-            guard let pool = weak.pool else { continue }
+            guard let pool = weak.pool, !pool.isUserTakeoverActive else { continue }
             for tab in pool.tabs {
                 guard !tab.manager.isSecureInputActive else { continue }
                 let idle = now.timeIntervalSince(tab.lastActivityDate)
@@ -394,9 +394,54 @@ final class BrowserTabPool: ObservableObject {
     /// Whether the active tab's webview is currently loading a page.
     @Published var isBrowserLoading: Bool = false
 
-    /// Whether the agent is actively executing a browser action on any tab.
+    // BEGIN BrowserTakeoverControl
+    /// Shared by UI, direct tools, CLI and generic helpers. Grace reservations
+    /// remain independent of actual execution and never lock out a human.
+    @Published private(set) var isUserTakeoverActive = false
+    @Published private(set) var executingActionCount = 0
+    private var takeoverGeneration: UInt64 = 0
+    private var takeoverWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    var isTakeoverPending: Bool { isUserTakeoverActive && executingActionCount > 0 }
+
+    func beginUserTakeover() {
+        guard !hasSecureInput, !isUserTakeoverActive else { return }
+        isUserTakeoverActive = true
+        takeoverGeneration &+= 1
+        logger.info("[Takeover] requested active_actions=\(self.executingActionCount)")
+        for tab in tabs { tab.manager.requestUserTakeover() }
+    }
+
+    func endUserTakeover() {
+        guard isUserTakeoverActive else { return }
+        isUserTakeoverActive = false
+        logger.info("[Takeover] ended; resuming browser waiters")
+        for tab in tabs { tab.manager.endUserTakeover() }
+        let waiters = takeoverWaiters.values
+        takeoverWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitForUserTakeover() async {
+        let id = UUID()
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                guard isUserTakeoverActive, !Task.isCancelled else {
+                    continuation.resume(); return
+                }
+                takeoverWaiters[id] = continuation
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.takeoverWaiters.removeValue(forKey: id)?.resume()
+            }
+        })
+    }
+    // END BrowserTakeoverControl
+
+    /// Actual execution only; `inUse` also includes the routing grace period.
     var isAgentBrowsing: Bool {
-        tabs.contains { $0.inUse }
+        executingActionCount > 0
     }
 
     /// The manager for the currently selected UI tab.
@@ -807,6 +852,9 @@ final class BrowserTabPool: ObservableObject {
         singleTab: Bool = false,
         owner: String? = nil
     ) async throws -> BrowserActionResult {
+        guard !isUserTakeoverActive else {
+            return .error("Browser is under user control. Wait for the user to finish; do not retry actions during takeover.")
+        }
         guard !hasSecureInput else {
             return .error("安全输入或页面清理正在进行，请在原生界面完成或重试后再使用浏览器。")
         }
@@ -816,8 +864,16 @@ final class BrowserTabPool: ObservableObject {
             tabId: input.tabId
         )
         let secureGeneration = BrowserUseManager.secureInteractionGeneration
+        let manualGeneration = takeoverGeneration
         do {
             var result = try await executeInner(action: input, singleTab: singleTab, owner: owner)
+            if manualGeneration != takeoverGeneration {
+                result = BrowserActionResult(
+                    text: result.text + "\n[Browser takeover] The user took control during this action. Its result may describe the earlier page; observe the current page before continuing. Do not blindly replay it.",
+                    success: result.success, fetchedFileData: result.fetchedFileData,
+                    fetchedFileName: result.fetchedFileName, pageURL: result.pageURL, tabId: result.tabId
+                )
+            }
             // An already-running read can finish after a native login starts.
             if input.action != .secureInput,
                secureGeneration != BrowserUseManager.secureInteractionGeneration {
@@ -851,6 +907,7 @@ final class BrowserTabPool: ObservableObject {
         singleTab: Bool,
         owner: String?
     ) async throws -> BrowserActionResult {
+        let generation = takeoverGeneration
         let poolStart = CFAbsoluteTimeGetCurrent()
         // The tab an implicit (no tab_id) action from this agent falls back to.
         let implicitDefault = preferredTab(for: owner) ?? selectedTabId
@@ -1067,6 +1124,14 @@ final class BrowserTabPool: ObservableObject {
             logger.info("[PoolTiming] serial_slot_waited elapsed=\(serialAcquiredMs)ms tab=\(targetId)")
         }
         defer { releaseSerialSlot() }
+
+        // A request may have queued before the human took over and finished
+        // waiting after they dismissed it. Never execute that stale action.
+        guard !isUserTakeoverActive, generation == takeoverGeneration else {
+            return .error("Browser action was not started because the user took over. Observe the current page before issuing a new action.")
+        }
+        executingActionCount += 1
+        defer { executingActionCount -= 1 }
 
         // Re-resolve the tab by id — `idx` was computed before the serial-slot
         // await, during which the tabs array may have changed (idle reclaim,
@@ -1444,6 +1509,7 @@ final class BrowserTabPool: ObservableObject {
     /// Remove tabs that have been idle (not in use) for longer than `idleTimeout`.
     /// Saves their URLs so they can be restored on next use.
     private func evictIdleTabs() {
+        guard !isUserTakeoverActive else { return }
         let now = Date()
         var evicted = 0
         tabs.removeAll { tab in
@@ -1520,6 +1586,7 @@ final class BrowserTabPool: ObservableObject {
     /// Evict all non-inUse tabs in response to a memory warning. Returns
     /// the number evicted so the registry can log a single summary line.
     func evictAllIdleForMemoryWarning() -> Int {
+        guard !isUserTakeoverActive else { return 0 }
         var evicted = 0
         tabs.removeAll { tab in
             guard !tab.inUse, !tab.manager.isSecureInputActive else { return false }

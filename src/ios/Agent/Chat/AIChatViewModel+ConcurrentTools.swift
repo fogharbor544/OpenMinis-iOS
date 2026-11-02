@@ -741,7 +741,7 @@ extension AIChatViewModel {
                     browserResult = .error(error.localizedDescription)
                 }
             } else {
-                browserResult = .error("Invalid browser_use input. Required: 'action' parameter.")
+                browserResult = .error("Invalid browser_use input. Provide a valid action; preview must be default/none and result_mode must be standard/collected. collected requires scroll_and_collect with preview=none.")
             }
 
             if browserTakeoverActive && !isSecureInput && !browserTabPool.hasSecureInput {

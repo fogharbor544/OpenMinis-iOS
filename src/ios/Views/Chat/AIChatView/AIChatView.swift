@@ -1100,7 +1100,7 @@ struct AIChatView: View {
             }
         }
         .sheet(isPresented: $showBrowserSheet) {
-            BrowserSheetView(pool: vm.browserTabPool, isAgentBusy: vm.browserTabPool.isAgentBrowsing, onTakeover: {
+            BrowserSheetView(pool: vm.browserTabPool, onTakeover: {
                 vm.browserTakeoverActive = true
             })
         }

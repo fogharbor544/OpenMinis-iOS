@@ -337,3 +337,102 @@ Authorized baseline: 7450d01, isolated worktree build/worktrees/bot-team-origina
 Decisions: fixed protected commander; separate task conversations; specialist's own scoped memory, no private-chat history; home commander header; one unread divider; direct explicit Bot creation; 2-minute inactivity follow-up then 2-minute takeover; original 12 soft-3D characters; only new backup format, no import/migration of minisbak/3 or archive v2. Restore never executes tasks or carries approval grants.
 
 Environment: Windows, Python available; no swiftc/Xcode. Existing GitHub account credentials need checking outside sandbox before concluding they are invalid. Original checkout is clean. Use targeted local checks and actual macOS compilation before claiming build success.
+
+## Avatar display follow-up — local changes only
+1. Fix animated UIImageView measurement to use the requested avatar square, preserving aspect fit (implemented locally).
+2. Use the static avatar renderer for the commander on the Bot list, preventing replay on navigation return (implemented locally).
+3. In-motion SwiftUI/Form sizing snapshots and static-header remount fixtures added; stale native result files cleared before launch. Local resource, Python syntax, Swift tree-sitter syntax and diff checks passed. New native fixtures remain unexecuted on Windows.
+User explicitly requested no commit/push. Keep HEAD at56050b2 and leave the fixes uncommitted; Windows cannot execute UIKit simulator checks without a Mac. Earlier frozen-frame snapshots did not test the SwiftUI animation's actual bounds.
+
+## 2026-11-02 device feedback repairs
+1. Diagnose profile browser preview, first-load Bot cards overlap, onboarding hit testing and delegation transcript visibility (complete by source inspection).
+2. Implement focused fixes on latest iOS worktree; preserve uncommitted avatar sizing/static commander edits (implemented locally).
+3. Targeted source contracts and syntax checks passed; timeline/runtime fixtures extended. Native compilation, first-frame sizing, hit-testing and live delegation remain unexecuted on Windows.
+Scope: no commit/push; retain earlier user local-only request. No subagents.
+
+
+## 2026-11-02 additional device issues
+4. User confirms reply text also stops and reopening is required. Removed duplicate synchronous hosting measurement, per-snapshot decoration registration and broad Bot-overview refreshes; actual hang elimination remains unverified without a device call stack/reproduction.
+5. Existing proactive memory depended on model tool choice. Implemented a post-answer asynchronous review (one small extra provider request when no successful memory write occurred, at most two additive notes, 20-second cancellation deadline), cancellation/source gates and saved-note notice. Narrowed credential-topic false positives; actual provider/runtime behavior remains unverified.
+Earlier four-area fixes retained; local only, no commit/push.
+
+## 2026-11-02 memory document and direct Bot handoff
+1. Inspect scoped storage/editing and actual Bot handoff lifecycle (complete by source inspection).
+2. Replace entry-card memory management with a continuous document reader/editor, transactional saves, sharing, export, clear and conflict preservation (implemented locally).
+3. Preserve target Bot's incoming hint and independent conversation with commander, as user clarified. Execution now uses target-owned normal Bot VM; no commander HelperRunner/child job. Own helpers, steering, stop/queue/rework/result review and user-card waits integrated (implemented locally).
+4. Storage/document and direct-runtime behavior fixtures added; command/archive fixtures updated. Source contracts, syntax and diff checks passed. Swift behavior/typecheck, Xcode, UIKit and live-provider acceptance remain unexecuted on Windows.
+Local work only; retain existing dirty changes, no commit/push.
+
+## 2026-11-02 verified Astra review fixes
+1. Verify five findings against actual stop, restore, resume, shared-document and usage persistence code (source paths confirmed).
+2. Fix user-stop callback suppression, expose direct draining/result delivery and memory-review persistence to restore, prioritize resumable results, order shared documents by source, persist auxiliary usage without adding chat context (implemented locally; Astra targeted source re-review found no new definite defects).
+3. Added targeted direct-stop/restore/resume, shared-document, memory-runtime and actual SQLite auxiliary-usage Swift fixtures. Executed portable SQLite checks (3 PASS), chat settings contracts (7 PASS), current Bot source contracts, 39 Swift/6 Python/1 YAML syntax checks and generation/parsing of 17 Swift harness inputs. Native fixture compilation/execution and Xcode/device verification remain unexecuted on Windows.
+No commit/push. Preserve all prior work.
+
+## 2026-11-02 Mika browser analysis
+- Goal: compare Mika main with codex/bot-team-original-avatars iOS; analysis only, preserve existing work.
+- Phase 1: locate source and branch (complete); phase 2: inspect execution/observation/waits (in progress); phase 3: rank recommendations (pending).
+- Errors: RTK binary access denied; native executable variables work. First GitHub fetch missed required args; corrected. Git ls-remote cannot access credential store in sandbox; use connected GitHub read.
+
+
+## 2026-11-02 Mika analysis completion
+- All phases complete: source comparison, bottleneck identification, ranked adaptation recommendations and measurement plan.
+- Remote branch verified via escalated read-only git ls-remote: 56050b2d3fdc7391cc27d3bf0ca49ffbada848b8 matches local HEAD. Connected GitHub account could not read private target repo, so used native authenticated git.
+- Mika main verified as commit ebb0e44750d80aabb6b642c69908825d6b1a8107, version 0.1.33.
+- Deliverable: docs/mika-browser-automation-analysis-2026-11-02.md. Application code untouched; no performance test executed.
+## 2026-11-02 user-authorized commit, cloud build and IPA delivery
+1. Verified branch/remote; committed46 application/test/workflow files as063fbc6, excluding local planning and separate Mika research (complete).
+2. Pushed063fbc6 to darkyuanbao06/codex/bot-team-original-avatars and dispatched full validation run41374702108 (complete).
+3. Complete: fixed fixture setup in bbce47b; final run41375506667 all3 jobs successful; downloaded IPA, checked arm64/Bundle ID/ZIP CRC/hash and exact run/commit provenance, delivered short root build/ipa path.
+User now explicitly authorizes commit, push, cloud build and local IPA download. No merge or release requested.
+- Cloud startup: committed/pushed application063fbc6 (46 files); gh workflow dispatch returned404 under CLI account fogharbor544. Git push authenticated successfully through Git Credential Manager; retry API through the same in-memory credential, without storing or printing the secret.
+- Run41374702108: full unsigned device build and UI job passed; source job failed only in the new direct-handoff fixture at first delegate. Verified fixture omitted the commander's persisted session owner, so the real commander-only guard correctly rejected it. Added the same owner setup as the shipping-command fixture and useful assertion diagnostics. Application code unchanged. Log fetch initially refused ANSI output; explicit allow-escape-sequences saved the log successfully.
+
+- Final delivery: build/ipa/OpenMinis-bbce47b-unsigned.ipa under the original project root;123306917 bytes, SHA-2561cb99db6ee8ae539c9ec03c3f72245c1e7d76d33015325c76c220aa53a5e77ea. Version1.15/build1, unsigned arm64, requires signing for physical installation. App changes committed/pushed; local research/planning remains uncommitted.
+
+## 2026-11-02 browser optimization execution plan
+- Planning deliverable complete: docs/ios-browser-optimization-execution-plan.md, based on Astra medium review.
+- Current worktree HEAD bbce47b; relevant browser implementation unchanged from reviewed 56050b2d.
+- Proposed implementation stages: measurement baseline; bounded post-action DOM observation/cancellation; explicit opt-out of implicit preview; explicitly selected scroll-and-collect result mode; later work only if measurements justify it.
+- Existing screenshot consumers and default contracts preserved in plan; no global wait shortening, new batch runtime or higher concurrency in first phase.
+- Implementation has NOT started; no application edits, test execution, build, commit or push in this planning task.
+
+## 2026-11-02 commander instruction visibility
+- Fix profile summary and instruction editor to expose active built-in rules plus separate custom instructions.
+- Reuse one runtime/UI rule source; preserve prompt wording, custom saves and non-commander behavior.
+- Run source/syntax validation and extend existing native UI typecheck coverage; Windows native limitations remain explicit.
+- Commander display implemented in4 source/harness files; local source contracts, exact policy preservation, Swift syntax and native UI harness generation checked. Continue the user-authorized commit/push/cloud-build/IPA delivery flow for this follow-up fix.
+- Commander instruction visibility complete:4c3c91d pushed; full run41377790050 all3 jobs passed; final IPA delivered to original root build/ipa/OpenMinis-4c3c91d-unsigned.ipa. Canonical policy wording preserved, custom saves untouched, no schema migration.
+
+## 2026-11-02 browser optimization implementation
+- User authorized local implementation of takeover fix, bounded cancellable postprocessing, optional previews and collected result mode. No commits/pushes.
+- Baseline4c3c91d includes bbce47b; preserve existing planning changes and untracked analysis docs.
+- Phases: inspect contracts/tests; implement pool-owned takeover lifecycle; implement bounded postprocessing and explicit modes; targeted tests and diff audit.
+- Windows lacks Xcode: native validation limitations must be explicit.
+
+### Browser optimization local implementation status
+- Inspection/implementation/local validation complete on4c3c91d without commit or push.
+- Implemented pool-owned takeover and admission gate, active/grace separation, unified dismissal/resume, bounded/cancellable summary and preview, explicit preview/result modes, CLI/schema/prompt/localization updates.
+- Added regression runner and future workflow registration; actual Swift tests, native WebKit/UI checks and real-device performance acceptance remain pending because this host has no Swift/Xcode.
+- Delivery notes: docs/ios-browser-optimization-local-changes.md. Existing analysis docs and prior planning content preserved.
+
+## 2026-11-02 implement chat-send and Bot-delivery plan
+1. Baseline existing local browser changes and trace send/queue/persistence boundaries (in progress).
+2. Implement serialized latest-position transition, task timeline/counts, Bot-specific callback navigation and automatic delivery completion.
+3. Add targeted shipping/runtime/native regressions; commit only this task's delta, preserving browser changes locally.
+4. Push, run full cloud verification, resolve failures and deliver validated IPA.
+
+### Chat-send / Bot-delivery implementation status
+- Implementation complete; local source contracts and generated native fixture grammar checked.
+- Cloud Swift/runtime/native checks and IPA build are next; no physical-device reproduction has been claimed.
+- Existing browser changes remain local and will be excluded from this task commit.
+
+### Build destination correction from user
+Do not use the quota-blocked private remote for this task.
+- Latest candidate8382787 pushed to build account3; full run41392139929 in progress.
+
+### Chat-send / Bot-delivery delivery complete
+- Application repair commits b530ba7,3962b62,8382787; final test synchronization660fa38, pushed to origin/codex/bot-team-original-avatars (build account3).
+- Public full run41393013773 SUCCESS: source-checks, ui-layout and device-build all passed;18 native send cases passed at max snapshot depth1.
+- Verified final unsigned iOS arm64 IPA at original project build/ipa/OpenMinis-660fa38-unsigned.ipa; artifact/run/commit, ZIP CRC, SHA256 and Mach-O iOS device platform verified. Physical-device acceptance remains for the user.
+- Existing browser local modifications preserved exactly and excluded from these commits/build.

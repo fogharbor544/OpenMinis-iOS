@@ -106,6 +106,9 @@ jobs:
       - name: Browser storage behavior tests
         if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
+      - name: Browser automation lifecycle and postprocessing
+        if: ${{ !cancelled() }}
+        run: python3 src/ios/MinisTests/Standalone/run_browser_automation_tests.py --require-swift
       - name: Schedule editing behavior tests
         if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_schedule_edit_tests.py

@@ -198,7 +198,7 @@ import Foundation
 
         guard let input = BrowserActionInput.parse(from: json) else {
             completion([
-                "text": "Error: Invalid browser_use input. Required: 'action' parameter.",
+                "text": "Error: Invalid browser_use input. Provide a valid action; preview must be default/none and result_mode must be standard/collected. collected requires scroll_and_collect with preview=none.",
                 "success": false,
             ] as NSDictionary)
             return 0

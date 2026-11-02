@@ -30,6 +30,30 @@ final class BrowserUseManager: NSObject, ObservableObject {
     @Published var secureInputSession: BrowserSecureInputSession?
     var secureInputRequester: String?
     var isSecureInputActive: Bool { secureInputProtected || secureInputSession != nil }
+    private var userTakeoverRequested = false
+    private var automationGeneration: UInt64 = 0
+    private var postActionTask: Task<BrowserActionResult, Error>?
+
+    struct UserTakeoverRequested: LocalizedError {
+        var errorDescription: String? {
+            "Browser navigation wait was interrupted by user takeover. The page may still be loading; observe it before retrying."
+        }
+    }
+
+    func requestUserTakeover() {
+        userTakeoverRequested = true
+        automationGeneration &+= 1
+        postActionTask?.cancel()
+        // Release the navigation wait without tearing down the page. Loading
+        // can finish normally under human control (or the user can stop it).
+        // Arbitrary page JS is allowed to finish safely.
+        if let continuation = navigationContinuation {
+            navigationContinuation = nil
+            continuation.resume(throwing: UserTakeoverRequested())
+        }
+    }
+
+    func endUserTakeover() { userTakeoverRequested = false }
     private var secureCleanupNavigation: WKNavigation?
     private var secureCleanupTimeout: Task<Void, Never>?
     private var manualNavigationTimeout: Task<Void, Never>?
@@ -309,6 +333,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
     ]
 
     func execute(action input: BrowserActionInput) async throws -> BrowserActionResult {
+        guard !userTakeoverRequested else { throw UserTakeoverRequested() }
+        let generation = automationGeneration
         guard Self.secureInteractionManager == nil, !isSecureInputActive else {
             return .error("Native secure input is active or its page is refreshing. Wait for the user to finish; retry after the page is ready.")
         }
@@ -318,6 +344,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // cookies survive WebKit ITP's site-data wipes. Runs before the
         // action so a restored cookie is already in place for a navigate.
         await CookieBackupStore.shared.syncIfNeeded()
+        guard !userTakeoverRequested, generation == automationGeneration else { throw UserTakeoverRequested() }
         guard Self.secureInteractionManager == nil, !isSecureInputActive else { return .error("安全输入正在进行，请稍后重试。") }
         var result: BrowserActionResult
         switch input.action {
@@ -378,8 +405,27 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // After visual-change actions: wait for DOM to settle, append change summary,
         // and take a snapshot for UI preview (not sent to model).
         if result.success, Self.visualChangeActions.contains(input.action) {
+            if generation != automationGeneration {
+                result.text += "\n[Browser takeover] Action already executed; post-action observation omitted. Observe the page before deciding what to do next; do not blindly repeat the action."
+                return result
+            }
+            if input.resultMode == .collected {
+                logger.info("[MgrTiming] postprocessing_skipped mode=collected elapsed=\(actionMs)ms")
+                result.text += "\n[Collected result] Final DOM settling and preview were omitted. This is the collected data, not a guarantee that the final page is stable."
+                return result
+            }
             let settleStart = CFAbsoluteTimeGetCurrent()
-            result = await waitForDomSettleAndSnapshot(result: result)
+            let actionResult = result
+            let task = Task { try await self.waitForDomSettleAndSnapshot(result: actionResult, preview: input.preview) }
+            postActionTask = task
+            defer { postActionTask = nil }
+            do {
+                result = try await withTaskCancellationHandler(operation: {
+                    try await task.value
+                }, onCancel: { task.cancel() })
+            } catch is CancellationError where generation != automationGeneration {
+                result.text += "\n[Browser takeover] Action already executed; post-action observation interrupted. Do not blindly repeat the action."
+            }
             let settleMs = Int((CFAbsoluteTimeGetCurrent() - settleStart) * 1000)
             logger.info("[MgrTiming] dom_settle_snapshot elapsed=\(settleMs)ms action=\(input.action.rawValue)")
         }
@@ -456,11 +502,19 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// concise change summary to the result text and take a snapshot for UI preview.
     /// The DOM summary IS sent to the model (appended to text); the snapshot is NOT
     /// (only imageFilePath is set, no base64Image).
-    private func waitForDomSettleAndSnapshot(result: BrowserActionResult) async -> BrowserActionResult {
+    private func waitForDomSettleAndSnapshot(result: BrowserActionResult, preview: BrowserActionInput.Preview) async throws -> BrowserActionResult {
         let prevURL = webView.url
         let settleStart = CFAbsoluteTimeGetCurrent()
         // 1. Install MutationObserver and collect a DOM change summary
-        let domSummary = await collectDomChangeSummary(timeout: 5.0)
+        let domSummary: String
+        do {
+            domSummary = try await collectDomChangeSummary(timeout: 5.0)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            domSummary = "DOM observation incomplete or timed out; the action already executed. Do not repeat it without checking the page."
+        }
+        try Task.checkCancellation()
         let domMs = Int((CFAbsoluteTimeGetCurrent() - settleStart) * 1000)
         logger.info("[SettleTiming] dom_summary elapsed=\(domMs)ms")
 
@@ -470,47 +524,47 @@ final class BrowserUseManager: NSObject, ObservableObject {
         //    sheet is stretching the WKWebView to fill a different container.
         let snapStart = CFAbsoluteTimeGetCurrent()
         var snapshotPath: String? = nil
-        let targetSize = CGSize(width: CGFloat(currentViewport.width),
-                                height: CGFloat(currentViewport.height))
-        let savedFrame = webView.frame
-        let shouldResize = abs(savedFrame.size.width - targetSize.width) > 0.5 ||
-                           abs(savedFrame.size.height - targetSize.height) > 0.5
-        if shouldResize {
-            webView.frame = CGRect(origin: savedFrame.origin, size: targetSize)
-            webView.setNeedsLayout()
-            webView.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 120_000_000)
-        }
-        do {
-            let config = WKSnapshotConfiguration()
-            config.rect = CGRect(origin: .zero, size: targetSize)
-            let image = try await webView.takeSnapshot(configuration: config)
-            lastScreenshot = image
-            if let jpegData = image.jpegData(compressionQuality: 0.7) {
-                let filename = "snapshot_\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
-                let fileURL = Self.screenshotsDir.appendingPathComponent(filename)
-                try jpegData.write(to: fileURL)
-                snapshotPath = fileURL.path
+        if preview == .default {
+            let targetSize = CGSize(width: CGFloat(currentViewport.width),
+                                    height: CGFloat(currentViewport.height))
+            let savedFrame = webView.frame
+            let shouldResize = abs(savedFrame.size.width - targetSize.width) > 0.5 ||
+                               abs(savedFrame.size.height - targetSize.height) > 0.5
+            if shouldResize {
+                webView.frame = CGRect(origin: savedFrame.origin, size: targetSize)
+                webView.setNeedsLayout()
+                webView.layoutIfNeeded()
             }
-        } catch {
-            logger.warning("Post-action snapshot failed: \(error.localizedDescription)")
-        }
-        if shouldResize {
-            // Restore to the configured viewport (not necessarily savedFrame,
-            // which may itself be a sheet-polluted 620 width) and force a
-            // reflow so the page is left laid out at the intended width.
-            // (T-ios-browser-sheet-viewport-pollution)
-            restoreViewportFrame()
+            defer { if shouldResize { restoreViewportFrame() } }
+            do {
+                if shouldResize { try await Task.sleep(nanoseconds: 120_000_000) }
+                let config = WKSnapshotConfiguration()
+                config.rect = CGRect(origin: .zero, size: targetSize)
+                let image = try await takeSnapshotBounded(configuration: config)
+                try Task.checkCancellation()
+                lastScreenshot = image
+                if let jpegData = image.jpegData(compressionQuality: 0.7) {
+                    let filename = "snapshot_\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
+                    let fileURL = Self.screenshotsDir.appendingPathComponent(filename)
+                    try jpegData.write(to: fileURL)
+                    snapshotPath = fileURL.path
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                logger.warning("Post-action snapshot failed: \(error.localizedDescription)")
+            }
         }
 
         let snapMs = Int((CFAbsoluteTimeGetCurrent() - snapStart) * 1000)
-        logger.info("[SettleTiming] snapshot elapsed=\(snapMs)ms")
+        logger.info("[SettleTiming] snapshot elapsed=\(snapMs)ms preview=\(preview.rawValue)")
 
         // 3. Append DOM summary to result text
         var text = result.text
         if !domSummary.isEmpty {
             text += "\n" + domSummary
         }
+        if preview == .none { text += "\n[Preview omitted] No image was captured for this action." }
 
         // 4. Detect URL change (ignore hash-only changes)
         let newURL = webView.url
@@ -534,8 +588,16 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// count gradient is stable (non-increasing) for 3 consecutive 0.5s intervals.
     /// Returns a concise text summary of what changed: added/removed element counts,
     /// URL changes, and notable new text content.
-    private func collectDomChangeSummary(timeout: Double) async -> String {
+    private func collectDomChangeSummary(timeout: Double) async throws -> String {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        func remainingBudget() throws -> TimeInterval {
+            try Task.checkCancellation()
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { throw JSEvalTimeout() }
+            return remaining
+        }
         let setupJS = """
+        if (window.__postActionObserver) window.__postActionObserver.disconnect();
         window.__postActionDom = {
             mutations: 0,
             addedTags: {},
@@ -571,12 +633,15 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 }
             }
         });
+        // Self-cleanup still runs if the host stops waiting or is cancelled.
+        var currentObserver = window.__postActionObserver;
+        setTimeout(function() { currentObserver.disconnect(); }, \(Int(timeout * 1000)));
         window.__postActionObserver.observe(document.documentElement, {
             childList: true, subtree: true, attributes: true, characterData: true
         });
         return 'ok';
         """
-        _ = try? await webView.callAsyncJavaScript(setupJS, arguments: [:], contentWorld: .page)
+        _ = try await callAsyncJavaScriptBounded(setupJS, timeout: remainingBudget())
 
         // Poll until stable: read cumulative mutation count each interval,
         // compute delta (new mutations since last poll). When delta is
@@ -586,16 +651,13 @@ final class BrowserUseManager: NSObject, ObservableObject {
         var lastTotal = 0
         var lastDelta = Int.max
         var stableRuns = 0
-        let startTime = CFAbsoluteTimeGetCurrent()
-
         while true {
-            try? await Task.sleep(nanoseconds: pollNs)
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            if elapsed >= timeout { break }
+            let sleepSeconds = min(Double(pollNs) / 1_000_000_000, try remainingBudget())
+            try await Task.sleep(nanoseconds: UInt64(sleepSeconds * 1_000_000_000))
 
-            let countResult = try? await webView.callAsyncJavaScript(
+            let countResult = try await callAsyncJavaScriptBounded(
                 "return window.__postActionDom ? window.__postActionDom.mutations : 0;",
-                arguments: [:], contentWorld: .page
+                timeout: remainingBudget()
             )
             let total: Int
             if let n = countResult as? Int { total = n }
@@ -633,7 +695,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
             titleNow: document.title
         });
         """
-        guard let jsonStr = try? await webView.callAsyncJavaScript(readJS, arguments: [:], contentWorld: .page) as? String,
+        guard let jsonStr = try await callAsyncJavaScriptBounded(readJS, timeout: remainingBudget()) as? String,
               let jsonData = jsonStr.data(using: .utf8),
               let info = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             return ""
@@ -742,6 +804,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// wedged WebContent is still caught by the pool's dead-tab ceiling, which
     /// replaces the whole WKWebView.
     private func callAsyncJavaScriptBounded(_ js: String, timeout: TimeInterval) async throws -> Any? {
+        try Task.checkCancellation()
         let box = ContinuationBox()
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.schedule(deadline: .now() + timeout)
@@ -754,19 +817,45 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // identical to how `withDeadOnTimeout` abandons its wedged operation,
         // and for the same reason: a call parked on a WebKit callback that never
         // fires cannot honour cooperative cancellation.
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
-            box.cont = cont
-            let evalTask = Task { @MainActor in
-                do {
-                    let value = try await self.webView.callAsyncJavaScript(js, arguments: [:], contentWorld: .page)
-                    box.finish(.success(value))
-                } catch {
-                    box.finish(.failure(error))
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
+                box.cont = cont
+                let evalTask = Task { @MainActor in
+                    do {
+                        try Task.checkCancellation()
+                        let value = try await self.webView.callAsyncJavaScript(js, arguments: [:], contentWorld: .page)
+                        box.finish(.success(value))
+                    } catch {
+                        box.finish(.failure(error))
+                    }
                 }
+                box.onFinish = { timer.cancel(); evalTask.cancel() }
+                timer.resume()
             }
-            box.onFinish = { timer.cancel(); evalTask.cancel() }
-            timer.resume()
-        }
+        }, onCancel: { box.finish(.failure(CancellationError())) })
+    }
+
+    private func takeSnapshotBounded(configuration: WKSnapshotConfiguration) async throws -> UIImage {
+        try Task.checkCancellation()
+        let box = ContinuationBox()
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 10)
+        timer.setEventHandler { box.finish(.failure(JSEvalTimeout())) }
+        let value = try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
+                box.cont = cont
+                let task = Task { @MainActor in
+                    do {
+                        try Task.checkCancellation()
+                        box.finish(.success(try await self.webView.takeSnapshot(configuration: configuration)))
+                    } catch { box.finish(.failure(error)) }
+                }
+                box.onFinish = { timer.cancel(); task.cancel() }
+                timer.resume()
+            }
+        }, onCancel: { box.finish(.failure(CancellationError())) })
+        guard let image = value as? UIImage else { throw URLError(.cannotDecodeContentData) }
+        return image
     }
 
     /// One-shot guard so exactly one of {eval-completion, timeout} resumes the
@@ -775,16 +864,37 @@ final class BrowserUseManager: NSObject, ObservableObject {
     private final class ContinuationBox: @unchecked Sendable {
         private let lock = NSLock()
         private var done = false
-        var cont: CheckedContinuation<Any?, Error>?
+        private var continuation: CheckedContinuation<Any?, Error>?
+        private var pending: Result<Any?, Error>?
+        private var cleanup: (() -> Void)?
+        var cont: CheckedContinuation<Any?, Error>? {
+            get { lock.lock(); defer { lock.unlock() }; return continuation }
+            set {
+                lock.lock()
+                if let pending {
+                    lock.unlock(); newValue?.resume(with: pending)
+                } else {
+                    continuation = newValue; lock.unlock()
+                }
+            }
+        }
         /// Cleanup run once, on the winning side (used to cancel the GCD timer
         /// when the eval completes, or drop nothing when the timer itself fires).
-        var onFinish: (() -> Void)?
+        var onFinish: (() -> Void)? {
+            get { lock.lock(); defer { lock.unlock() }; return cleanup }
+            set {
+                lock.lock()
+                if done { lock.unlock(); newValue?() }
+                else { cleanup = newValue; lock.unlock() }
+            }
+        }
         func finish(_ result: Result<Any?, Error>) {
             lock.lock()
             if done { lock.unlock(); return }
             done = true
-            let c = cont; cont = nil
-            let cleanup = onFinish; onFinish = nil
+            let c = continuation; continuation = nil
+            if c == nil { pending = result }
+            let cleanup = self.cleanup; self.cleanup = nil
             lock.unlock()
             cleanup?()
             switch result {
@@ -895,6 +1005,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // 90s ceiling — reintroducing the pile-up this fix exists to prevent.
         let navTimer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         navTimer.schedule(deadline: .now() + Self.navigationTimeout)
+        defer { navTimer.cancel() }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             self.navigationContinuation = continuation
@@ -916,7 +1027,6 @@ final class BrowserUseManager: NSObject, ObservableObject {
             }
             navTimer.resume()
         }
-        navTimer.cancel()
 
         let navDoneMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
         logger.info("[NavTiming] wait_returned elapsed=\(navDoneMs)ms url=\(url.absoluteString.prefix(100))")
@@ -1027,7 +1137,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let config = WKSnapshotConfiguration()
         config.rect = CGRect(origin: .zero, size: targetSize)
         let takeSnapStart = CFAbsoluteTimeGetCurrent()
-        let image = try await webView.takeSnapshot(configuration: config)
+        let image = try await takeSnapshotBounded(configuration: config)
         let takeSnapMs = Int((CFAbsoluteTimeGetCurrent() - takeSnapStart) * 1000)
         logger.info("[ScreenshotTiming] takeSnapshot elapsed=\(takeSnapMs)ms")
         lastScreenshot = image
@@ -1089,7 +1199,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
         // Get scroll position and page dimensions via JS
         var scrollX = 0, scrollY = 0, pageW = 0, pageH = 0
-        if let js = try? await webView.evaluateJavaScript(
+        if let js = try? await evaluateJavaScriptBounded(
             "JSON.stringify({sx:window.scrollX,sy:window.scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})"
         ) as? String,
            let data = js.data(using: .utf8),

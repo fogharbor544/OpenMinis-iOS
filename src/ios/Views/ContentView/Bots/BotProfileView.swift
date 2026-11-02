@@ -229,7 +229,11 @@ struct BotProfileView: View {
             ZStack(alignment: .bottom) {
                 Group {
                     if let preview {
-                        Image(uiImage: preview.image).resizable().scaledToFill()
+                        GeometryReader { geometry in
+                            Image(uiImage: preview.image).resizable().scaledToFit()
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                                .background(Color(UIColor.tertiarySystemFill))
+                        }
                     } else {
                         VStack(spacing: 8) {
                             Image(systemName: "globe").font(.largeTitle).foregroundStyle(.secondary)

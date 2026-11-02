@@ -74,6 +74,9 @@ extension AIChatViewModel {
     /// model at the next request too (before that it waited for the next turn).
     @MainActor
     func cancelWorkBoundToPreviousModel(reason: String) {
+        botMemoryReviewTask?.cancel()
+        botMemoryReviewTask = nil
+
         let hasLoop = currentTask != nil
         let retryLadderLive = autoRetryAttempt > 0 || autoRetryCountdown > 0
         let hadLoop = hasLoop && retryLadderLive
@@ -131,6 +134,12 @@ extension AIChatViewModel {
     }
 
     func cancel() {
+        if isDirectBotConversation, let sid = sessionId {
+            BotTeamRuntime.shared.targetWillStop(sessionID: sid, turn: currentTask)
+        }
+        botMemoryReviewTask?.cancel()
+        botMemoryReviewTask = nil
+
         let lastBlocks = (messages.last?.role == .assistant) ? messages.last!.blocks.count : -1
         let lastRole = messages.last.map { $0.role == .assistant ? "assistant" : "user" } ?? "nil"
         logger.info("⏹️ cancel() START session=\(self.sessionId ?? "nil") isProcessing=\(self.isProcessing) lastRole=\(lastRole) lastBlocks=\(lastBlocks) currentTask=\(self.currentTask != nil)")
@@ -152,11 +161,11 @@ extension AIChatViewModel {
             // button back to Stop and post a result the user just cancelled.
             // Each cancelled job still reports back through its own callback.
             if !isHelper {
-                BotTeamRuntime.shared.cancelQueued(parent: sid)
                 // [T-sub-agents-queue] Drop the backlog FIRST: cancelling a
                 // running job drains the queue, which would start the very
                 // delegations the user just stopped.
                 AgentJobRegistry.shared.dropQueuedDelegations(parent: sid, reason: "user stopped the conversation")
+                BotTeamRuntime.shared.cancelDelegations(parent: sid)
                 // silent: a cancelled job normally reports back so a waiting
                 // model learns what happened — but here the callback IS what
                 // the user is stopping. Delivered, it wakes the parent, which

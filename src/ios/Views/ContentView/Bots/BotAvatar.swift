@@ -17,7 +17,7 @@ struct BotAvatar: View {
             } else if let preset = profile.originalAvatar,
                       let cover = BotAvatarFrameCache.shared.poster(preset) {
                 if let playbackID {
-                    BotAvatarAnimation(preset: preset, cover: cover, playbackID: playbackID)
+                    BotAvatarAnimation(preset: preset, cover: cover, size: size, playbackID: playbackID)
                 } else { Image(uiImage: cover).resizable().scaledToFit() }
             } else {
                 Image(systemName: profile.iconSymbol ?? "bubble.left.fill")
@@ -121,12 +121,18 @@ final class BotAvatarFrameCache {
 private struct BotAvatarAnimation: UIViewRepresentable {
     let preset: BotAvatarPreset
     let cover: UIImage
+    let size: CGFloat
     let playbackID: UUID
     func makeUIView(context: Context) -> BotAvatarImageView {
         let view = BotAvatarImageView()
         view.contentMode = .scaleAspectFit
         view.isAccessibilityElement = false
         return view
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: BotAvatarImageView, context: Context) -> CGSize? {
+        // Use the avatar square, not the decoded image's intrinsic dimensions,
+        // so playback has the same layout as the static cover.
+        CGSize(width: size, height: size)
     }
     func updateUIView(_ view: BotAvatarImageView, context: Context) {
         guard context.coordinator.token != playbackID else { return }

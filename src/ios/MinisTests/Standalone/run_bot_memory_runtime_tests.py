@@ -13,6 +13,11 @@ with tempfile.TemporaryDirectory(prefix='minis-memory-runtime-') as temp:
         out = temp / (name + '.swift')
         out.write_text(source, encoding='utf-8')
         sources.append(str(out))
+    models = (root / 'Agent/Chat/ChatStoreModels.swift').read_text(encoding='utf-8')
+    usage = 'struct StoredTokenUsage' + models.split('struct StoredTokenUsage', 1)[1].split('/// A single message', 1)[0]
+    usage_path = temp / 'Usage.swift'
+    usage_path.write_text('import Foundation\n' + usage, encoding='utf-8')
+    sources.append(str(usage_path))
     binary = temp / 'tests'
     subprocess.run(['swiftc', *sources, str(root / 'Views/ContentView/Bots/AIChatViewModel+BotMemory.swift'),
                     str(Path(__file__).with_name('BotMemoryRuntimeTests.swift')), '-lsqlite3', '-o', str(binary)], check=True)

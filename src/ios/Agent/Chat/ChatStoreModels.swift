@@ -343,6 +343,37 @@ struct StoredTokenUsage: Codable, Hashable {
     /// JSON string (messages.token_usage, SyncedMessage.tokenUsageJson, backup),
     /// so it needs no column, no sync field and no backup change.
     var estimatorVersion: Int? = nil
+    // Auxiliary inference is billed with this reply, but is not part of the
+    // conversation request or its context calibration. Optional for old archives.
+    var auxiliaryInputTokens: Int? = nil
+    var auxiliaryOutputTokens: Int? = nil
+    var auxiliaryCacheCreationTokens: Int? = nil
+    var auxiliaryCacheReadTokens: Int? = nil
+
+    var auxiliaryUsage: StoredTokenUsage? {
+        guard auxiliaryInputTokens != nil else { return nil }
+        return StoredTokenUsage(inputTokens: auxiliaryInputTokens ?? 0, outputTokens: auxiliaryOutputTokens ?? 0,
+            cacheCreationTokens: auxiliaryCacheCreationTokens ?? 0, cacheReadTokens: auxiliaryCacheReadTokens ?? 0,
+            latestContextTokens: nil)
+    }
+
+    var billedUsage: StoredTokenUsage {
+        var result = self
+        result.inputTokens += auxiliaryInputTokens ?? 0
+        result.outputTokens += auxiliaryOutputTokens ?? 0
+        result.cacheCreationTokens += auxiliaryCacheCreationTokens ?? 0
+        result.cacheReadTokens += auxiliaryCacheReadTokens ?? 0
+        result.auxiliaryInputTokens = nil; result.auxiliaryOutputTokens = nil
+        result.auxiliaryCacheCreationTokens = nil; result.auxiliaryCacheReadTokens = nil
+        return result
+    }
+
+    mutating func addAuxiliaryUsage(_ usage: StoredTokenUsage) {
+        auxiliaryInputTokens = (auxiliaryInputTokens ?? 0) + usage.inputTokens
+        auxiliaryOutputTokens = (auxiliaryOutputTokens ?? 0) + usage.outputTokens
+        auxiliaryCacheCreationTokens = (auxiliaryCacheCreationTokens ?? 0) + usage.cacheCreationTokens
+        auxiliaryCacheReadTokens = (auxiliaryCacheReadTokens ?? 0) + usage.cacheReadTokens
+    }
 }
 
 /// A single message in the conversation (one "turn").

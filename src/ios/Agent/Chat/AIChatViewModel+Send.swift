@@ -32,6 +32,9 @@ extension AIChatViewModel {
     ///   the text here keeps a background turn from reading, overwriting, or
     ///   emptying whatever the user is typing at that moment.
     func send(overrideText: String? = nil) {
+        botMemoryReviewTask?.cancel()
+        botMemoryReviewTask = nil
+
         guard !BotRestoreControl.isRestoring else { errorMessage = "正在恢复 Bot 数据，请完成后再发送。"; return }
         settlePendingStop(before: "send")  // [T-stop-cleanup-before-new-turn]
         // Read-only mode — cannot send messages

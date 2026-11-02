@@ -1212,6 +1212,8 @@ extension AIChatViewModel {
     /// parent muted, sibling set cancelled silently — so no "cancelled"
     /// callback wakes the parent. Anything else is a plain `cancel()`.
     func stopByUser() {
+        if isDirectBotConversation, let sid = sessionId,
+           BotTeamRuntime.shared.stopByUser(sessionID: sid) { return }
         if isHelper, let sid = sessionId,
            AgentJobRegistry.shared.stopSubAgentByUser(
                childSessionId: sid, reason: "user stopped this sub agent from its own page") > 0 {

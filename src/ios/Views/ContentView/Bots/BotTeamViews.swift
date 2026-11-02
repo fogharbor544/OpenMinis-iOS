@@ -20,7 +20,10 @@ struct BotDelegationLink: View {
             }.font(.caption).foregroundStyle(.secondary).frame(minHeight: 44)
         }.buttonStyle(.plain)
         .sheet(isPresented: $showingTranscript) {
-            if let sid = current.childSessionID {
+            if current.directExecution == true, let sid = current.childSessionID {
+                BotTaskConversation(delegationID: current.id, sessionID: sid)
+                    .presentationDetents([.large])
+            } else if let sid = current.childSessionID {
                 HelperTranscriptPage(target: HelperSheetTarget(id: sid, title: "\(current.fromName) ↔ \(current.toName)"))
                     .presentationDetents([.large]).interactiveDismissDisabled()
             } else {
@@ -40,6 +43,33 @@ struct BotDelegationLink: View {
 }
 
 /// Part of the message timeline, not a floating overlay over chat content.
+/// The target Bot's normal, interactive conversation with the commander.
+private struct BotTaskConversation: View {
+    let delegationID: String
+    let sessionID: String
+    @ObservedObject private var store = BotWorkspaceStore.shared
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                if let record = store.delegation(delegationID) {
+                    HStack(spacing: 8) {
+                        if let bot = store.bot(record.fromBotID) { BotAvatar(profile: bot, size: 24) }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("与 \(record.fromName) 的会话").font(.subheadline.weight(.semibold))
+                            Text(record.state == .reviewing ? "结果已回传，等待核查" : record.statusLabel).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("完成") { dismiss() }.frame(minHeight: 44)
+                    }.padding(.horizontal, 16).padding(.vertical, 8)
+                    Divider()
+                }
+                AIChatView(sessionId: sessionID).id(sessionID)
+            }
+        }
+    }
+}
+
 struct BotConversationOverview: View {
     @EnvironmentObject private var vm: AIChatViewModel
     @ObservedObject private var store = BotWorkspaceStore.shared
@@ -47,7 +77,6 @@ struct BotConversationOverview: View {
     @State private var showTaskHistory = false
     @State private var notice: String?
     @State private var error: String?
-    @State private var openBot: BotProfile?
     private var bot: BotProfile? { vm.sessionId.flatMap { store.bot(forSession: $0) } }
     private var records: [BotDelegation] {
         guard let bot else { return [] }
@@ -95,6 +124,12 @@ struct BotConversationOverview: View {
                                 BotDelegationLink(record: record, incoming: true, fromCommander: true)
                                 Text(record.title).font(.subheadline).lineLimit(2)
                                 Text(record.statusLabel).font(.caption).foregroundStyle(.secondary)
+                                if let result = record.result, !result.isEmpty {
+                                    Text(record.state == .reviewing || record.state == .completed
+                                         ? "已回复 \(record.fromName)" : "任务结果")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Text(String(result.prefix(1000))).font(.subheadline).lineLimit(3).textSelection(.enabled)
+                                }
                             }.padding(.vertical, 4)
                         }
                         if records.count > 3 {
@@ -106,39 +141,36 @@ struct BotConversationOverview: View {
                     Text((onboarding.memorySaved == true ? "已记住：" : "已选择（未写入长期记忆）：") + onboarding.selected.filter { onboarding.options.indices.contains($0) }.map { onboarding.options[$0] }.joined(separator: "、"))
                         .font(.subheadline).foregroundStyle(.secondary).padding(16)
                 }
-                if bot.isCommander {
-                    let created = store.data.bots.filter { $0.creationRequestID != nil }
-                    if !created.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("已创建的 Bot").font(.headline)
-                            ForEach(Array(created.suffix(3))) { target in
-                                Button { openBot = target } label: {
-                                    HStack { BotAvatar(profile: target, size: 28); Text(target.name); Spacer(); Image(systemName: "chevron.right") }
-                                        .frame(minHeight: 44)
-                                }.buttonStyle(.plain)
-                            }
-                        }.padding(16).background(Color(UIColor.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
-                    }
-                }
             }
             if let notice { Text(notice).font(.caption).foregroundStyle(.secondary) }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
-        .sheet(item: $openBot) { BotOpenedChat(botID: $0.id) }
-        .sheet(isPresented: $showTaskHistory) {
-            NavigationStack {
-                List(records) { record in
-                    VStack(alignment: .leading, spacing: 4) {
-                        BotDelegationLink(record: record, incoming: true, fromCommander: true)
-                        Text(record.title)
-                        Text(record.statusLabel).font(.caption).foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .overlay {
+            Color.clear.frame(width: 0, height: 0)
+                .sheet(isPresented: $showTaskHistory) {
+                    NavigationStack {
+                        List(records) { record in
+                            VStack(alignment: .leading, spacing: 4) {
+                                BotDelegationLink(record: record, incoming: true, fromCommander: true)
+                                Text(record.title)
+                                Text(record.statusLabel).font(.caption).foregroundStyle(.secondary)
+                                if let result = record.result, !result.isEmpty {
+                                    Text(result).font(.subheadline).lineLimit(3)
+                                }
+                            }
+                        }.navigationTitle("委派记录")
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") { showTaskHistory = false }
+                                }
+                            }
                     }
-                }.navigationTitle("委派记录")
-            }
+                }
         }
-        .onChange(of: bot) { _ in resizeOverview() }
-        .onChange(of: records) { _ in resizeOverview() }
+        .onChange(of: error) { _ in resizeOverview() }
+        .onChange(of: notice) { _ in resizeOverview() }
     }
 
     private func resizeOverview() {
@@ -198,11 +230,12 @@ struct BotSourceRow: View {
            let record = store.data.delegations.first(where: { ($0.childSessionID != nil && $0.childSessionID == callback.childSessionId) || "bot:" + $0.id == callback.jobId }) {
             BotDelegationLink(record: record, incoming: true).frame(maxWidth: .infinity)
         } else if let sid = vm.sessionId,
-                  let record = store.data.delegations.first(where: { $0.childSessionID == sid }), message.role == .user {
+                  let record = store.data.delegations.first(where: { $0.childSessionID == sid }), message.role == .user,
+                  record.directExecution != true || message.content.hasPrefix("消息来自 \(record.fromName)\n\n") {
             HStack(spacing: 6) {
                 if let bot = store.bot(record.fromBotID) { BotAvatar(profile: bot, size: 20) }
-                Text(record.fromName)
-                Text("· 只读委派消息").foregroundStyle(.secondary)
+                Text("消息来自 \(record.fromName)")
+                if record.directExecution != true { Text("· 只读委派消息").foregroundStyle(.secondary) }
             }.font(.caption).padding(.horizontal, 16)
         }
     }

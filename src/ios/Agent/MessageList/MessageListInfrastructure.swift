@@ -356,63 +356,13 @@ class SelfSizingCell: UICollectionViewCell {
             return copy
         }
 
-        // [T-ios-selfsizingcell-super-plaf-async-race, crash3 build 43 iOS 18.3]
-        // `super.preferredLayoutAttributesFitting` is NOT a passive attribute
-        // copy — it drives UICollectionViewCell.systemLayoutSizeFittingSize →
-        // UIHostingContentView.systemLayoutSizeFitting → ViewRendererHost.
-        // sizeThatFits → Update.begin() (crash frames 6-11), i.e. a FULL
-        // re-entry into the hosting view graph on the main thread, taking the
-        // SwiftUI global render lock. The explicit measure further down (line
-        // ~289) was already pinned with `withExtendedLifetime` + noff_try_objc
-        // against the FB13213926 AsyncRenderer dealloc race, but THIS super call
-        // — which measures the same hosting subtree first — was left unguarded.
-        // crash3 crashed on the DisplayLink async-render thread (Thread 12) in
-        // ViewGraphGeometryObservers.needsUpdate while the main thread sat in
-        // exactly this super call (Thread 0, blocked on _MovableLockLock inside
-        // Update.begin). Pin the whole contentView subtree here too, so no
-        // descendant hosting view can be deallocated mid-measure while the
-        // async renderer iterates the same geometry observers. Collected once
-        // and reused by the explicit measure below. Functionality-neutral:
-        // extended lifetime only delays dealloc; the returned attributes are
-        // byte-identical.
+        // This custom cell measures its hosting content below. UIKit's super
+        // implementation also enters the SwiftUI graph to measure it, so calling
+        // both synchronously took the global render lock twice per streamed size
+        // update. Keep the proposed geometry and perform one protected measure.
         var hostingSubtree: [UIView] = []
         Self.collectSubtree(self.contentView, into: &hostingSubtree)
-        var superAttrs: UICollectionViewLayoutAttributes = layoutAttributes
-        let superOk = noff_try_objc {
-            withExtendedLifetime(hostingSubtree) {
-                superAttrs = super.preferredLayoutAttributesFitting(layoutAttributes)
-            }
-        }
-        if !superOk {
-            // super's hosting measure threw an ObjC exception mid-race. Fall
-            // back to the best height we have (cached, else the proposed one)
-            // rather than crashing.
-            Self.sizingLogger.info("[CellSizing] ⚠️ super.preferredLayoutAttributesFitting threw — using fallback height")
-            if let cached = lastComputedHeight {
-                let copy = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
-                copy.size.height = cached
-                return copy
-            }
-            return layoutAttributes
-        }
-        let attrs = superAttrs
-
-        // Same-width cache hit (no time bound). Same rationale as the
-        // dedup-window above but covers the broader "width never changed"
-        // case across longer scroll runs.
-        if let cached = lastComputedHeight,
-           abs(layoutAttributes.size.width - attrs.size.width) < 1 {
-            attrs.size.height = cached
-            // [ScrollStall] Count broad cache hits; flush summary 1Hz.
-            Self.broadHits &+= 1
-            let now = CACurrentMediaTime()
-            if now - Self.broadLastFlush > 1.0 {
-                AppLogger(category: "ScrollStall").debug("[CACHE-BROAD] last1s hits=\(Self.broadHits)")
-                Self.broadHits = 0
-                Self.broadLastFlush = now
-            }
-            return attrs
-        }
+        let attrs = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
 
         let gen = configGeneration
         let targetSize = CGSize(width: layoutAttributes.size.width, height: UIView.layoutFittingCompressedSize.height)
@@ -446,9 +396,7 @@ class SelfSizingCell: UICollectionViewCell {
         // for the duration of the measure so no descendant's refcount can hit
         // zero mid-measurement while AsyncRenderer iterates the same observers.
         var fittingSize = CGSize(width: targetSize.width, height: attrs.size.height)
-        // `hostingSubtree` was already collected and pinned around the super
-        // call above; reuse it here so the explicit measure runs under the same
-        // lifetime guarantee without walking the subtree a second time.
+        // Keep every descendant alive throughout the single hosting measure.
         let measureOk = noff_try_objc {
             withExtendedLifetime(hostingSubtree) {
                 fittingSize = self.contentView.systemLayoutSizeFitting(

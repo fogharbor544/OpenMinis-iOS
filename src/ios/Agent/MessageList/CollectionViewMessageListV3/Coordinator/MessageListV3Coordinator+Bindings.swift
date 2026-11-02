@@ -87,6 +87,18 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
                 .store(in: &subscriptions)
 
+            // Task/onboarding changes do not necessarily publish vm.messages.
+            // Refresh even a still-empty private chat when its Bot receives a task.
+            BotWorkspaceStore.shared.$data
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak vm] _ in
+                    guard let self, let vm else { return }
+                    if vm.isLoadingSession { self.hasPendingSnapshot = true; return }
+                    self.applySnapshot(messages: vm.messages, caller: "bot-workspace")
+                }
+                .store(in: &subscriptions)
+
             // 1c. [T-ios-ui-blocks-lost-suspend-resume] Suspend-resume flush.
             //     `streamingUIUpdatesSuspended` is a plain (private(set)) var on
             //     the vm — not @Published — but every state change that clears it

@@ -196,6 +196,7 @@ extension CollectionViewMessageListV3 {
         /// The session the two sets above belong to.
         var toolFoldSessionId: String?
         var toolGroupToggleSub: AnyCancellable?
+        var botTimelineHeightKeys: [UUID: String] = [:]
 
         // === Attachment mount invalidation ===
         // [T-ios-user-attach-mount-invalidate] Drain mounts attachments onto an

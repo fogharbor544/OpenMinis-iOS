@@ -50,4 +50,22 @@ extension BotWorkspaceStore {
         return session.id
     }
 
+    /// A normal, target-owned Bot conversation. It is linked from the target's
+    /// incoming-task hint, not added to its private chats or the commander's helpers.
+    func prepareDelegationSession(_ record: BotDelegation) async throws -> String {
+        guard !BotRestoreControl.isRestoring, let profile = bot(record.toBotID) else { throw BotWorkspaceError.missingBot }
+        if record.directExecution == true, let sid = record.childSessionID, await ChatStore.shared.getSession(sid) != nil,
+           owner(forSession: sid) == BotSessionOwner(botId: profile.id, delegationID: record.id) { return sid }
+        let providers = ProviderConfigStore.shared
+        guard let groupID = profile.modelGroupId ?? providers.defaultPrimaryGroupId,
+              let group = providers.group(for: groupID),
+              let entryID = ModelGroupRouter.resolve(group: group, sessionId: record.id, store: providers),
+              let entry = providers.entry(for: entryID) else { throw BotWorkspaceError.noModel }
+        let session = await ChatStore.shared.createSession(modelId: entry.model.id,
+            title: "\(record.fromName) ↔ \(profile.name) · \(record.title)", source: "bot")
+        providers.setBinding(SessionModelBinding(sessionId: session.id,
+            primarySource: .group(groupId: groupID, resolvedEntryId: entryID)), for: session.id)
+        return session.id
+    }
+
 }

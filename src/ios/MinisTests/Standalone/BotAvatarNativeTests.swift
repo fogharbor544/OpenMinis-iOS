@@ -18,6 +18,25 @@ private struct AvatarGallery: View {
     }
 }
 
+private struct AnimatedAvatarLayoutFixture: View {
+    let profile: BotProfile
+    let playbackID: UUID
+    var body: some View {
+        Form {
+            ForEach([80, 92], id: \.self) { side in
+                Section {
+                    VStack(spacing: 8) {
+                        Button {} label: {
+                            BotAvatar(profile: profile, size: CGFloat(side), playbackID: playbackID)
+                        }.buttonStyle(.plain)
+                        Text("云朵小熊").font(.subheadline).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity).padding(.vertical, 8)
+                }
+            }
+        }
+    }
+}
+
 @main @MainActor final class BotAvatarNativeTests: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     private var cases: [String] = []
@@ -44,6 +63,11 @@ private struct AvatarGallery: View {
         }
         try data.write(to: documents.appendingPathComponent(name + ".png"))
         check(!data.isEmpty, name)
+    }
+
+    private func avatarImages(in view: UIView) -> [BotAvatarImageView] {
+        if let image = view as? BotAvatarImageView { return [image] }
+        return view.subviews.flatMap { avatarImages(in: $0) }
     }
 
     private func validate(host: UIHostingController<AnyView>, window: UIWindow) async {
@@ -82,6 +106,31 @@ private struct AvatarGallery: View {
                 image.removeFromSuperview()
             }
             let profile = BotProfile(name: "指挥官", avatarPresetID: "cloud-bear")
+            host.rootView = AnyView(AnimatedAvatarLayoutFixture(profile: profile, playbackID: UUID()))
+            await pause(0.35)
+            let animatedViews = avatarImages(in: host.view).sorted { $0.bounds.width < $1.bounds.width }
+            check(animatedViews.count == 2, "swiftui-form-mounts-both-animated-avatars")
+            for (image, expected) in zip(animatedViews, [CGFloat(80), CGFloat(92)]) {
+                check(abs(image.bounds.width - expected) < 0.5 && abs(image.bounds.height - expected) < 0.5,
+                      "swiftui-animation-bounds-" + String(Int(expected)))
+                check(image.contentMode == .scaleAspectFit, "swiftui-animation-aspect-fit-" + String(Int(expected)))
+            }
+            if !UIAccessibility.isReduceMotionEnabled && !ProcessInfo.processInfo.isLowPowerModeEnabled {
+                check(animatedViews.count == 2 && animatedViews.allSatisfy(\.isAnimating), "swiftui-avatars-actively-playing")
+            }
+            try snapshot(window, name: "avatar-motion-early")
+            await pause(0.65)
+            check(animatedViews.allSatisfy { abs($0.bounds.width - $0.bounds.height) < 0.5 && $0.bounds.width <= 92.5 },
+                  "swiftui-animation-bounds-stable-mid-playback")
+            try snapshot(window, name: "avatar-motion-middle")
+            for iteration in 0..<3 {
+                host.rootView = AnyView(Text("Conversation"))
+                await pause(0.1)
+                host.rootView = AnyView(BotAvatar(profile: profile, size: 92))
+                await pause(0.1)
+                check(avatarImages(in: host.view).isEmpty && animatedViews.allSatisfy { !$0.isAnimating },
+                      "static-commander-return-" + String(iteration))
+            }
             window.overrideUserInterfaceStyle = .light
             host.rootView = AnyView(BotAvatarPicker(profile: profile) { _ in true })
             await pause(2.4); try snapshot(window, name: "avatar-picker-light")

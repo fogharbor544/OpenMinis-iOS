@@ -28,7 +28,7 @@ import Foundation
         workspace.delegations = [task]
         workspace.conversationStates["parent"] = BotConversationState(lastReadMessageID: "reply")
         precondition(store.persist(workspace))
-        precondition(store.bindDelegation(task.id, childSessionID: "child", jobID: "job"))
+        precondition(store.bindDelegation(task.id, childSessionID: "child"))
         precondition(store.owner(forSession: "child")?.botId == specialist.id)
         precondition(store.owner(forSession: "child")?.delegationID == task.id)
         precondition(store.bot(specialist.id)?.sessionId == "private")
@@ -41,6 +41,8 @@ import Foundation
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let archive = try decoder.decode(BotWorkspaceArchive.self, from: encoder.encode(captured))
         precondition(archive.version == 3 && archive.workspace.delegations.count == 1)
+        precondition(archive.workspace.delegations.first?.directExecution == true)
+        precondition(archive.workspace.delegations.first?.jobID == nil)
         precondition(archive.workspace.sessionOwners["child"]?.delegationID == task.id)
         let fresh = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"))
         let restored = try archive.merging(into: fresh.data, memories: [])

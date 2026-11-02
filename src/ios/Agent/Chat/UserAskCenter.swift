@@ -28,6 +28,7 @@ final class UserAskCenter: ObservableObject {
     /// their delivery (the batch persists the result); recovery must never
     /// deliver them too, even in the gap between resolution and that persist.
     private var inProcess: Set<String> = []
+    private var deferredDeliveries: [String: String] = [:]
     private var tickTask: Task<Void, Never>?
     private var categoryRegistry = UserAskCategoryRegistry()
     private let store = UserAskRecordStore()
@@ -73,6 +74,14 @@ final class UserAskCenter: ObservableObject {
         guard let sessionId else { return false }
         return asks.values.contains { $0.sessionId == sessionId && $0.state == .pending }
             || store.all().values.contains { $0.ask.sessionId == sessionId && $0.ask.state == .pending && !$0.ask.consumed }
+    }
+
+    /// A Bot task must wait through both the card and its asynchronous answer
+    /// handoff, including DB replacement/reload before the next turn starts.
+    func isAwaitingUserInteraction(inSession sessionId: String) -> Bool {
+        asks.values.contains {
+            $0.sessionId == sessionId && ($0.state == .pending || ($0.isDeferred && $0.state.isTerminal && !$0.consumed))
+        } || deferredDeliveries.values.contains(sessionId)
     }
 
     // MARK: - Start and wait
@@ -651,6 +660,8 @@ extension UserAskCenter {
     func deliverDeferred(requestId: String) async {
         guard let ask = asks[requestId], ask.isDeferred, ask.state.isTerminal, !ask.consumed,
               let json = ask.resultJSON else { return }
+        deferredDeliveries[requestId] = ask.sessionId
+        defer { deferredDeliveries[requestId] = nil }
         markDeferredConsumed(requestId)
         let sid = ask.sessionId
         await Self.replaceToolResult(sessionId: sid, toolUseId: ask.toolCallId, output: json)

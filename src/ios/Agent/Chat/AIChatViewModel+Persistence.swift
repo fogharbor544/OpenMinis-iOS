@@ -766,7 +766,7 @@ extension AIChatViewModel {
         // usage. Runtime totals were already correct via the per-iteration `+=`.
         // (Accumulators were already zeroed above, before the empty-session guard.)
         for raw in rawMessages where raw.role == .assistant {
-            if let u = raw.tokenUsage {
+            if let u = raw.tokenUsage?.billedUsage {
                 sessionInputTokens += u.inputTokens
                 sessionOutputTokens += u.outputTokens
                 sessionCacheReadTokens += u.cacheReadTokens

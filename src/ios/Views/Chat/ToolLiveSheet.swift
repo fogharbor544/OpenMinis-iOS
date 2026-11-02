@@ -1115,7 +1115,7 @@ struct ToolLiveSheet: View {
             switch sheet {
             case .takeoverBrowser:
                 if let pool = browserPool {
-                    BrowserSheetView(pool: pool, isAgentBusy: false)
+                    BrowserSheetView(pool: pool)
                 }
             case .linkPreview(let url):
                 MinisLinkPreviewView(url: url, browserPool: browserPool)

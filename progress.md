@@ -370,3 +370,89 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Main application code remains d72b780; final follow-up commit only records verification. New branch pushed to darkyuanbao06/codex/bot-team-original-avatars; original codex/bot-single-chat remains clean at7450d01.
 - No physical-device gesture/Reduce Motion switch, real-provider routing/review/takeover, or power-loss fault-injection acceptance claimed. No original-branch merge or deployment performed.
 - Final unsigned IPA downloaded and verified:123153522 bytes, arm64, Bundle ID com.openminis.app, ZIP CRC clean, exact d72b780 provenance, no main-app signature/profile. SHA-25652038278f24c1613f2073d45d2d4707b62c6e9748f279ffecf350b3ae030933c. Local artifact:build/validation/bot-team-d72b780/OpenMinis-unsigned.ipa.
+
+## Avatar clipping / commander replay follow-up — uncommitted
+- User requested local fixes only, explicitly no commit or push. HEAD remains56050b2; original root remains separate.
+- BotAvatarAnimation now receives the requested side and implements UIViewRepresentable.sizeThatFits with that exact square. Existing scaleAspectFit is preserved; UIKit image intrinsic dimensions no longer determine preview layout.
+- Commander Bot-list entry now uses static BotAvatar instead of auto-playing BotAvatarPreview. Picker still supports its preview and explicit replay.
+- Added actual SwiftUI/Form motion fixtures at80/92 points, early/mid-playback screenshots, stable bounds and static-header remount assertions. Native runner now expects6 images and removes an old result.json before launching to avoid stale success on repeat runs.
+- Executed:12 atlas identities/SHA-256/192 frame geometry check PASS;3 modified Swift files have no added tree-sitter parse errors; Python runner parses; git diff --check clean. No native typecheck/simulator/device test or new IPA performed for these local changes (Windows, no push).
+
+- 2026-11-02: began four-area iOS device regression repair in bot-team-original-avatars worktree; remote head confirmed, existing dirty diff inventoried. No app edits yet.
+
+## 2026-11-02 local repair validation
+- Implemented screenshot fixes plus redundant streaming measurement/registration removal and asynchronous scoped-memory review on codex/bot-team-original-avatars at56050b2; preserved prior uncommitted avatar work. No commit, push, remote build or release.
+- Executed: current Bot source-contract check PASS; chat settings source checks PASS (7 tests); tree-sitter parsing of23 changed/new Swift files PASS; changed Python AST and workflow YAML parsing PASS; extracted credential-pattern probes PASS in Python (not Foundation/Swift runtime).
+- Added shipping-projection fixtures for timeline ordering/identity/dedup/session isolation/task results/onboarding revision/rename/deletion; extended actual memory runtime fixtures for asynchronous review, additive-only handling, usage, stale source, cancellation and disabled/helper gates. These Swift fixtures have NOT run in this Windows environment, which has no Swift/Xcode/UIKit.
+- Remaining acceptance: macOS/iOS typecheck/build, live-provider memory saves, physical first-entry layout/onboarding taps/preview content, target delegation transcript navigation, and reproduction of the reported full UI freeze. Source checks do not establish these outcomes.
+
+- Started document-memory and direct-Bot handoff redesign on the existing local iOS worktree; inspected current cards and specialist helper runner. Prior fixes preserved.
+
+- Implemented document reader/editor and atomic document-save/share transactions; target-owned direct runtime, task conversation navigation, steering/cancel/rework/reporting, and pending user-card wait handling. Added document-storage and direct-handoff lifecycle fixtures; updated command/archive fixtures. No native inference/build has been executed.
+- Executed after redesign: current Bot source contracts PASS; chat settings source contracts PASS (7 tests);33 changed/new Swift files parsed with tree-sitter; changed Python AST/workflow YAML and native-harness extraction parsed. Source route contains no executeDelegateTask, HelperConfig construction or child-job registration. git diff --check passed. These checks do not establish native type correctness, UI interaction or live task/memory behavior.
+- Added commander Stop handling for both queued and running direct tasks; result callback waits through compaction and does not resurrect deleted sessions. Direct metadata and document ordering use optional fields in the existing records, preserving archive roundtrip structure. New Swift fixtures remain unexecuted; no commit/push/build performed.
+
+## 2026-11-02 Mika analysis
+- Read RTK, planning-with-files and enhanced-query instructions. Preserved earlier planning file contents.
+- Located requested branch worktree; no application edits.
+
+
+- Compared iOS BrowserUseManager, BrowserTabPool, tool schemas/concurrent dispatcher and existing BrowserBench against Mika source pinned to main tree ebb0e44750d80aabb6b642c69908825d6b1a8107.
+- Review-fix SQL regression initial run reached assertions but failed Windows temporary-file cleanup because sqlite3's context manager does not close the connection; replaced it with contextlib.closing and reran.
+
+- Completed read-only code research and wrote docs/mika-browser-automation-analysis-2026-11-02.md with pinned external sources, iOS source locations, priorities and validation scenarios.
+- No app source edits, commits, pushes, builds or device performance tests in this analysis task.
+
+## 2026-11-02 Astra review fixes — local verification complete
+- Verified and fixed all five confirmed findings: target user Stop cancels only that task without automatically waking its commander; graph restore waits for direct execution/cancellation/result-delivery and memory-review final writes; resumable limits remain interrupted; shared memories keep source grouping and document order; optional auxiliary token counters survive reload/sync/backup without changing primary context metadata or adding chat messages.
+- Added/extended shipping-source Swift fixtures for stop/draining restore, resumable errors, shared order, memory accounting and actual SQLite reopen/statistics/legacy Codable behavior. These native fixtures have NOT been compiled or run on Windows.
+- Executed: portable SQLite regression 3 PASS; chat-settings source contracts 7 PASS; current Bot source contracts PASS; tree-sitter parse of 39 changed/new Swift files, AST of 6 Python files, workflow YAML and generation/parsing of 17 Swift harness inputs PASS. Harness checks deliberately did not invoke Swift compiler or binaries.
+- Existing Astra medium reviewer completed a read-only targeted re-review: all five fixes matched production paths, no new definite defect found. Review is source inspection, not native execution. Cancellation/error-after-usage and delayed memory-accounting writes were inspected, without dedicated native dynamic assertions for these subcases.
+- No commit, push, remote build, device test or release. Preserved all earlier uncommitted changes and parallel Mika analysis notes/artifact.
+## 2026-11-02 cloud package request
+- User explicitly authorized committing/pushing fixes, running cloud build and downloading IPA. Existing darkyuanbao06 remote branch matches local HEAD56050b2. Connected plugin returned404; sandbox credentials unavailable. Escalated native read succeeded (GitHub CLI user fogharbor544); continue existing Git/CLI flow without exposing credentials.
+- Package workflow creates unsigned Debug arm64 IPA, consistent with earlier delivery. Separate Mika analysis file and planning notes will remain local rather than entering the application commit.
+- Cloud startup: committed/pushed application063fbc6 (46 files); gh workflow dispatch returned404 under CLI account fogharbor544. Git push authenticated successfully through Git Credential Manager; retry API through the same in-memory credential, without storing or printing the secret.
+- Run41374702108 native progress: memory document transactions, actual auxiliary SQLite persistence, memory runtime and iOS memory UI typecheck passed. UI job passed in4m28s; downloaded real avatar result.json (35 assertions, zero failures) and visually inspected both in-motion frames plus accessibility picker. This replaces the prior Windows-only verification limit for those isolated fixtures; full-app/live-provider/physical-device acceptance remains separate.
+- Run41374702108: full unsigned device build and UI job passed; source job failed only in the new direct-handoff fixture at first delegate. Verified fixture omitted the commander's persisted session owner, so the real commander-only guard correctly rejected it. Added the same owner setup as the shipping-command fixture and useful assertion diagnostics. Application code unchanged. Log fetch initially refused ANSI output; explicit allow-escape-sequences saved the log successfully.
+- Fixture-only follow-up bbce47b committed/pushed; dispatched new full run41375506667. Original application063fbc6 built successfully; final artifact will be downloaded from the new complete run, keeping package provenance aligned with branch HEAD.
+- Final run41375506667 passed all jobs: source-checks9m32s (including direct lifecycle), UI4m31s, unsigned device build6m52s. Saved run/artifact metadata and verified headSha matches pushed bbce47b and IPA artifact workflow_run.head_sha. IPA download in progress.
+- Download completed through original GitHub CLI; direct diagnostic confirmed storage200/expected size. One initial diagnostic request returned HTTPError and was corrected to derive artifact ID from saved metadata. Stopped the redundant fallback transfer after the original IPA passed checks; no credentials or signed download URLs printed/stored.
+- Delivered original project root build/ipa/OpenMinis-bbce47b-unsigned.ipa (123306917 bytes), SHA-2561cb99db6ee8ae539c9ec03c3f72245c1e7d76d33015325c76c220aa53a5e77ea. Verified both downloaded and copied package: full ZIP CRC, arm64 Mach-O, com.openminis.app, version1.15/build1, no embedded profile/main-app signature. Adjacent .build.json and .verification.json record exact final run/commit and validation.
+- User goal complete: application committed/pushed, full cloud validation/build passed, final IPA available locally. Physical install requires re-signing; actual live-provider/device behavior is left for user testing. Research/planning notes remain local intentionally, application tree has no uncommitted changes.
+
+## 2026-11-02 browser optimization planning
+- Rechecked target HEAD bbce47b and relevant browser code against the reviewed baseline; no relevant source changes.
+- Wrote staged execution/acceptance plan, including baseline, bounded observation, optional previews, terminal collection mode and measurement gates.
+- Planning only; implementation and native/device validation remain pending.
+- Commander instruction display: profile status now shows built-in enabled/custom preview; instruction page has a Chinese role summary, expandable read-only actual policy and separate custom editor with additive-save explanation. Moved unchanged policy into the workspace store for runtime/UI reuse. Extended existing iOS typecheck harness with the actual editor. Executed7 chat-settings source contracts, current Bot contracts,3 Swift syntax checks, exact policy-text comparison and generation/parsing of10 native UI inputs. No local Swift compiler execution; mock harness printed its normal success line, but this run validated source generation only.
+- Commander display committed/pushed as4c3c91d (4 files). Full cloud validation/build41377790050 started, preserving prior fixes and excluding local planning/research files.
+- Run41377790050 all3 jobs successful: source6m10s, UI4m21s, full unsigned device6m24s. New actual editor passed native iOS16 typecheck; moved canonical policy passed all shipping command/lifecycle regressions. Verified run/artifact headSha matches pushed4c3c91d; downloading final IPA directly with credentials stripped at storage redirect.
+- Commander display delivery complete. Downloaded122552244-byte artifact ZIP, verified GitHub artifact digest47f969b8e324c566908c7a34f35295a3b4a033d8f5e04d58ecba60002573f9bf and exact run/commit. Extracted IPA123318361 bytes to original root build/ipa/OpenMinis-4c3c91d-unsigned.ipa; SHA-256581c6c41de24c62e5a6ae272b806d5dd3f2620853da1cd8a837fcf64e649fe26. Full ZIP CRC, arm64, com.openminis.app, version1.15/build1 and unsigned status verified. Build/verification receipts adjacent; physical layout still requires user device acceptance.
+
+- Current checks:11 new production observer-JS assertions passed; existing55 secure-fill JS assertions and7 chat/settings source tests passed. Current Bot source contract passed.15 modified Swift files show no new tree-sitter grammar errors; extracted Swift fixture also parses. Swift behavior harness skipped (no swiftc).
+- Whole-test data-guard static check failed on Windows:68 existing-style findings/59 stale allowlist entries; investigating baseline/path formatting before attributing to changes. No unrelated test/source fixes planned.
+
+- Local browser implementation delivered without committing/pushing; HEAD remains4c3c91d.11new production observer-JS assertions,55existing secure-JS assertions,7chat/settings checks, current Bot source contract,15-file Swift grammar comparison, generated Swift fixture grammar, Python syntax, localization preservation and diff whitespace verified.
+- Added3en/zh-Hans takeover labels. Actual BrowserPasswords and internal collector JS remain byte-equivalent to HEAD. Swift runtime/native UI/performance unverified; global data guard baseline-only failure documented. No cloud validation dispatched.
+
+## 2026-11-02 chat-send and Bot-delegation implementation
+- Added serialized explicit latest positioning, chronological per-task cards, async cached logical conversation counts, Bot callback navigation, and automatic version-linked delivery after persisted final reply.
+- Added real SQLite write-confirmation/counter regressions, expanded direct-runtime/timeline regressions, and a UIKit shipping-layout/send-transition fixture with controlled markdown updates.
+- Local source contracts, Python compilation, changed/new Swift tree grammar and diff whitespace passed; three pre-existing browser parser limitations are unchanged. Native checks require cloud Xcode; physical gestures/selection remain device acceptance.
+
+- Cloud b530ba7: source checks and full device build passed; native fixture initially missed two production dependencies.
+- Cloud3962b62: source checks passed; native fixture executed16 checks, with only the first cold jump from history top failing its bottom-offset assertion (no reentry/hang; maximum snapshot depth1). Added tail-cell layout before final pin and fenced callbacks during positioning.
+- Found/covered file-only user messages in logical conversation counts; renderer and counter share the persisted XML attachment pattern. New full cloud validation is required for these changes.
+
+- Latest8382787 private-repo run41391321423 was blocked before any steps by GitHub account billing. User corrected build destination to build account3. Verified project record and API: origin=fogharbor544/OpenMinis-iOS, public, authenticated fogharbor544 with admin/push.
+- Corrected destination without visibility/billing changes: audited562 unpublished text blobs for common credentials (none found), pushed8382787 to origin/codex/bot-team-original-avatars, started public full run41392139929. Use build account3 for this delivery.
+
+## Final chat-send / Bot-delivery package
+-660fa38f8ce04dcdf17ba60dff4b8493ba5e56d1 pushed to build account3 public origin. Full run https://github.com/fogharbor544/OpenMinis-iOS/actions/runs/41393013773 succeeded in all3 jobs.
+-18 native list cases passed (snapshot depth1); cold top/middle offsets match final content bottom. Direct target Bot ownership, merged callback/version delivery, async count caching and file-only count regressions passed.
+-IPA OpenMinis-660fa38-unsigned.ipa saved under original workspace build/ipa:123394975 bytes, SHA256 bf180cd62eda1d81b70efa1a0b07b6e97fa255ea3ee74442791f183cc75328c2, com.openminis.app1.15/build1, unsigned arm64 iOS device binary. Adjacent .verification.json/.build.json record provenance. Re-signing/device tests remain user-owned.
+
+## Historical Bot send hang follow-up
+- User reports 660fa38 still hangs permanently when sending while browsing history. Existing uncommitted browser optimization remains excluded.
+- The historical-send transaction synchronously applied a full snapshot, forced layout again, and pinned twice in one main-thread callback. Keep its normal snapshot apply/initial pin; correct cold-tail measurements in the next main runloop turn. Native UIKit/cloud verification pending.

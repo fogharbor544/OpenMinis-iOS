@@ -1,0 +1,183 @@
+// Consumed by run_browser_automation_tests.py. Only WebKit/platform boundaries
+// below are fakes; dispatcher, postprocessing, deadlines and takeover are shipping code.
+import CoreFoundation
+
+@propertyWrapper struct Published<Value> { var wrappedValue: Value }
+struct TestLogger { func info(_ text: String) {}; func warning(_ text: String) {} }
+let logger = TestLogger()
+enum ContentWorld { case page }
+final class WKSnapshotConfiguration { var rect = CGRect.zero }
+final class UIImage { func jpegData(compressionQuality: Double) -> Data? { Data([1, 2, 3]) } }
+
+@MainActor final class FakeWebView {
+    var url = URL(string: "https://fixture.invalid/")
+    var frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+    var hangAt = ""
+    var reads = 0
+    var snapshots = 0
+    var setupDelay: UInt64 = 0
+    var pending: [CheckedContinuation<Any?, Error>] = []
+    var pendingImages: [CheckedContinuation<UIImage, Error>] = []
+    func setNeedsLayout() {}
+    func layoutIfNeeded() {}
+    func callAsyncJavaScript(_ js: String, arguments: [String: Any], contentWorld: ContentWorld) async throws -> Any? {
+        reads += 1
+        let phase = js.contains("window.__postActionDom =") ? "setup" : js.contains("return JSON.stringify") ? "read" : "poll"
+        if hangAt == phase { return try await withCheckedThrowingContinuation { pending.append($0) } }
+        if phase == "setup" { if setupDelay > 0 { try await Task.sleep(nanoseconds: setupDelay) }; return "ok" }
+        if phase == "poll" { return 0 }
+        return "{\"mutations\":0}"
+    }
+    func takeSnapshot(configuration: WKSnapshotConfiguration) async throws -> UIImage {
+        snapshots += 1
+        if hangAt == "snapshot" { return try await withCheckedThrowingContinuation { pendingImages.append($0) } }
+        return UIImage()
+    }
+    func releasePending() {
+        let old = pending; pending = []; old.forEach { $0.resume(returning: nil) }
+        let images = pendingImages; pendingImages = []; images.forEach { $0.resume(returning: UIImage()) }
+    }
+}
+@MainActor enum CookieBackupStore {
+    static var shared = CookieBackupStoreValue()
+    struct CookieBackupStoreValue { func syncIfNeeded() async {} }
+}
+
+@MainActor final class BrowserUseManager {
+    let webView = FakeWebView()
+    static var secureInteractionManager: BrowserUseManager?
+    var isSecureInputActive = false
+    var lastScreenshot: UIImage?
+    var navigationContinuation: CheckedContinuation<Void, Error>?
+    var currentViewport = (width: 390, height: 844)
+    static var screenshotsDir: URL { URL(fileURLWithPath: CommandLine.arguments[1]) }
+    var performed = 0
+    var explicitScreenshots = 0
+    func restoreViewportFrame() { webView.frame = CGRect(x: 0, y: 0, width: 390, height: 844) }
+    // INSERT PRODUCTION MANAGER
+    func action() -> BrowserActionResult { performed += 1; return BrowserActionResult(text: "fixture-items:1,2,3") }
+    func navigate(to: String?) async throws -> BrowserActionResult { action() }
+    func screenshot(fullPage: Bool) async throws -> BrowserActionResult { explicitScreenshots += 1; return BrowserActionResult(text: "explicit", base64Image: "AQID") }
+    func click(selector: String?, x: Int?, y: Int?) async throws -> BrowserActionResult { action() }
+    func type(selector: String?, text: String?) async throws -> BrowserActionResult { action() }
+    func requestSecureInput(_ input: BrowserActionInput) async -> BrowserActionResult { action() }
+    func getText(selector: String?) async throws -> BrowserActionResult { action() }
+    func scroll(selector: String?, direction: BrowserActionInput.ScrollDirection?, amount: Int?) async throws -> BrowserActionResult { action() }
+    func scrollAndCollect(selector: String?, direction: BrowserActionInput.ScrollDirection?, amount: Int?, scrollCount: Int?, itemSelector: String?) async throws -> BrowserActionResult { action() }
+    func getPageInfo() async throws -> BrowserActionResult { action() }
+    func executeJS(script: String?) async throws -> BrowserActionResult { action() }
+    func findElements(selector: String?) async throws -> BrowserActionResult { action() }
+    func hover(selector: String?) async throws -> BrowserActionResult { action() }
+    func getReadable() async throws -> BrowserActionResult { action() }
+    func setUserAgent(profile: UserAgentProfile) -> BrowserActionResult { action() }
+    func getBackbone(maxDepth: Int?) async throws -> BrowserActionResult { action() }
+    func fetch(url: String?) async throws -> BrowserActionResult { action() }
+    func getCookies(keywords: [String]?, fuzzy: Bool) async -> BrowserActionResult { action() }
+    func setCookies(_ cookies: [[String: Any]]?) async -> BrowserActionResult { action() }
+    func waitForDomStable(timeout: Int?) async throws -> BrowserActionResult { action() }
+}
+
+@MainActor final class BrowserTabPool {
+    struct Tab { let manager: BrowserUseManager; var inUse = true }
+    var tabs: [Tab] = []
+    var hasSecureInput = false
+    // INSERT PRODUCTION CONTROL
+}
+
+@main struct BrowserAutomationBehaviorTests {
+    @MainActor static func main() async throws {
+        var checks = 0
+        func check(_ value: Bool, _ message: String) { precondition(value, message); checks += 1 }
+        func input(_ json: String) -> BrowserActionInput { BrowserActionInput.parse(from: json)! }
+        let normal = input("{\"action\":\"navigate\"}")
+        check(normal.preview == .default && normal.resultMode == .standard, "default compatibility")
+        for bad in ["{\"action\":\"click\",\"preview\":4}", "{\"action\":\"click\",\"preview\":\"bad\"}", "{\"action\":\"click\",\"result_mode\":\"bad\"}"] {
+            check(BrowserActionInput.parse(from: bad) == nil, "invalid enum rejected at boundary")
+        }
+        let fast = input("{\"action\":\"scroll_and_collect\",\"preview\":\"none\",\"result_mode\":\"collected\"}")
+        check(fast.resultMode == .collected && fast.preview == .none, "valid collection mode")
+        for bad in ["{\"action\":\"click\",\"preview\":\"none\",\"result_mode\":\"collected\"}", "{\"action\":\"new_tab\",\"result_mode\":\"collected\"}", "{\"action\":\"scroll_and_collect\",\"result_mode\":\"collected\"}"] {
+            check(BrowserActionInput.parse(from: bad) == nil, "invalid combination rejected at boundary")
+        }
+        let manager = BrowserUseManager()
+        let collected = try await manager.execute(action: fast)
+        check(collected.text.contains("fixture-items:1,2,3"), "collection payload retained")
+        check(manager.webView.reads == 0 && manager.webView.snapshots == 0, "fast mode skips only final observation/preview")
+        let noPreview = try await manager.execute(action: input("{\"action\":\"type\",\"preview\":\"none\"}"))
+        check(noPreview.imageFilePath == nil && noPreview.base64Image == nil, "no stale image")
+        check(manager.webView.reads > 0 && manager.webView.snapshots == 0, "preview none retains DOM observation")
+        let standard = try await manager.execute(action: normal)
+        check(standard.imageFilePath != nil && manager.webView.snapshots == 1, "default retains implicit image")
+        let screenshot = try await manager.execute(action: input("{\"action\":\"screenshot\",\"preview\":\"none\"}"))
+        check(screenshot.base64Image != nil && manager.explicitScreenshots == 1, "explicit screenshot unaffected")
+        for phase in ["setup", "poll", "read"] {
+            let stalled = BrowserUseManager(); stalled.webView.hangAt = phase
+            let start = ProcessInfo.processInfo.systemUptime
+            do { _ = try await stalled.summaryForTest(timeout: phase == "read" ? 1.8 : 0.8); preconditionFailure("missing timeout") }
+            catch is BrowserUseManager.JSEvalTimeout {}
+            check(ProcessInfo.processInfo.systemUptime - start < 3, "shared deadline bounds " + phase)
+            stalled.webView.releasePending()
+        }
+        let interrupted = BrowserUseManager(); interrupted.webView.hangAt = "setup"
+        let action = Task { try await interrupted.execute(action: normal) }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        interrupted.requestUserTakeover()
+        let interruptedResult = try await action.value
+        check(interruptedResult.success && interrupted.performed == 1, "executed action remains executed")
+        check(interruptedResult.text.contains("interrupted") && interrupted.webView.snapshots == 0, "takeover cancels postprocessing")
+        interrupted.webView.releasePending()
+        interrupted.endUserTakeover()
+        let cancelled = BrowserUseManager(); cancelled.webView.hangAt = "setup"
+        let cancelledAction = Task { try await cancelled.execute(action: normal) }
+        try await Task.sleep(nanoseconds: 30_000_000); cancelledAction.cancel()
+        do { _ = try await cancelledAction.value; preconditionFailure("cancellation swallowed") } catch is CancellationError {}
+        check(cancelled.webView.snapshots == 0, "cancelled action does not snapshot")
+        cancelled.webView.releasePending()
+        let previewing = BrowserUseManager(); previewing.webView.hangAt = "snapshot"
+        previewing.webView.frame.size.width = 640
+        let previewAction = Task { try await previewing.execute(action: normal) }
+        for _ in 0..<300 {
+            if previewing.webView.snapshots > 0 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        check(previewing.webView.snapshots == 1, "reached actual preview wait")
+        previewing.requestUserTakeover()
+        let previewResult = try await previewAction.value
+        check(previewResult.success && previewResult.imageFilePath == nil, "cancelled preview supplies no stale image")
+        check(previewing.webView.frame.width == 390, "viewport restored on cancellation")
+        previewing.webView.releasePending()
+        let navigating = BrowserUseManager()
+        let navigationWait = Task {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                navigating.navigationContinuation = continuation
+            }
+        }
+        for _ in 0..<100 {
+            if navigating.navigationContinuation != nil { break }
+            await Task.yield()
+        }
+        check(navigating.navigationContinuation != nil, "navigation wait installed")
+        navigating.requestUserTakeover()
+        do { try await navigationWait.value; preconditionFailure("navigation wait not interrupted") }
+        catch is BrowserUseManager.UserTakeoverRequested {}
+        check(navigating.webView.url?.absoluteString == "https://fixture.invalid/", "navigation takeover preserves page")
+        let pool = BrowserTabPool(); pool.tabs = [.init(manager: manager)]
+        check(!pool.isAgentBrowsing, "15s reservation alone does not lock UI")
+        let oldGeneration = pool.generationForTest()
+        pool.setExecutingForTest(1); pool.beginUserTakeover()
+        check(pool.isUserTakeoverActive && pool.isTakeoverPending, "immediate pending feedback")
+        check(!pool.queuedAction(generation: oldGeneration).success, "queued action blocked")
+        pool.setExecutingForTest(0)
+        check(!pool.isTakeoverPending && pool.isUserTakeoverActive, "manual control after action drains")
+        let a = Task { await pool.waitForUserTakeover() }
+        let b = Task { await pool.waitForUserTakeover() }
+        await Task.yield(); a.cancel(); await a.value
+        check(pool.isUserTakeoverActive, "one helper cancellation cannot end takeover")
+        pool.endUserTakeover(); await b.value
+        check(!pool.isUserTakeoverActive, "all shared waiters resume on end")
+        check(!pool.queuedAction(generation: oldGeneration).success, "stale queued call rejected after dismissal")
+        pool.hasSecureInput = true; pool.beginUserTakeover()
+        check(!pool.isUserTakeoverActive, "native secure interaction stays separate")
+        print("PASS: \(checks) extracted production Swift automation assertions (fake WebKit)")
+    }
+}

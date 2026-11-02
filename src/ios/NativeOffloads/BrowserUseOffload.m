@@ -78,6 +78,8 @@ static NSString *const HELP_TEXT =
      "\n"
      "COMMON OPTIONS:\n"
      "  --tab-id <n>     Route the action to a specific tab (default: active tab)\n"
+     "  --preview <mode>   default (keep preview) or none (omit implicit image)\n"
+     "  --result-mode <m>  standard or collected; collected requires scroll_and_collect --preview none\n"
      "  --json '<s>'     Pass the full input object as JSON (matches browser_use schema)\n"
      "  --with-base64    Also include image_base64 in the screenshot output.\n"
      "                   Off by default — screenshots are saved to\n"
@@ -109,6 +111,7 @@ static NSString *const HELP_TEXT =
      "  minis-browser-use click --selector '.btn-primary'\n"
      "  minis-browser-use type --selector 'input[name=q]' --text 'hello'\n"
      "  minis-browser-use execute_js --script 'return document.title'\n"
+     "  minis-browser-use scroll_and_collect --scroll-count 5 --preview none --result-mode collected\n"
      "  minis-browser-use --json '{\"action\":\"navigate\",\"url\":\"https://x.com\"}'\n";
 
 // ── Netscape cookies.txt parsing ──
@@ -188,6 +191,8 @@ static NSDictionary *buildInputJson(int argc, char **argv, NSString **errOut) {
     if ((s = noff_find_arg(argc, argv, "--direction")))      obj[@"direction"] = s;
     if ((s = noff_find_arg(argc, argv, "--script")))         obj[@"script"] = s;
     if ((s = noff_find_arg(argc, argv, "--item-selector")))  obj[@"item_selector"] = s;
+    if ((s = noff_find_arg(argc, argv, "--preview")))        obj[@"preview"] = s;
+    if ((s = noff_find_arg(argc, argv, "--result-mode")))    obj[@"result_mode"] = s;
 
     // user-agent: accept both --user-agent and --ua
     s = noff_find_arg(argc, argv, "--user-agent");

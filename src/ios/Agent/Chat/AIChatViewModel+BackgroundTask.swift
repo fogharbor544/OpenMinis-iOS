@@ -691,117 +691,37 @@ extension AIChatViewModel {
         logger.info("[ContinuationDiag] resumed backgroundSuspended after \(Int(Date().timeIntervalSince(diagStart) * 1000))ms appState=\(Self.diagAppStateName())")
     }
 
-    /// Pauses the agent loop when the user activates browser takeover.
-    /// The loop suspends here until the user dismisses the browser sheet.
+    /// All VMs sharing a browser pool pause on the same manual-control gate.
     func waitIfBrowserTakeover() async {
         guard browserTakeoverActive else { return }
-        logger.info("[Takeover] Agent loop pausing for browser takeover")
-        // [ContinuationDiag] (#181) This continuation has no timeout — if it is
-        // never resumed the agent loop parks here forever and the user sees a
-        // stalled session. An "entering" line with no matching "resumed" line is
-        // the signature of candidate 1 (continuation deadlock).
-        let diagStart = Date()
-        logger.info("[ContinuationDiag] entering wait for browserTakeover at \(Self.diagTimestamp(diagStart)) session=\(self.sessionId ?? "nil")")
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            self.takeoverContinuation = continuation
-        }
-        logger.info("[ContinuationDiag] resumed browserTakeover after \(Int(Date().timeIntervalSince(diagStart) * 1000))ms")
-        logger.info("[Takeover] Agent loop resumed from browser takeover")
-
-        // Take a screenshot so the agent sees what the user did during takeover
-        let screenshotInput = BrowserActionInput(
-            action: .screenshot, url: nil, selector: nil, text: nil,
-            coordinateX: nil, coordinateY: nil, direction: nil, amount: nil,
-            script: nil, userAgent: nil, maxDepth: nil, tabId: nil
-        )
-        if let result = try? await browserTabPool.execute(action: screenshotInput, owner: sessionId),
-           let b64 = result.base64Image,
-           let data = Data(base64Encoded: b64) {
-            // [T-image-real-seams] File write + message: takeoverScreenshotMessage.
-            let timestamp = Int(Date().timeIntervalSince1970)
-            let msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId, timestamp: timestamp)
-            // [T-image-gate #412] Stored like the loop's other app-injected
-            // rows, so after a restart the model still has the screenshot it
-            // was shown (the stored image is the gate's output, so the bytes
-            // match). It renders nothing on reload: the note is a
-            // <system-reminder> and the image is not a picked attachment.
-            let idx = agentHistory.count
-            agentHistory.append(msg)
-            if let pid = await persistAgentMessage(msg), idx < agentHistory.count {
-                agentHistory[idx].dbMessageId = pid
-            }
+        guard let result = await browserTakeoverScreenshot(),
+              let b64 = result.base64Image, let data = Data(base64Encoded: b64) else { return }
+        let msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId,
+                                                timestamp: Int(Date().timeIntervalSince1970))
+        let idx = agentHistory.count
+        agentHistory.append(msg)
+        if let pid = await persistAgentMessage(msg), idx < agentHistory.count {
+            agentHistory[idx].dbMessageId = pid
         }
     }
 
-    /// Waits for the user to finish a mid-action browser takeover.
-    /// Called after `browserTabPool.execute(action:)` when `browserTakeoverActive` is true.
-    /// Returns a fresh screenshot result after the user finishes, or nil on timeout.
     func waitForMidActionTakeover() async -> BrowserActionResult? {
-        logger.info("[Takeover] Mid-action: pausing browser action for user takeover")
-
-        // Start 5-minute timeout
-        let timeoutTask = Task {
-            try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                logger.info("[Takeover] Mid-action takeover timed out after 5 minutes")
-                self.browserTakeoverActive = false
-                if let c = self.midActionTakeoverContinuation {
-                    self.midActionTakeoverContinuation = nil
-                    c.resume()
-                }
-            }
-        }
-        self.takeoverTimeoutTask = timeoutTask
-
-        // Suspend until the user finishes or timeout fires
-        // [ContinuationDiag] (#181) This one DOES have a 5-minute timeout, so it
-        // should always produce a matching "resumed" line. If a stall shows this
-        // entering-without-resumed, the timeout task itself failed to fire —
-        // which would point at Task.sleep being stretched (candidate 3) rather
-        // than a plain deadlock.
-        let diagStart = Date()
-        logger.info("[ContinuationDiag] entering wait for midActionTakeover at \(Self.diagTimestamp(diagStart)) session=\(self.sessionId ?? "nil")")
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            self.midActionTakeoverContinuation = continuation
-        }
-        logger.info("[ContinuationDiag] resumed midActionTakeover after \(Int(Date().timeIntervalSince(diagStart) * 1000))ms")
-
-        // Clean up timeout — if cancel() is a no-op, the timeout already fired
-        let timedOut = timeoutTask.isCancelled == false
-        timeoutTask.cancel()
-        self.takeoverTimeoutTask = nil
-
-        logger.info("[Takeover] Mid-action: resumed (timedOut=\(timedOut))")
-
-        // Take a fresh screenshot so the agent sees the user's changes
-        let screenshotInput = BrowserActionInput(
-            action: .screenshot, url: nil, selector: nil, text: nil,
-            coordinateX: nil, coordinateY: nil, direction: nil, amount: nil,
-            script: nil, userAgent: nil, maxDepth: nil, tabId: nil
-        )
-        if let result = try? await browserTabPool.execute(action: screenshotInput, owner: sessionId) {
-            return result
-        }
-        return nil
+        await browserTakeoverScreenshot()
     }
 
-    /// Called when the user dismisses the browser takeover sheet.
+    private func browserTakeoverScreenshot() async -> BrowserActionResult? {
+        await browserTabPool.waitForUserTakeover()
+        guard !Task.isCancelled, !browserTabPool.hasSecureInput else { return nil }
+        let input = BrowserActionInput(
+            action: .screenshot, url: nil, selector: nil, text: nil,
+            coordinateX: nil, coordinateY: nil, direction: nil, amount: nil,
+            script: nil, userAgent: nil, maxDepth: nil, tabId: browserTabPool.selectedTabId
+        )
+        return try? await browserTabPool.execute(action: input, owner: sessionId)
+    }
+
     func resumeFromBrowserTakeover() {
-        browserTakeoverActive = false
-        // Cancel mid-action timeout
-        takeoverTimeoutTask?.cancel()
-        takeoverTimeoutTask = nil
-        // Resume mid-action continuation if active
-        if let c = midActionTakeoverContinuation {
-            midActionTakeoverContinuation = nil
-            c.resume()
-        }
-        // Resume between-turn continuation if active
-        if let c = takeoverContinuation {
-            takeoverContinuation = nil
-            c.resume()
-        }
+        browserTabPool.endUserTakeover()
     }
 
     func stopCurrentCommand() {

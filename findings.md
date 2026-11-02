@@ -197,3 +197,90 @@ User explicitly requests removing the avatar changes and restoring original beha
 - ContentView uses synchronized Xcode file membership; Agent/Chat and Agent/Backup require explicit project entries.
 - Frozen graph files are private resumable staging under `.bot-snapshot`; every encryption/checksum/ZIP walk must skip this directory, including configuration-only backups.
 - Restoring only the new minisbak/4 and Bot v3 formats is explicit user scope. Old backup files must remain untouched and must not be imported.
+
+## Avatar clipping and return replay
+- User screenshot shows a roughly80-point circle displaying an enlarged section of a cloud bear face during playback, with a much taller preview row. The source16-frame atlas contains complete characters.
+- BotAvatarAnimation wraps UIImageView with image-size intrinsic metrics and has no UIViewRepresentable.sizeThatFits implementation. The outer SwiftUI square/circle does not establish a native-view measurement contract.
+- BotWorkspaceView uses BotAvatarPreview for its commander header. Its onAppear calls replay, so returning from a chat starts it again. Use the existing static BotAvatar for this list entry; leave picker preview/replay behavior intact.
+- Existing native tests directly sized UIImageView and captured picker images after animation ended; they missed the represented view's layout while moving. Add live SwiftUI Form bounds/snapshots. No image assets need regeneration.
+
+## 2026-11-02 screenshots
+- Profile browser card shows URL strip over blank content; full browser works.
+- Commander created-Bot section overlaps existing messages on first mount and is inserted before the user's creation request.
+- Specialist onboarding renders but all actions ignore taps.
+- User sees no commander provenance/task/result in target Bot history. Must trace HelperRunner ownership and conversation indexing.
+- Latest remote 56050b2; existing uncommitted avatar changes preserved.
+
+
+- New feedback: entire Bot interface sometimes stops accepting interaction while replying, and no proactive long-term memory observed. Trace main-thread work/reentrancy and full memory availability/save/injection before changing policy.
+
+## 2026-11-02 repair findings
+- Browser preview used scaledToFill inside a fixed-height card, cropping a tall page. Preview now uses an explicit GeometryReader viewport and scaledToFit.
+- Empty/loading chat installed a transparent tap layer above the collection view, swallowing onboarding choices/skip/close. The dismiss layer is now behind the list.
+- Created-Bot summary lived globally above history. Synthetic presentation-only cards now follow the matching bot_create tool message, scoped by creationRequestID/session; none enter stored/model history. Bot cards get first-layout measurement and content-sensitive height invalidation.
+- Target Bot private chats and delegated task transcripts are intentionally distinct. HelperRunner binds a specialist child session to the target's BotSessionOwner/delegationID, target instructions/provider/memory and own browser pool. It still reuses the subagent runner and parent filesystem workspace; this is not full process isolation. Incoming task/result cards link to the dedicated transcript. Empty private-session update timestamps no longer hide delegation previews.
+- Full-interface freeze is confirmed by user report (text also stops; reopen required). Source inspection found two synchronous hosting measurements per uncached cell, repeated background decoration registration per snapshot and broad overview resize notifications. Removed these redundant paths; no device stack exists to establish the exact deadlock or prove the freeze resolved.
+- Memory was enabled and tools/prompt present, but there was no runtime review after an otherwise successful reply. Added a separate post-answer request that only proposes up to two additive notes from the latest persisted user source. It does not execute arbitrary tool calls or replace/forget entries; source/owner/enable/cancel gates are rechecked before writes. One extra request may consume up to 1024 output tokens, counted in live session usage; successful writes display a notice. Existing successful memory calls skip the fallback. Credential topic mentions can now pass while recognizable assignments/values remain rejected.
+
+## 2026-11-02 requested interaction redesign
+User explicitly requests combined document memory reading/editing, and direct target Bot execution inside its own normal conversation (not a commander-owned helper task). Target may choose its own helpers, returns results to commander for review. Existing memory UI is one section/editor/share action per SQLite entry; redesign must preserve active entries/grants/tombstones.
+
+## 2026-11-02 implemented document and direct execution design
+- User clarified: retain target Bot incoming-task hint and tap-through independent conversation with commander; only replace execution. New handoffs create target-owned normal source=bot conversations (no HelperConfig, no child job registration, no HelperRunner call). The target's private chat IDs remain unchanged. Optional own helpers belong to the target task conversation and their results must return to that target before reporting to commander.
+- Normal Bot system prompt includes the target profile and scoped memory plus direct-task context; full brief and subsequent corrections persist in the task conversation. Incoming hints open the normal interactive AIChatView; legacy transcripts remain viewable. Rework reuses direct conversations; explicit resume creates a fresh attempt. A directExecution optional field distinguishes historical helper sessions without rewriting them.
+- BotTeamRuntime retains normal VM execution tasks, serializes tasks per target, sends course corrections to the normal loop, waits for its own helper callbacks, and returns final results to commander for review. Stop retains the cancelling turn until unwound. UserAskCenter exposes pending-card/answer-handoff state so the task stays active and the inactivity timer pauses while awaiting the user. Partial resumable replies are interrupted rather than marked review-ready.
+- Memory UI is one continuous document with full edit/search/copy/export/share/clear actions and a read-only shared section. No per-entry cards. Underlying records remain authoritative for provenance, scoped recall, archives and forgotten-source suppression. Ordered document saves retain unchanged IDs/grants/pins, keep new/rewritten paragraphs private, clear removed plaintext and sharing, and reject stale drafts rather than overwrite newly remembered content. Editing currently requires paragraphs <=2000 characters, matching existing memory storage limits; a validation error retains the draft.
+
+## 2026-11-02 Mika browser comparison
+- Target worktree: build/worktrees/bot-team-original-avatars, local HEAD 56050b2d3fdc7391cc27d3bf0ca49ffbada848b8 (2026-11-01).
+- Mika README identifies Android-only application; distinguish Android native control from portable web automation mechanisms.
+
+
+- iOS execute() routes visual-change actions through DOM settle + awaited preview snapshot. collectDomChangeSummary uses three 500ms non-increasing mutation intervals: approximately 1.5s minimum on quiet pages, cap 5s excluding individual JS call duration.
+- Existing features: async execute_js, scroll_and_collect, per-tab serial execution, cross-tab concurrent tools, get_readable/backbone, cookies and session-aware fetch; avoid recommending these as absent.
+- Mika code confirms bounded web_script bridge, targeted CSS reads, page quality verdicts, CDP network ledger and text/url/network wait conditions. CDP-specific mechanisms need iOS adaptation.
+
+
+- Important correction: SystemPrompt already recommends shell batches of minis-browser-use. Native batch is incremental, not a newly absent capability.
+- Preview snapshots are local UI artifacts, not automatically model images; suppressing them reduces local work, not their non-existent image-token cost.
+- Mika PagePacing can impose dwell; do not infer globally faster behavior. Main commit ebb0e44750d80aabb6b642c69908825d6b1a8107 confirmed.
+- P0 recommendations: action/condition-specific wait and demand-driven preview snapshots. P1: compact reads, site skills, measurement-led native batch. Other options: protocol cache, route known data tasks to existing fetch, bounded parallel pages.
+
+## 2026-11-02 confirmed review findings — implemented fixes
+- Direct task user Stop now enters BotTeamRuntime.stopByUser from the actual UI stop path. Per-task suppression survives cancellation cleanup; persisted cancellation remains visible without triggering a new commander model turn. Restore checks include pending execution, asynchronous result delivery and outstanding memory-review writes.
+- Direct result handling checks canResume before interpreting the cap error, preserving an interrupted record and valid resume route.
+- Shared memory rendering uses source grouping and the same document-order comparator as the author's document. Retrieval relevance ordering remains separate.
+- Memory-review accounting is optional auxiliary metadata on the existing assistant token_usage JSON. Primary request counts and context/calibration measurements stay unchanged; session totals use billedUsage, global usage expands auxiliaryUsage once, updates are restricted to the existing assistant row/session and mark sync dirty. No new chat turn is introduced.
+- Portable SQLite/source/syntax checks passed, and Astra source re-review found no new definite defect. Windows cannot establish Swift type correctness, fixture runtime behavior, UIKit interaction or live provider/device acceptance; these remain explicitly unverified.
+
+## 2026-11-02 native build and delivery verification
+- Final bbce47b / run41375506667: source-checks, ui-layout and full unsigned device-build all successful. Actual macOS fixtures now verify memory document editing/order, auxiliary SQLite accounting/reload, memory runtime, direct target execution/Stop/draining restore/resume and timeline projection. First run's only failure was missing commander owner setup in the new fixture; fixed without application changes.
+- Final IPA copied to original project root build/ipa/OpenMinis-bbce47b-unsigned.ipa; ZIP CRC/arm64/Bundle ID/hash/provenance verified. Unsigned package requires re-signing. Isolated fixtures and build do not replace user's physical-device/live-provider acceptance.
+
+## 2026-11-02 browser plan refinements
+- Implicit preview policy and post-wait policy must be explicit; disabling preview alone should not silently change waiting semantics.
+- Summary deadline must cover setup/poll/read with one shared budget, not fresh per-call budgets; observation timeout must not imply the action was not executed.
+- Plan saved in docs/ios-browser-optimization-execution-plan.md; actual performance remains unmeasured.
+- Commander settings displayed only profile.instructions, while system prompt separately injected commanderPolicy. Fixed UI and canonical source without seeding/replacing user configuration or changing model instruction wording. Shared workspace policy includes the live specialist roster, so the expanded text matches runtime content.
+- Native validation for commander instruction display now passed: actual editor iOS16 typecheck, all existing source/command/direct lifecycle regressions, native UI suite and full device build. Full policy shared by runtime and UI, including live roster. Updated IPA delivered as4c3c91d, older bbce47b package does not contain this display fix.
+
+- Implementing pool-owned manual-control gate with active-action count separate from15s reservations, per-generation queued-action rejection, and shared cancellable waiters. UI now observes pool state; removed captured busy Bool from BrowserSheetView call sites. Postprocessing uses independent cancellable task; manual takeover stops navigation without dead-tab rebuild.
+
+- Added actual-production extraction regression harness (dispatcher, postprocessing, budget/cancellation box, takeover control/admission guard) with fake WebKit boundaries. Portable observer JS11 assertions pass. Swift tests require Mac swiftc and are explicitly skipped here; registered --require-swift in future validation workflow (not triggered).
+- Full static data-guard failure verified baseline-only: every finding is in byte-equivalent existing test source; Windows backslash paths do not match slash-keyed allowlist. New tests add no findings. No unrelated guard edits.
+
+## 2026-11-02 chat-send and Bot delivery implementation findings
+- Explicit send previously resumed historical self-sizing and streamed snapshots before the new message was positioned; a serialized, coalesced latest-position transaction now fences snapshot/settle reentry.
+- ChatMessage.timestamp is construction time on reload; the task timeline now retains RawMessage.createdAt separately for historical positioning.
+- Bot runtime already uses the target Bot VM; generic AgentCallback rendering obscured that ownership. Actual owned Bot callbacks now open the Bot conversation.
+- Delivery is tied to consumed callback content/version and a confirmed persisted endTurn answer. Legacy complete is a receipt. No separate factual-verification stage is implied.
+
+### Verified cloud results for final delivery
+- Final public build account3 run41393013773 on660fa38 passed all source/runtime/native/device-build jobs. Native fixture18/18, zero failures and maximum snapshot depth1.
+- Native top send offset24970.0 vs bottom24969.999999999996; middle25749.333333333332 vs bottom25749.33333333333. These fixtures compile shipping transition/guard/layout with platform/model boundaries stubbed; physical gestures, selection and real provider acceptance are not claimed.
+- Build account3 is the existing public origin fogharbor544/OpenMinis-iOS. Current branch now tracks its matching origin branch; do not default this delivery to the quota-blocked private remote.
+
+## Historical Bot send hang follow-up
+- Affected source is 660fa38; the main checkout is an older branch. Preserve pre-existing browser optimization edits in this worktree.
+- requestLatestPosition had three synchronous layout triggers: applySnapshot itself calls collectionView.layoutIfNeeded, followed by two more forced layouts/tail pins. Cold-tail hosted-cell updates can therefore re-enter UIKit/SwiftUI in the same main-thread callback.
+- The repair retains the normal snapshot apply and initial pin, deferring cold-tail correction to the next runloop turn. Native validation compiles the extracted shipping methods; Windows cannot execute UIKit/Xcode.

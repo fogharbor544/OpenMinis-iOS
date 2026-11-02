@@ -442,6 +442,8 @@ extension AIChatViewModel {
         // [T-p1-delegate-task] Helpers get a much tighter ceiling (design §4.3).
         let turnCap = helperConfig?.maxTurns ?? Self.maxAgentTurns
         loopLabel: while turnCount < turnCap {
+            await waitIfBrowserTakeover()
+            try Task.checkCancellation()
             defer { turnCount += 1 }
             // [T-ios-switch-model-next-request] The user picked another model
             // while this turn was running. Apply it HERE, before the next

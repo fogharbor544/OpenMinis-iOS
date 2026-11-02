@@ -634,7 +634,7 @@ private struct BotBrowserTarget: Identifiable {
 private struct BotBrowserHost: View {
     @ObservedObject var vm: AIChatViewModel
     var body: some View {
-        BrowserSheetView(pool: vm.browserTabPool, isAgentBusy: vm.browserTabPool.isAgentBrowsing,
+        BrowserSheetView(pool: vm.browserTabPool,
                          onTakeover: { vm.browserTakeoverActive = true })
     }
 }

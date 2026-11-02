@@ -127,10 +127,12 @@ extension AIChatViewModel {
                     "viewport_width": AgentToolParam(type: .integer, description: "Viewport width in CSS pixels for set_viewport (e.g. 1920). Required together with viewport_height unless reset=true."),
                     "viewport_height": AgentToolParam(type: .integer, description: "Viewport height in CSS pixels for set_viewport (e.g. 1080). Required together with viewport_width unless reset=true."),
                     "reset": AgentToolParam(type: .boolean, description: "For set_viewport: when true, clear the session-level viewport override and fall back to the global browser setting."),
+                    "preview": AgentToolParam(type: .string, description: "Optional implicit preview policy. default preserves the action image in chat/history; none skips that intermediate image but still performs DOM observation. Prefer none for intermediate steps of data-only scripts. Explicit screenshot and native secure input keep their own behavior.", enumValues: ["default", "none"]),
+                    "result_mode": AgentToolParam(type: .string, description: "scroll_and_collect only: collected requires preview=none and returns the collected items without final DOM settling or preview. It preserves the per-scroll collection waits; it does not guarantee the final page is stable. Otherwise leave standard.", enumValues: ["standard", "collected"]),
                     "full_page": AgentToolParam(type: .boolean, description: "For screenshot: capture the entire scrollable page by temporarily resizing the WebView to document.documentElement.scrollHeight. Default false captures viewport only. Capped at 32768px tall; when capped, result text includes 'Truncated: true' and the original height."),
                 ],
                 required: ["tool_title", "action"],
-                propertyOrdering: ["tool_title", "action", "tab_id", "url", "selector", "secret_kind", "purpose", "text", "coordinate_x", "coordinate_y", "direction", "amount", "scroll_count", "item_selector", "script", "user_agent", "max_depth", "keywords", "fuzzy", "cookies", "timeout", "viewport_width", "viewport_height", "reset", "full_page"]
+                propertyOrdering: ["tool_title", "action", "tab_id", "url", "selector", "secret_kind", "purpose", "text", "coordinate_x", "coordinate_y", "direction", "amount", "scroll_count", "item_selector", "script", "user_agent", "max_depth", "keywords", "fuzzy", "cookies", "timeout", "viewport_width", "viewport_height", "reset", "full_page", "preview", "result_mode"]
             ),
         ]
 

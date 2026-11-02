@@ -69,6 +69,11 @@ struct BrowserActionInput {
     var userAgentRaw: String? = nil
     var secretKind: String? = nil
     var purpose: String? = nil
+    var preview: Preview = .default
+    var resultMode: ResultMode = .standard
+
+    enum Preview: String { case `default`, none }
+    enum ResultMode: String { case standard, collected }
 
     enum ScrollDirection: String {
         case up, down
@@ -78,7 +83,15 @@ struct BrowserActionInput {
         guard let data = json.data(using: .utf8),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let actionStr = dict["action"] as? String,
-              let action = BrowserAction(rawValue: actionStr) else {
+              let action = BrowserAction(rawValue: actionStr),
+              let preview = Preview(rawValue: dict["preview"] as? String ?? "default"),
+              let resultMode = ResultMode(rawValue: dict["result_mode"] as? String ?? "standard"),
+              dict["preview"] == nil || dict["preview"] is String,
+              dict["result_mode"] == nil || dict["result_mode"] is String else {
+            return nil
+        }
+
+        guard resultMode != .collected || (action == .scrollAndCollect && preview == .none) else {
             return nil
         }
 
@@ -116,7 +129,9 @@ struct BrowserActionInput {
             cookies: Self.parseCookies(dict["cookies"]),
             userAgentRaw: dict["user_agent"] as? String,
             secretKind: dict["secret_kind"] as? String,
-            purpose: dict["purpose"] as? String
+            purpose: dict["purpose"] as? String,
+            preview: preview,
+            resultMode: resultMode
         )
     }
 

@@ -122,6 +122,10 @@ struct MCPIntegrationsView: View { var body: some View { EmptyView() } }
     func send(_ text: String, roomID: String, recipient: String?) {}
 }
 '''
+# Type-check the real instructions editor as well; the full profile screen has
+# browser/platform dependencies, while this editor only needs the actual store.
+profile = (root / 'Views/ContentView/Bots/BotProfileView.swift').read_text(encoding='utf-8')
+stubs += "private struct BotInstructionsEditor" + profile.split("private struct BotInstructionsEditor", 1)[1].split("private struct BotBrowserTarget", 1)[0]
 with tempfile.TemporaryDirectory(prefix='minis-memory-ui-') as temp:
     stub = Path(temp) / 'AppBoundaries.swift'
     stub.write_text(stubs, encoding='utf-8')
@@ -134,4 +138,4 @@ with tempfile.TemporaryDirectory(prefix='minis-memory-ui-') as temp:
         'Views/Sync/SyncStatusView.swift']]
     subprocess.run(['xcrun', 'swiftc', '-typecheck', '-swift-version', '5', '-sdk', sdk,
                     '-target', 'arm64-apple-ios16.0', *sources, str(stub)], check=True, timeout=180)
-    print('PASS: shipping Bot/memory SwiftUI screens type-check for iOS 16 with app-service boundaries stubbed')
+    print('PASS: shipping Bot/memory/instructions SwiftUI screens type-check for iOS 16 with app-service boundaries stubbed')

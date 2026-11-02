@@ -92,7 +92,11 @@ struct BotProfileView: View {
     // MARK: - Sections
 
     private func content(_ bot: BotProfile) -> some View {
-        let instructionPreview = bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
+        let instructionPreview = bot.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isNewline).first.map(String.init)
+        let instructionSummary = bot.isCommander
+            ? instructionPreview.map { "内置指令 + 自定义：\($0)" } ?? "内置指令已启用"
+            : instructionPreview ?? "未设置"
         return List {
             Section {
                 VStack(spacing: 8) {
@@ -142,8 +146,8 @@ struct BotProfileView: View {
             Section("配置") {
                 Button { editingInstructions = true } label: {
                     SettingsDetailRow(title: "指令", systemImage: "text.alignleft", color: .gray,
-                                      value: instructionPreview ?? "未设置",
-                                      valueLineLimit: instructionPreview == nil ? nil : 2)
+                                      value: instructionSummary,
+                                      valueLineLimit: bot.isCommander || instructionPreview != nil ? 2 : nil)
                 }
                 .foregroundStyle(.primary)
                 .disabled(locked)
@@ -574,12 +578,36 @@ private struct BotInstructionsEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
 
+    private var isCommander: Bool { store.bot(botID)?.isCommander == true }
+
     var body: some View {
         NavigationStack {
             Form {
+                if isCommander {
+                    Section {
+                        Text("指挥官负责处理任务、协调专职 Bot 并核查结果。委派任务由目标 Bot 直接执行。")
+                        DisclosureGroup("查看完整内置指令") {
+                            Text(store.commanderInstructions)
+                                .font(.callout)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } header: {
+                        Text("内置指令")
+                    } footer: {
+                        Text("内置指令始终启用，可展开查看完整内容。")
+                    }
+                }
                 Section {
-                    TextEditor(text: $text).frame(minHeight: 220).accessibilityLabel("Instructions")
-                } footer: { Text("描述这个 Bot 的角色、语气和要遵守的规则") }
+                    TextEditor(text: $text).frame(minHeight: 220)
+                        .accessibilityLabel(Text(isCommander ? "自定义指令" : "指令"))
+                } header: {
+                    Text(isCommander ? "自定义指令" : "指令")
+                } footer: {
+                    Text(isCommander
+                         ? "自定义指令会与内置指令一起生效。清空这里只会移除自定义内容。"
+                         : "描述这个 Bot 的角色、语气和要遵守的规则")
+                }
             }
             .navigationTitle("指令")
             .navigationBarTitleDisplayMode(.inline)

@@ -168,6 +168,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             check(abs(cv.contentOffset.y-bottom)<3,"latest-"+name)
             check(!vm.streamingUIUpdatesSuspended && !layout.deferSelfSizing,"resume-"+name)
             check(!coordinator.latestPositionPending && !coordinator.snapshotApplyInProgress,"settled-"+name)
+            check(coordinator.applied==1,"normal-insertion-only-"+name)
         }
         for chunk in 1...4 {
             vm.streamText=String(repeating:"Controlled streaming markdown **chunk**. ",count:chunk*8)
@@ -179,16 +180,19 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         let before=coordinator.applied
         for _ in 0..<5 { vm.messages.append(vm.messages.count);coordinator.requestLatestPosition() }
         await pause()
-        check(coordinator.applied-before==1,"continuous-send-coalesced")
+        check(coordinator.applied-before==0,"continuous-send-coalesced")
         coordinator.forceReentry=true;coordinator.applySnapshot(messages:vm.messages);await pause()
         check(coordinator.maxSnapshotDepth==1 && coordinator.rejectedReentry==2,"snapshot-reentry-deferred")
         let beforeLayout=coordinator.applied
         coordinator.latestPositionPending=true;coordinator.performingLatestPosition=true
         coordinator.applySnapshot(messages:vm.messages,caller:"hosted-layout-callback")
         check(coordinator.applied==beforeLayout && coordinator.hasPendingSnapshot,"layout-reentry-deferred")
+        coordinator.flushPendingSnapshotIfNeeded(caller:"user-latest-position")
+        check(coordinator.applied==beforeLayout+1,"latest-flushes-existing-snapshot")
+        coordinator.hasPendingSnapshot=true
         coordinator.latestPositionPending=false;coordinator.performingLatestPosition=false
         coordinator.scheduleSnapshotFlush(caller:"layout-completion");await pause()
-        check(coordinator.applied==beforeLayout+1,"layout-pending-snapshot-flushed")
+        check(coordinator.applied==beforeLayout+2,"layout-pending-snapshot-flushed")
         coordinator.scrollMode = .userBrowsing
         cv.setContentOffset(CGPoint(x:0,y:cv.contentSize.height*0.45),animated:false)
         let historicalOffset=cv.contentOffset.y

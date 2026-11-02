@@ -491,49 +491,40 @@ extension CollectionViewMessageListV3.Coordinator {
             cv.layer.add(glide, forKey: "composerShrinkGlide")
         }
 
-        /// Coalesce explicit user navigation after the send's message insertion.
-        /// Do not animate through every self-sizing historical row to reach the tail.
+        /// Navigate only after the ordinary message insertion has rendered.
+        /// Never rebuild the whole history or cancel gestures from a send.
         func requestLatestPosition() {
+            scrollMode = .autoScrolling
+            lastJumpedUserId = nil
+            composerShrinkAbsorbDeadline = CFAbsoluteTimeGetCurrent() + 2.0
             latestPositionPending = true
             guard !latestPositionScheduled else { return }
             latestPositionScheduled = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.latestPositionScheduled = false
-                guard !self.snapshotApplyInProgress else { self.requestLatestPosition(); return }
+                guard !self.snapshotApplyInProgress else {
+                    DispatchQueue.main.async { [weak self] in self?.requestLatestPosition() }
+                    return
+                }
                 guard let cv = self.viewController?.collectionView,
-                      let layout = self.viewController?.messageListLayout,
                       let vm = self.vm else { self.latestPositionPending = false; return }
                 if vm.isLoadingSession { return } // post-load apply consumes the intent
                 self.performingLatestPosition = true
                 self.isFlushing = true
                 let start = CFAbsoluteTimeGetCurrent()
-                // Cancelling momentum can synchronously invoke the settle delegate.
-                // latestPositionPending fences that old historical-anchor restore.
-                if cv.isDragging || cv.isTracking {
-                    cv.panGestureRecognizer.isEnabled = false
-                    cv.panGestureRecognizer.isEnabled = true
-                }
-                cv.setContentOffset(cv.contentOffset, animated: false)
                 self.isAnimatingScrollToBottom = false
-                self.scrollMode = .autoScrolling
-                self.lastJumpedUserId = nil
-                self.composerShrinkAbsorbDeadline = CFAbsoluteTimeGetCurrent() + 2.0
-                layout.deferSelfSizing = false
-                layout.applyDeferredHeights()
+                self.viewController?.messageListLayout?.deferSelfSizing = false
                 vm.setStreamingUIUpdatesSuspended(false)
-                self.hasPendingSnapshot = false
-                self.applySnapshot(messages: vm.messages, caller: "user-latest-position", positioningLatest: true)
+                if self.hasPendingSnapshot {
+                    self.flushPendingSnapshotIfNeeded(caller: "user-latest-position")
+                }
                 self.scrollToBottomNow(animated: false)
-                // Let the snapshot's own layout and hosted-cell updates finish
-                // before correcting for cold tail measurements. Forcing another
-                // layout here re-entered UIKit/SwiftUI during a composer send.
+                // Cold tail cells may resize after the first pin. Correct that
+                // once later; the existing coalesced streaming pin handles any
+                // further content growth. Never force a second layout here.
                 DispatchQueue.main.async { [weak self, weak cv] in
                     guard let self, let cv else { return }
-                    guard !self.snapshotApplyInProgress else {
-                        self.requestLatestPosition()
-                        return
-                    }
                     self.scrollToBottomNow(animated: false)
                     self.latestPositionPending = false
                     self.performingLatestPosition = false

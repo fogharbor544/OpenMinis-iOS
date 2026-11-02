@@ -61,9 +61,10 @@ def main():
                 str(ROOT / "MinisTests/Standalone/BotAvatarNativeTests.swift"), "-o", str(app / "AvatarValidation"), timeout=180)
             run("codesign", "--force", "--sign", "-", str(app))
             run("xcrun", "simctl", "install", udid, str(app))
-            run("xcrun", "simctl", "launch", "--terminate-running-process", udid, BUNDLE)
             container = Path(capture("xcrun", "simctl", "get_app_container", udid, BUNDLE, "data"))
             result_file = container / "Documents/result.json"
+            result_file.unlink(missing_ok=True)
+            run("xcrun", "simctl", "launch", "--terminate-running-process", udid, BUNDLE)
             for _ in range(90):
                 if result_file.exists():
                     break
@@ -76,8 +77,8 @@ def main():
                     shutil.copy2(item, OUTPUT / item.name)
             assert not result["failures"], result["failures"]
             assert len(result["cases"]) >= 18
-            assert len(list(OUTPUT.glob("*.png"))) == 4
-            print(f"PASS: {len(result['cases'])} shipping-avatar native assertions and 4 picker/gallery snapshots; see result.json for limits")
+            assert len(list(OUTPUT.glob("*.png"))) == 6
+            print(f"PASS: {len(result['cases'])} shipping-avatar native assertions and 6 moving/picker/gallery snapshots; see result.json for limits")
     finally:
         if booted_here:
             subprocess.run(["xcrun", "simctl", "shutdown", udid], check=False, timeout=30)

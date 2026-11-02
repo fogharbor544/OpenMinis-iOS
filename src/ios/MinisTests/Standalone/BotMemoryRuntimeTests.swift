@@ -1,6 +1,44 @@
 import Foundation
 enum ProgrammaticPromptOrigin { case job(jobId: String) }
 
+enum ThinkingLevel { case off }
+struct AgentToolDefinition { var name: String }
+struct AgentMessage {
+    enum Role { case user }
+    enum Part { case text(String) }
+    var role: Role; var parts: [Part]
+}
+struct LLMUsage {
+    var inputTokens: Int; var outputTokens: Int
+    var cacheReadInputTokens: Int? = nil; var cacheCreationInputTokens: Int? = nil
+}
+enum AgentStreamEvent {
+    case toolCallComplete(id: String, name: String, args: [String: Any], metadata: String?)
+    case usage(LLMUsage)
+}
+protocol AgentProvider {
+    var defaultMaxTokens: Int { get }
+    func streamAgentMessage(messages: [AgentMessage], systemPrompt: String?, tools: [AgentToolDefinition],
+                            maxTokens: Int, thinkingLevel: ThinkingLevel) async throws -> AsyncThrowingStream<AgentStreamEvent, Error>
+}
+final class MemoryReviewProvider: AgentProvider {
+    let defaultMaxTokens = 2048
+    var calls = 0
+    var beforeResponse: (@MainActor () -> Void)?
+    func streamAgentMessage(messages: [AgentMessage], systemPrompt: String?, tools: [AgentToolDefinition],
+                            maxTokens: Int, thinkingLevel: ThinkingLevel) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        calls += 1
+        precondition(tools.map(\.name) == ["memory_write"] && maxTokens <= 1024)
+        await beforeResponse?()
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.usage(LLMUsage(inputTokens: 10, outputTokens: 5)))
+            continuation.yield(.toolCallComplete(id: "other", name: "shell_execute", args: ["command": "must not execute"], metadata: nil))
+            continuation.yield(.toolCallComplete(id: "note", name: "memory_write", args: ["content": "Prefers source links", "action": "forget", "entry_id": "must not delete"], metadata: nil))
+            continuation.finish()
+        }
+    }
+}
+
 @MainActor final class AIChatViewModel {
     struct FileToolResult { let output: String; let success: Bool }
     struct Message {
@@ -12,21 +50,44 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         var isQueued = false
         var isCompactedHistory = false
     }
-    struct History { var anchorId: UUID; var dbMessageId: String? }
+    struct History {
+        enum Role { case user, assistant }
+        var anchorId: UUID; var dbMessageId: String?; var role = Role.user
+    }
     var agentHistory: [History] = []
     func loadUser(_ text: String, rowID: String = UUID().uuidString) {
         let anchor = UUID()
         messages = [.init(historyAnchorId: anchor, content: text)]
-        agentHistory = [.init(anchorId: anchor, dbMessageId: rowID)]
+        agentHistory = [.init(anchorId: anchor, dbMessageId: rowID),
+                        .init(anchorId: UUID(), dbMessageId: rowID + "-assistant", role: .assistant)]
     }
     var sessionId: String?
+    var helperConfig: String?
+    var userDidCancel = false
+    var canResume = false
+    var botMemoryReviewTask: Task<Void, Never>?
+    var botMemoryReviewedSourceID: String?
+    var transientNotice: String?
+    var sessionInputTokens = 0, sessionOutputTokens = 0, sessionCacheReadTokens = 0, sessionCacheWriteTokens = 0
+    func makeAgentTools() -> [AgentToolDefinition] { [.init(name: "memory_write")] }
     var memoryEnabled = true
     var messages: [Message] = []
     var programmaticTurnOrigin: ProgrammaticPromptOrigin?
 }
 
+actor ChatStore {
+    static let shared = ChatStore()
+    var usages: [String: StoredTokenUsage] = [:]
+    func addAuxiliaryUsage(_ usage: StoredTokenUsage, messageID: String, sessionID: String) -> Bool {
+        var stored = usages[messageID] ?? StoredTokenUsage(inputTokens: 100, outputTokens: 20, cacheCreationTokens: 0, cacheReadTokens: 0, latestContextTokens: 120)
+        stored.addAuxiliaryUsage(usage); usages[messageID] = stored
+        return true
+    }
+    func storedUsage(_ id: String) -> StoredTokenUsage? { usages[id] }
+}
+
 @main struct BotMemoryRuntimeTests {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         let workspace = BotWorkspaceStore.shared
         var a = BotProfile(name: "A"); a.sessionId = "private-a"
         var b = BotProfile(name: "B"); b.sessionId = "private-b"
@@ -98,7 +159,48 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         precondition(vm.botMemorySource == nil)
         precondition(vm.executeBotMemoryWrite("{\"content\":\"Verified scheduled task outcome\",\"category\":\"experience\"}").success)
         vm.programmaticTurnOrigin = nil
+        // A completed answer without a memory call gets one bounded, read-only
+        // selection request. Candidate actions are normalized to additive saves.
+        let reviewer = MemoryReviewProvider()
+        vm.loadUser("I prefer source links in research replies", rowID: "review-source")
+        vm.scheduleBotMemoryReview(provider: reviewer)
+        await vm.botMemoryReviewTask?.value
+        precondition(reviewer.calls == 1)
+        precondition(vm.executeBotMemoryGet("{}").output.contains("Prefers source links"))
+        precondition(vm.transientNotice?.contains("已记住") == true)
+        precondition(vm.sessionInputTokens == 10 && vm.sessionOutputTokens == 5)
+        let storedUsage = await ChatStore.shared.storedUsage("review-source-assistant")!
+        precondition(storedUsage.inputTokens == 100 && storedUsage.latestContextTokens == 120)
+        precondition(storedUsage.billedUsage.inputTokens == 110 && storedUsage.billedUsage.outputTokens == 25)
+        precondition(!BotMemoryStore.shared.hasPendingReviews)
+        vm.scheduleBotMemoryReview(provider: reviewer)
+        precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 1, "One review per persisted user source")
+        vm.loadUser("The actual password is sensitive", rowID: "secret-source")
+        vm.scheduleBotMemoryReview(provider: reviewer)
+        precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 1)
+        vm.loadUser("I prefer API key storage in Keychain", rowID: "safe-review-source")
+        reviewer.beforeResponse = { vm.loadUser("A newer message", rowID: "new-source") }
+        vm.transientNotice = nil
+        vm.scheduleBotMemoryReview(provider: reviewer)
+        await vm.botMemoryReviewTask?.value
+        precondition(vm.transientNotice == nil, "Stale review cannot save into a newer turn")
+        let staleUsage = await ChatStore.shared.storedUsage("safe-review-source-assistant")
+        precondition(staleUsage?.auxiliaryInputTokens == 10, "Already reported usage survives a stale source guard")
+        reviewer.beforeResponse = nil
+        vm.helperConfig = "specialist"
+        vm.scheduleBotMemoryReview(provider: reviewer)
+        precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 2)
+        vm.helperConfig = nil
+        vm.loadUser("I prefer concise replies", rowID: "cancelled-review")
+        vm.scheduleBotMemoryReview(provider: reviewer)
+        let cancelledReview = vm.botMemoryReviewTask
+        cancelledReview?.cancel()
+        await cancelledReview?.value
+        precondition(reviewer.calls == 2, "Cancelled review must not open a provider request")
         vm.memoryEnabled = false
+        vm.loadUser("I prefer metric units", rowID: "disabled-review")
+        vm.scheduleBotMemoryReview(provider: reviewer)
+        precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 2)
         precondition(vm.botMemoryFragment() == nil && !vm.executeBotMemoryGet("{}").success)
         // Persist ownership before deletion, as session creation does in production.
         var data = workspace.data
@@ -107,6 +209,6 @@ enum ProgrammaticPromptOrigin { case job(jobId: String) }
         workspace.deleteBot(a.id)
         precondition(vm.botMemoryOwner != nil && !vm.botMemoryAvailable)
         precondition(!vm.executeBotMemoryGet("{}").success)
-        print("PASS: runtime owner isolation, group opt-in sharing, summarized proactive saves, optional provenance, reload tombstones, scheduled notes, toggle and deleted-owner refusal")
+        print("PASS: runtime owner isolation, group opt-in sharing, summarized proactive saves, optional provenance, reload tombstones, scheduled notes, bounded automatic review, usage, stale-source and cancellation gates, toggle and deleted-owner refusal")
     }
 }

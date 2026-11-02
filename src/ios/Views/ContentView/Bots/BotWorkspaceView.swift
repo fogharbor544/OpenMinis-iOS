@@ -123,7 +123,7 @@ struct BotWorkspaceView: View {
                 if let commander = store.data.bots.first(where: \.isCommander) {
                     Section {
                         VStack(spacing: 8) {
-                            BotAvatarPreview(profile: commander, size: 92)
+                            BotAvatar(profile: commander, size: 92)
                             Button { open(commander) } label: {
                                 HStack(spacing: 6) { Text(commander.name).font(.title3.weight(.semibold)); Image(systemName: "chevron.right").font(.caption) }
                                     .frame(minHeight: 44)
@@ -281,7 +281,7 @@ struct BotWorkspaceView: View {
 
     private func botRow(_ bot: BotProfile, preview: ChatSession?) -> some View {
         let subtitle = botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
-            ?? store.delegationPreview(botID: bot.id, after: preview?.updatedAt)
+            ?? store.delegationPreview(botID: bot.id, after: preview?.lastMessage?.isEmpty == false ? preview?.updatedAt : nil)
             ?? preview?.lastMessage
             ?? bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
         return Button {

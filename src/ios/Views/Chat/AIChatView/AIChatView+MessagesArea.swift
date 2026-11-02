@@ -26,6 +26,10 @@ extension AIChatView {
 
     var messagesArea: some View {
         ZStack {
+            // Keep the dismissal surface behind interactive empty-Bot cards.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { inputFocused = false }
             CollectionViewMessageListV3(
                 vm: vm,
                 inputFocused: inputFocused,
@@ -79,17 +83,6 @@ extension AIChatView {
             .sheet(item: $openedBot) { BotOpenedChat(botID: $0.id) }
             .onReceive(NotificationCenter.default.publisher(for: .botQuoteSelected)) { note in
                 if note.object as? String == vm.sessionId { inputFocused = true }
-            }
-            // Empty/loading overlay for tap-to-dismiss-keyboard.
-            // Placed BEFORE the directory timeline in the ZStack so the
-            // timeline can sit on top and receive its own taps (folder-card
-            // arrow buttons). Taps that miss the timeline content fall
-            // through to this background overlay.
-            if vm.messages.isEmpty || vm.isLoadingSession {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { inputFocused = false }
             }
             // Empty-chat onboarding tip: a single card explaining the
             // per-session vs cross-session /var/minis/ layout. Only shown

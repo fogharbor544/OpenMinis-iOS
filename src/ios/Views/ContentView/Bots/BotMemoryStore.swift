@@ -20,6 +20,7 @@ struct BotMemoryEntry: Identifiable, Codable, Equatable {
     var grants: [String] = []
     var fingerprint = ""
     var replaces: String?
+    var documentOrder: Int? = nil
 }
 
 enum BotMemoryError: LocalizedError {
@@ -34,6 +35,10 @@ enum BotMemoryError: LocalizedError {
     @Published private(set) var revision = 0
     @Published var errorMessage: String?
     @Published private(set) var lastSaved: BotMemoryEntry?
+    private var pendingReviews: Set<UUID> = []
+    var hasPendingReviews: Bool { !pendingReviews.isEmpty }
+    func beginReview(_ id: UUID) { pendingReviews.insert(id) }
+    func endReview(_ id: UUID) { pendingReviews.remove(id) }
     private var db: OpaquePointer?
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -112,7 +117,9 @@ enum BotMemoryError: LocalizedError {
     }
 
     static func containsSecret(_ text: String) -> Bool {
-        let pattern = #"(?i)(password|passwd|api[ _-]?key|secret[ _-]?key|access[ _-]?token|验证码|密码|私钥|密钥|助记词|one[ -]?time code|BEGIN .*PRIVATE KEY|\bsk-[A-Za-z0-9]{12,})"#
+        // A topic such as "API key storage uses Keychain" is not a credential.
+        // Reject recognizable secret values and label/value assignments instead.
+        let pattern = #"(?i)(BEGIN .*PRIVATE KEY|\bsk-[A-Za-z0-9]{12,}|(?:password|passwd|api[ _-]?key|secret[ _-]?key|access[ _-]?token|验证码|密码|私钥|密钥|助记词|one[ -]?time code)\s*(?:is\b|是|为|[:=：])\s*[^\s]+|(?:验证码|密码)\s*[0-9]{4,})"#
         return text.range(of: pattern, options: .regularExpression) != nil
     }
 
@@ -204,6 +211,103 @@ enum BotMemoryError: LocalizedError {
     func visible(to owner: String) throws -> [BotMemoryEntry] {
         try entries().filter { $0.status == "active" && ($0.owner == owner || $0.grants.contains(owner)) }
             .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// One editable document over the existing scoped records. Retain untouched
+    /// records, provenance and grants; edits never broaden another Bot's access.
+    func documentEntries(owner: String) throws -> [BotMemoryEntry] {
+        try entries().filter { $0.owner == owner && $0.status == "active" }.sorted(by: Self.documentPrecedes)
+    }
+
+    private static func documentPrecedes(_ left: BotMemoryEntry, _ right: BotMemoryEntry) -> Bool {
+        let lhs = left.documentOrder ?? Int.max, rhs = right.documentOrder ?? Int.max
+        if lhs != rhs { return lhs < rhs }
+        if left.createdAt != right.createdAt { return left.createdAt < right.createdAt }
+        return left.id < right.id
+    }
+
+    /// Reading a shared document preserves its author's order, independently of
+    /// retrieval relevance/recency. Different sources remain separate documents.
+    func sharedDocumentEntries(to owner: String) throws -> [BotMemoryEntry] {
+        try visible(to: owner).filter { $0.owner != owner }.sorted {
+            if $0.owner != $1.owner { return $0.owner < $1.owner }
+            return Self.documentPrecedes($0, $1)
+        }
+    }
+
+    static func documentText(_ entries: [BotMemoryEntry]) -> String {
+        entries.map(\.content).joined(separator: "\n\n")
+    }
+
+    func saveDocument(owner: String, text: String, baseline: [BotMemoryEntry]) throws {
+        let current = try documentEntries(owner: owner)
+        guard current == baseline else {
+            throw BotMemoryError.invalid("记忆已有更新，未覆盖你的草稿。请复制草稿后重新打开编辑。")
+        }
+        var remaining = text.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !owner.isEmpty, remaining.count <= 200_000 else { throw BotMemoryError.invalid("文档过长，请精简后保存。") }
+        if remaining == Self.documentText(current) { return }
+        guard !Self.containsSecret(remaining) else { throw BotMemoryError.invalid("记忆不能保存密码、验证码或密钥，请移除后再保存。") }
+        var result: [BotMemoryEntry] = []
+        var retained = Set<String>()
+        let longestFirst = current.sorted { $0.content.count > $1.content.count }
+        while !remaining.isEmpty {
+            let existing = longestFirst.first { entry in
+                guard !retained.contains(entry.id), remaining.hasPrefix(entry.content) else { return false }
+                let tail = remaining.dropFirst(entry.content.count)
+                return tail.isEmpty || tail.hasPrefix("\n\n")
+            }
+            if var entry = existing {
+                retained.insert(entry.id)
+                remaining = String(remaining.dropFirst(entry.content.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if entry.documentOrder != result.count { entry.documentOrder = result.count; entry.updatedAt = Date() }
+                result.append(entry)
+            } else {
+                let boundary = remaining.range(of: "\n\n")?.lowerBound ?? remaining.endIndex
+                let paragraph = String(remaining[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard paragraph.count <= 2000 else { throw BotMemoryError.invalid("有一段内容超过2000字，请用空行分段后保存。") }
+                var entry = BotMemoryEntry(owner: owner, content: paragraph, category: "fact", scope: "general", evidence: "Edited by user")
+                entry.fingerprint = Self.fingerprint(paragraph)
+                entry.documentOrder = result.count
+                result.append(entry)
+                remaining = String(remaining[boundary...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        let all = try entries().filter { $0.owner == owner }
+        var removedIDs = Set(current.filter { !retained.contains($0.id) }.map(\.id))
+        for entry in current where removedIDs.contains(entry.id) {
+            var previous = entry.replaces
+            while let id = previous, let old = all.first(where: { $0.id == id }), removedIDs.insert(id).inserted {
+                previous = old.replaces
+            }
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for var old in all where removedIDs.contains(old.id) {
+                old.status = "deleted"; old.content = ""; old.scope = ""; old.evidence = ""; old.grants = []; old.updatedAt = Date()
+                try write(old)
+            }
+            for entry in result { try write(entry) }
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+        lastSaved = nil
+        revision += 1
+    }
+
+    func setDocumentGrants(owner: String, baseline: [BotMemoryEntry], grants: [String]) throws {
+        guard try documentEntries(owner: owner) == baseline else {
+            throw BotMemoryError.invalid("记忆已有更新，请重新打开共享设置。")
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for var entry in baseline {
+                entry.grants = Array(Set(grants)).filter { $0 != owner }.sorted()
+                entry.updatedAt = Date()
+                try write(entry)
+            }
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+        revision += 1
     }
 
     /// Match the original daily-log injection without reopening shared Markdown storage.

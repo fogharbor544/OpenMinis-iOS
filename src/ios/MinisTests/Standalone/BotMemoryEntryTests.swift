@@ -44,6 +44,12 @@ import Foundation
         let context = try store.recall(owner: "bot:c", query: "unrelated question")
         precondition(context.contains("Use plain language"))
         try check(try store.recall(owner: "bot:c", query: "unrelated", budget: 5).isEmpty)
+        precondition(!BotMemoryStore.containsSecret("Browser passwords are stored in Keychain"))
+        precondition(!BotMemoryStore.containsSecret("API key configuration uses environment variables"))
+        precondition(BotMemoryStore.containsSecret("password=abc123-secret"))
+        precondition(BotMemoryStore.containsSecret("API key: sk-abcdefghijklmnop"))
+        precondition(BotMemoryStore.containsSecret("验证码是123456"))
+        precondition(BotMemoryStore.containsSecret("BEGIN RSA PRIVATE KEY"))
         do { _ = try store.save(make("bot:a", "My password is sensitive"), userInitiated: true); fatalError("Stored secret") }
         catch is BotMemoryError {}
         try store.forgetOwner("bot:a")

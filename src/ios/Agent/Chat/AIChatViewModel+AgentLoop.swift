@@ -538,11 +538,11 @@ extension AIChatViewModel {
             // After the wrap-up block on purpose: if both land on the same
             // turn, the child sees the steer first and the "write it up now"
             // instruction last, which is the order that keeps the deliverable.
-            if helperConfig != nil, !pendingSteerMessages.isEmpty {
+            if helperConfig != nil || isDirectBotConversation, !pendingSteerMessages.isEmpty {
                 let steers = pendingSteerMessages
                 pendingSteerMessages.removeAll()
                 let note = steers
-                    .map { "[Course correction from the delegating agent] \($0)" }
+                    .map { isDirectBotConversation ? $0 : "[Course correction from the delegating agent] \($0)" }
                     .joined(separator: "\n")
                 // [T-subagent-steer-visible] Persist it as a real user message
                 // in the CHILD's own transcript, then let the normal history
@@ -1871,7 +1871,7 @@ extension AIChatViewModel {
                 // effect. Continuing gives the next iteration something to
                 // deliver, which is what makes a steer behave like the
                 // mid-task interjection it is meant to be.
-                if helperConfig != nil, !pendingSteerMessages.isEmpty {
+                if helperConfig != nil || isDirectBotConversation, !pendingSteerMessages.isEmpty {
                     logger.info("[subagent_task] steer arrived at loop end — continuing for another turn")
                     canResume = false
                     turnUsage = TokenUsage()
@@ -2309,6 +2309,7 @@ extension AIChatViewModel {
                 cacheAttributedString(for: messages[msgIdx].blocks[i])
             }
         }
+        if messages[msgIdx].error == nil { scheduleBotMemoryReview(provider: provider) }
 
     }
 }

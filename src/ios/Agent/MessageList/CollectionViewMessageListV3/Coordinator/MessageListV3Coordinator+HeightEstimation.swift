@@ -134,6 +134,9 @@ extension CollectionViewMessageListV3.Coordinator {
             }
             switch item {
             case .wholeMessage(let id):
+                if let message = msg(id), BotTimelineRow.contains(message) {
+                    return "bot:\(id.uuidString):\(message.systemIcon ?? ""):\(message.content.hashValue)"
+                }
                 let n = msg(id)?.content.count ?? 0
                 let a = msg(id)?.attachments.count ?? 0
                 // [T-queued-bubble-height-after-drain] A queued bubble wraps

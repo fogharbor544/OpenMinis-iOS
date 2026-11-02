@@ -129,7 +129,12 @@ struct BotDelegation: Identifiable, Codable, Equatable {
     var resumesDelegationID: String? = nil
     var toolUseHistory: [String]? = nil
     var queuedAt: Date? = nil
-    var statusLabel: String { state == .running && followUpSent ? "已追问，等待进展" : state.label }
+    var directExecution: Bool? = nil
+    var waitingForUser: Bool? = nil
+    var statusLabel: String {
+        if state == .running && waitingForUser == true { return "等待你的回复" }
+        return state == .running && followUpSent ? "已追问，等待进展" : state.label
+    }
 
 }
 
@@ -389,9 +394,11 @@ final class BotWorkspaceStore: ObservableObject {
     }
 
     @discardableResult
-    func bindDelegation(_ id: String, childSessionID: String, jobID: String) -> Bool {
+    func bindDelegation(_ id: String, childSessionID: String, jobID: String? = nil) -> Bool {
         guard var record = delegation(id), record.state == .queued, bot(record.toBotID) != nil else { return false }
         record.childSessionID = childSessionID; record.jobID = jobID
+        record.directExecution = jobID == nil ? true : nil
+        record.waitingForUser = false
         record.state = .running; record.updatedAt = Date()
         var next = data
         next.sessionOwners[childSessionID] = BotSessionOwner(botId: record.toBotID, delegationID: id)

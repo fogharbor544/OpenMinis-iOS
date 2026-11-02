@@ -1311,6 +1311,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// text.
     @Published var pendingQuote: BotMessageQuote?
     let botOverviewMessage = ChatMessage(role: .systemInfo, content: "")
+    var botCreationMessages: [String: ChatMessage] = [:]
+    var botMemoryReviewTask: Task<Void, Never>?
+    var botMemoryReviewedSourceID: String?
+
     let botUnreadMessage = ChatMessage(role: .systemInfo, content: "")
     var unreadBoundaryMessageID: String?
     var readBoundaryInitialized = false

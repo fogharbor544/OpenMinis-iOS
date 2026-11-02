@@ -17,6 +17,34 @@ import os.log
 extension ChatStore {
     // MARK: - Usage Statistics
 
+    /// Preserve primary context measurements; the optional accounting component
+    /// travels in token_usage through sync/backup without creating a chat turn.
+    func addAuxiliaryUsage(_ usage: StoredTokenUsage, messageID: String, sessionID: String) -> Bool {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
+        var read: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT token_usage FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'", -1, &read, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(read) }
+        bindOptionalText(read, index: 1, value: messageID)
+        bindOptionalText(read, index: 2, value: sessionID)
+        guard sqlite3_step(read) == SQLITE_ROW, let payload = sqlite3_column_text(read, 0),
+              var stored = try? JSONDecoder().decode(StoredTokenUsage.self, from: Data(String(cString: payload).utf8)) else { return false }
+        sqlite3_finalize(read); read = nil
+        stored.addAuxiliaryUsage(usage)
+        guard let data = try? JSONEncoder().encode(stored) else { return false }
+        var write: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "UPDATE messages SET token_usage = ?, updated_at = ? WHERE id = ? AND session_id = ?", -1, &write, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(write) }
+        bindOptionalText(write, index: 1, value: String(decoding: data, as: UTF8.self))
+        sqlite3_bind_double(write, 2, Date().timeIntervalSince1970)
+        bindOptionalText(write, index: 3, value: messageID)
+        bindOptionalText(write, index: 4, value: sessionID)
+        guard sqlite3_step(write) == SQLITE_DONE, sqlite3_changes(db) == 1 else { return false }
+        markDirty(recordType: "Message", recordId: messageID)
+        return true
+    }
+
+
     /// A single usage record from a message with token usage data.
     struct UsageRecord {
         let modelId: String
@@ -96,6 +124,11 @@ extension ChatStore {
                     modelDisplayName: displayName, providerType: providerType,
                     hasSnapshot: hasSnapshot
                 ))
+                if let auxiliary = usage.auxiliaryUsage {
+                    records.append(UsageRecord(modelId: modelId, sessionId: sessionId,
+                        date: createdAt, usage: auxiliary, modelDisplayName: displayName,
+                        providerType: providerType, hasSnapshot: hasSnapshot))
+                }
             }
         }
         sqlite3_finalize(stmt)

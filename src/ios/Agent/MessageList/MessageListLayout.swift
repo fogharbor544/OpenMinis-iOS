@@ -13,6 +13,15 @@ import os
 /// Once a cell's height is known, it's cached and reused until explicitly
 /// invalidated (e.g., the streaming cell changes height).
 final class MessageListLayout: UICollectionViewLayout {
+    override init() {
+        super.init()
+        register(BotReplyBackground.self, forDecorationViewOfKind: "bot-reply-background")
+    }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        register(BotReplyBackground.self, forDecorationViewOfKind: "bot-reply-background")
+    }
+
     /// Default estimated height for cells that haven't been measured yet.
     var estimatedItemHeight: CGFloat = 200
 
@@ -296,7 +305,6 @@ final class MessageListLayout: UICollectionViewLayout {
 
     private var _replyGroupRanges: [Range<Int>] = []
     func setReplyGroups(_ ranges: [Range<Int>]) {
-        register(BotReplyBackground.self, forDecorationViewOfKind: "bot-reply-background")
         os_unfair_lock_lock(&_streamingLock)
         let changed = _replyGroupRanges != ranges
         _replyGroupRanges = ranges

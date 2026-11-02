@@ -21,12 +21,17 @@ struct AgentToolDefinition {
 @MainActor final class BotTeamRuntime {
     static let shared = BotTeamRuntime()
     var starts = 0
+    var steers: [(String, String)] = []
+    var stops: [String] = []
+    func steer(_ id: String, message: String) -> Bool { steers.append((id, message)); return true }
+    func stopExecution(_ id: String, reason: String) { stops.append(id) }
     func start() { starts += 1 }
 }
 @MainActor final class AIChatViewModel {
     enum ToolSwitch { case agents }
     static var agentsEnabled = true
     var sessionId: String?; var isHelper = false; var programmaticTurnOrigin: String?
+    var helperConfig: String?
     var steers: [[String: Any]] = []
     static func toolEnabled(_ value: ToolSwitch) -> Bool { agentsEnabled }
     static func jsonString(_ value: [String: Any]) -> String { String(decoding: try! JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self) }
@@ -82,9 +87,10 @@ struct AgentToolDefinition {
         precondition(!other.executeBotTask(["action": "cancel", "delegation_id": delegationID], toolUseID: "wrong-parent").success)
         precondition(other.executeBotTask(["action": "status", "delegation_id": delegationID], toolUseID: "other-status").output == "[]")
         precondition(!vm.executeBotTask(["action": "delegate", "bot_id": commander.id, "task": "recursive"], toolUseID: "recursive").success)
-        precondition(store.bindDelegation(delegationID, childSessionID: "specialist-child", jobID: "job"))
+        precondition(store.bindDelegation(delegationID, childSessionID: "bot-conversation"))
         precondition(vm.executeBotTask(follow, toolUseID: "running-context").success)
-        precondition(vm.steers.count == 1 && store.delegation(delegationID)?.toolUseHistory?.contains("running-context") == true)
+        precondition(BotTeamRuntime.shared.steers.count == 1 && store.delegation(delegationID)?.toolUseHistory?.contains("running-context") == true)
+        precondition(store.delegation(delegationID)?.jobID == nil && store.delegation(delegationID)?.directExecution == true)
         var record = store.delegation(delegationID)!; record.state = .reviewing; record.result = "Partial result"
         precondition(store.saveDelegation(record))
         _ = try object(vm.executeBotTask(follow, toolUseID: "rework"))

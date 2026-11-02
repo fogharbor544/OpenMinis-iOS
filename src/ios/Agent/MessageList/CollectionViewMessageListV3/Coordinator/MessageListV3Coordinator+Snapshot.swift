@@ -135,13 +135,7 @@ extension CollectionViewMessageListV3.Coordinator {
             var messages = rawMessages.contains(where: { $0.isInternalBridge })
                 ? rawMessages.filter { !$0.isInternalBridge }
                 : rawMessages
-            if !vm.isHelper, let sid = vm.sessionId,
-               let owner = BotWorkspaceStore.shared.owner(forSession: sid), owner.roomId == nil, owner.delegationID == nil,
-               let bot = BotWorkspaceStore.shared.bot(owner.botId),
-               bot.introduction != nil || bot.onboarding != nil || BotWorkspaceStore.shared.data.delegations.contains(where: { $0.toBotID == bot.id }) || bot.isCommander {
-                vm.botOverviewMessage.systemIcon = "bot-overview"
-                messages.insert(vm.botOverviewMessage, at: 0)
-            }
+            messages = vm.botTimelineMessages(messages)
             if vm.readBoundaryInitialized, vm.unreadBoundaryMessageID == nil,
                let incoming = rawMessages.first(where: { !vm.knownPresentationMessageIDs.contains($0.id.uuidString) && !vm.knownPresentationMessageIDs.contains($0.persistedMessageID ?? "") && ($0.role == .assistant || $0.agentCallback != nil) }) {
                 vm.unreadBoundaryMessageID = incoming.persistedMessageID ?? incoming.id.uuidString
@@ -499,6 +493,17 @@ extension CollectionViewMessageListV3.Coordinator {
             // duplicate row instead of a crash.
             newItems = Self.uniqueItems(newItems, caller: caller)
 
+            // These cards change independently of the model transcript. Track their
+            // render revisions and measure before laying out the FIRST frame, rather
+            // than letting a multi-hundred-point form borrow a 36pt system-info row.
+            let botRows = messages.filter { BotTimelineRow.contains($0) }
+            let botKeys = Dictionary(botRows.map { message in
+                (message.id, Self.contentKey(for: .wholeMessage(message.id), messages: messages, messageIndex: messageIndex))
+            }, uniquingKeysWith: { first, _ in first })
+            let changedBotRows = botRows.filter { botTimelineHeightKeys[$0.id] != botKeys[$0.id] }
+            let changedBotItems = changedBotRows.map { MessageListItem.wholeMessage($0.id) }
+            botTimelineHeightKeys = botKeys
+
             // Remap height cache + set accurate estimates for ALL item types
             if let layout = viewController?.messageListLayout {
                 #if DEBUG
@@ -515,6 +520,11 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
                 #endif
                 layout.updateCacheForSnapshot(oldIds: previousSnapshotIds, newIds: newItems)
+                for item in changedBotItems {
+                    guard let index = newItems.firstIndex(of: item) else { continue }
+                    layout.invalidateHeight(at: index)
+                    (viewController?.collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? SelfSizingCell)?.clearCachedHeight()
+                }
 
                 // [T-ios-first-block-footer-gap] Collapse the footer the moment
                 // a turn's FIRST block appears.
@@ -663,6 +673,17 @@ extension CollectionViewMessageListV3.Coordinator {
                         footerProminent = isFooterProminent(footerMsgId, footerMessage: footerMsg,
                                                             messages: messages, vm: vm)
                         layout.setFooterHug(!footerProminent, at: i)
+                    }
+
+                    if case .wholeMessage(let id) = item,
+                       let index = messageIndex[id], BotTimelineRow.contains(messages[index]) {
+                        if layout.cachedHeight(at: i) == nil {
+                            let rowWidth = maxContentWidth > 0 ? min(cvWidth, maxContentWidth) : cvWidth
+                            let host = UIHostingController(rootView: BotTimelineRow(message: messages[index]).environmentObject(vm))
+                            let height = host.sizeThatFits(in: CGSize(width: rowWidth, height: .greatestFiniteMagnitude)).height
+                            layout.setPrecalcHeight(ceil(height), at: i)
+                        }
+                        continue
                     }
 
                     guard layout.cachedHeight(at: i) == nil else { continue }
@@ -1042,14 +1063,15 @@ extension CollectionViewMessageListV3.Coordinator {
             // Skip diffable-data-source apply when items haven't changed —
             // avoids expensive UIKit cell creation/layout on redundant snapshots.
             if newItems == previousSnapshotIds {
-                // [T-fold-tool-notes] Same items, but a run's count or time may
-                // have changed under its row. Group rows have a fixed height,
-                // so a plain reconfigure is enough — no height invalidation.
-                if !changedToolGroupItems.isEmpty, let ds = dataSource {
+                // Same identities can have new Bot content or tool-group counts.
+                // Submit their reconfigurations in one diffable-data-source apply.
+                let changedRows = changedToolGroupItems + changedBotItems
+                if !changedRows.isEmpty, let ds = dataSource {
                     var snap = ds.snapshot()
-                    snap.reconfigureItems(changedToolGroupItems.filter { snap.indexOfItem($0) != nil })
+                    snap.reconfigureItems(changedRows.filter { snap.indexOfItem($0) != nil })
                     changedToolGroupItems = []
                     ds.apply(snap, animatingDifferences: false)
+                    if !changedBotItems.isEmpty { viewController?.messageListLayout.invalidateLayout() }
                 }
                 AppLogger(category: "SnapshotDiag").info("[SnapshotDiag] SKIP caller=\(caller) items unchanged (count=\(newItems.count)) — no re-apply")
                 // [T-ios-bg-resume-collapse] …but a SKIP is exactly wrong for a
@@ -1137,7 +1159,7 @@ extension CollectionViewMessageListV3.Coordinator {
             snapshot.appendSections([.main])
             snapshot.appendItems(newItems, toSection: .main)
             // [T-fold-tool-notes] Rows kept across this apply whose run changed.
-            let regroupedRows = changedToolGroupItems.filter { oldSet.contains($0) && snapshot.indexOfItem($0) != nil }
+            let regroupedRows = (changedToolGroupItems + changedBotItems).filter { oldSet.contains($0) && snapshot.indexOfItem($0) != nil }
             if !regroupedRows.isEmpty { snapshot.reconfigureItems(regroupedRows) }
             changedToolGroupItems = []
             // Suppress contentOffsetAdjustment during snapshot application so that

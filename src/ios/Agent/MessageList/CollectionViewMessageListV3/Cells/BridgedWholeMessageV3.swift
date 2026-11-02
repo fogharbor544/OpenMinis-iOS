@@ -23,7 +23,11 @@ struct BridgedWholeMessageV3: View {
 
     @EnvironmentObject private var vm: AIChatViewModel
     var body: some View {
-        if message.systemIcon == "bot-overview" { BotConversationOverview() }
+        if BotTimelineRow.contains(message) {
+            BotTimelineRow(message: message)
+                .frame(maxWidth: maxWidth > 0 ? maxWidth : nil, alignment: .leading)
+                .frame(maxWidth: .infinity)
+        }
         else if message.systemIcon == "bot-unread" { BotUnreadDivider() }
         else { VStack(alignment: .leading, spacing: 6) {
         BotSourceRow(message: message)

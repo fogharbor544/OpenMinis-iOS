@@ -2222,6 +2222,10 @@ extension AIChatViewModel {
                 quote: live.quote, quotedPartIndex: live.quote == nil ? nil : raw.parts.count - 1).json
         }
         await ChatStore.shared.appendMessage(raw)
+        if !botResultDeliveries.isEmpty, !(await ChatStore.shared.containsPersistedMessage(raw)) {
+            live?.error = "回复未能保存，任务尚未交付。"
+            return nil
+        }
         if botConversationVisible && isNearBottom {
             _ = BotWorkspaceStore.shared.updateConversation(raw.sessionId) { $0.lastReadMessageID = BotMessagePresentation.decode(raw.presentationJSON)?.replyGroupID ?? raw.id }
         }

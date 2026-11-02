@@ -333,6 +333,7 @@ extension RawMessage {
         }
 
         let msg = ChatMessage(role: uiRole, content: textContent, blocks: blocks)
+        msg.sourceCreatedAt = createdAt
         msg.persistedMessageID = id
         msg.quote = presentation?.quote
         // Deduplicate attachments by path

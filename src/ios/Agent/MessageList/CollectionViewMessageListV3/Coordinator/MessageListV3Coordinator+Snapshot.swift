@@ -124,6 +124,21 @@ extension CollectionViewMessageListV3.Coordinator {
 
         func applySnapshot(messages rawMessages: [ChatMessage], caller: String = "?") {
             guard let vm, !vm.isLoadingSession else { return }
+            // A resume hook / hosted-cell layout must never recursively apply a
+            // diffable snapshot. Keep only the VM's newest state for the next turn.
+            if snapshotApplyInProgress || (latestPositionPending && !performingLatestPosition) {
+                hasPendingSnapshot = true
+                if latestPositionPending { requestLatestPosition() }
+                else { scheduleSnapshotFlush(caller: caller) }
+                return
+            }
+            snapshotApplyInProgress = true
+            defer {
+                snapshotApplyInProgress = false
+                if hasPendingSnapshot && !vm.streamingUIUpdatesSuspended {
+                    scheduleSnapshotFlush(caller: "apply-completion")
+                }
+            }
 
             // [T-bridge-message-ui-leak] Single UI-collection sink for EVERY
             // path that pushes messages to the list (loadSession, live inject,

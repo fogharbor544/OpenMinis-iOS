@@ -173,6 +173,7 @@ extension AIChatViewModel {
         }
         autoRetryAttempt = 0
         autoRetryCountdown = 0
+        if usingComposer { abandonBotResultDelivery() }
         canResume = false
         committedBlockCount = 0
         prevCommittedBlockCount = 0

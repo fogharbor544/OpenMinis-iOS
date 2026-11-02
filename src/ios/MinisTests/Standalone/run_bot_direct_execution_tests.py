@@ -35,5 +35,5 @@ with tempfile.TemporaryDirectory(prefix="minis-direct-bot-") as temp:
     subprocess.run(["swiftc", "-swift-version", "5", str(directory / "Workspace.swift"),
                     str(ROOT / "Views/ContentView/Bots/BotWorkspaceStore+Sessions.swift"),
                     str(directory / "Services.swift"), str(directory / "Runtime.swift"), str(directory / "StopAndRestore.swift"),
-                    str(HERE / "BotDirectExecutionTests.swift"), "-o", str(binary)], check=True, timeout=120)
+                    str(ROOT / "Agent/Jobs/AgentCallback.swift"), str(HERE / "BotDirectExecutionTests.swift"), "-o", str(binary)], check=True, timeout=120)
     subprocess.run([str(binary), str(directory / "workspace.json")], check=True, timeout=30)

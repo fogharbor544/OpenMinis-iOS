@@ -4,6 +4,8 @@ enum ChatMessageRole { case user, assistant, systemInfo }
 struct AssistantBlock { var toolUseId: String? }
 final class ChatMessage {
     let id = UUID()
+    let timestamp = Date()
+    var sourceCreatedAt: Date?
     let role: ChatMessageRole
     var content: String
     var blocks: [AssistantBlock]
@@ -16,6 +18,7 @@ final class ChatMessage {
     var sessionId: String? = "parent"
     var isHelper = false
     let botOverviewMessage = ChatMessage(role: .systemInfo, content: "")
+    var botDelegationMessages: [String: ChatMessage] = [:]
     var botCreationMessages: [String: ChatMessage] = [:]
 }
 
@@ -57,15 +60,27 @@ final class ChatMessage {
             fromName: commander.name, toName: target.name, parentSessionID: "parent", toolUseID: "delegate-call",
             title: "检查配置", task: "核查当前配置并报告结果")
         precondition(store.saveDelegation(task))
-        let queuedRevision = vm.botTimelineMessages([])[0].content
-        precondition(queuedRevision != originalRevision && queuedRevision.contains(task.title))
+        let queued = vm.botTimelineMessages([])
+        precondition(queued.count == 2 && queued[1].systemIcon == "bot-task:" + task.id)
+        precondition(queued[0].content == originalRevision, "Task does not hide in overview")
+        let card = queued[1]
+        let queuedRevision = card.content
+        precondition(queuedRevision.contains(task.title))
+        let older = ChatMessage(role: .user, content: "Older private message")
+        older.sourceCreatedAt = task.createdAt.addingTimeInterval(-10)
+        let newer = ChatMessage(role: .assistant, content: "Newer private reply")
+        newer.sourceCreatedAt = task.createdAt.addingTimeInterval(10)
+        let timeline = vm.botTimelineMessages([older, newer])
+        precondition(timeline.count == 4 && timeline[1] === older && timeline[2] === card && timeline[3] === newer)
         task.state = .completed; task.result = "配置核查完成。"
         precondition(store.saveDelegation(task))
-        let completedRevision = vm.botTimelineMessages([])[0].content
-        precondition(completedRevision != queuedRevision && completedRevision.contains(task.result!))
+        store.delegationMessageCounts[task.id] = 2
+        let completed = vm.botTimelineMessages([older, newer])
+        precondition(completed[2] === card && card.content != queuedRevision && card.content.contains("已交付"))
+        precondition(vm.botTimelineMessages([older, newer]).count == 4, "Reopening/refresh never duplicates a task")
         target.onboarding?.dismissed = true
         precondition(store.save(target))
-        precondition(vm.botTimelineMessages([])[0].content != completedRevision, "Dismissal changes the card's height revision")
+        precondition(vm.botTimelineMessages([])[0].content != originalRevision, "Dismissal changes overview revision")
         precondition(store.delegationPreview(botID: target.id)?.contains(commander.name) == true)
         precondition(store.delegationPreview(botID: target.id, after: Date().addingTimeInterval(60)) == nil)
         vm.isHelper = true

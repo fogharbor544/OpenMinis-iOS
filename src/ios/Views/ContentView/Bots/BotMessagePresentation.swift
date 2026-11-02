@@ -62,20 +62,31 @@ extension AIChatViewModel {
               owner.roomId == nil, owner.delegationID == nil,
               let bot = BotWorkspaceStore.shared.bot(owner.botId) else { return raw }
         let store = BotWorkspaceStore.shared
-        let records = store.data.delegations.filter { $0.toBotID == bot.id }.sorted { $0.updatedAt > $1.updatedAt }
+        let records = store.data.delegations.filter { $0.toBotID == bot.id }
+            .sorted { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt }
         var result = raw
-        if bot.introduction != nil || bot.onboarding != nil || !records.isEmpty || bot.isCommander {
+        if bot.introduction != nil || bot.onboarding != nil || bot.isCommander {
             botOverviewMessage.systemIcon = "bot-overview"
-            // Include rendering data, not merely a string length, in the height identity.
-            let taskRevision = records.prefix(3).map { record in
-                [record.id, record.fromName, record.title, record.statusLabel,
-                 String((record.result ?? "").prefix(1000))].joined(separator: "|")
-            }.joined(separator: "\n")
             let revision = [bot.name, bot.introduction ?? "", String(describing: bot.onboarding),
-                            String(describing: bot.memoryEnabled), String(records.count), taskRevision].joined(separator: "\n")
+                            String(describing: bot.memoryEnabled)].joined(separator: "\n")
             if botOverviewMessage.content != revision { botOverviewMessage.content = revision }
             result.insert(botOverviewMessage, at: 0)
         }
+        // A stable row at the task's arrival, rather than a history-top overview
+        // that the user never sees while reading/sending at the bottom.
+        for record in records.reversed() {
+            let row = botDelegationMessages[record.id] ?? ChatMessage(role: .systemInfo, content: "")
+            row.systemIcon = "bot-task:" + record.id
+            row.sourceCreatedAt = record.createdAt
+            let revision = [record.fromName, record.title, store.statusLabel(for: record),
+                            String(store.delegationMessageCounts[record.id] ?? -1)].joined(separator: "\n")
+            if row.content != revision { row.content = revision }
+            botDelegationMessages[record.id] = row
+            let index = result.firstIndex { $0.systemIcon != "bot-overview" && ($0.sourceCreatedAt ?? $0.timestamp) > record.createdAt } ?? result.endIndex
+            result.insert(row, at: index)
+        }
+        let ids = Set(records.map(\.id))
+        botDelegationMessages = botDelegationMessages.filter { ids.contains($0.key) }
         guard bot.isCommander else { return result }
         let created = store.data.bots.filter { $0.creationRequestID?.hasPrefix(sid + ":") == true }
         let byRequest = Dictionary(created.compactMap { target in target.creationRequestID.map { ($0, target) } },
@@ -133,6 +144,9 @@ struct BotTimelineRow: View {
     var body: some View {
         Group {
             if message.systemIcon == "bot-overview" { BotConversationOverview() }
+            else if let icon = message.systemIcon, icon.hasPrefix("bot-task:") {
+                BotTaskCard(delegationID: String(icon.dropFirst("bot-task:".count)))
+            }
             else if let icon = message.systemIcon, icon.hasPrefix("bot-created:") {
                 BotCreatedCard(botID: String(icon.dropFirst("bot-created:".count)))
             }
@@ -140,6 +154,6 @@ struct BotTimelineRow: View {
             .fixedSize(horizontal: false, vertical: true)
     }
     static func contains(_ message: ChatMessage) -> Bool {
-        message.systemIcon == "bot-overview" || message.systemIcon?.hasPrefix("bot-created:") == true
+        message.systemIcon == "bot-overview" || message.systemIcon?.hasPrefix("bot-created:") == true || message.systemIcon?.hasPrefix("bot-task:") == true
     }
 }

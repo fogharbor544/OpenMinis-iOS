@@ -1781,6 +1781,10 @@ extension AIChatViewModel {
                     // than leaving the stale one in the DB (retry-then-succeed, edge #5).
                     if msgIdx < messages.count {
                         await ChatStore.shared.updateMessageErrorInfo(messageId: persistedId, errorInfo: messages[msgIdx].error)
+                        if messages[msgIdx].error == nil, stopReason == .endTurn,
+                           !assistantText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            completeBotResultDelivery()
+                        }
                     }
                 }
                 hitTurnLimit = false

@@ -652,7 +652,9 @@ struct AIChatView: View {
                                 .helperTranscriptSheetStyle()
                         }
                         .sheet(item: $agentCallbackDetail) { target in
-                            if target.opensScheduledTaskPage {
+                            if let id = target.botDelegationID {
+                                BotTaskConversation(delegationID: id)
+                            } else if target.opensScheduledTaskPage {
                                 // [T-scheduled-task-detail] A scheduled task's own
                                 // page: parameters, status, run history.
                                 ScheduledTaskDetailView(callback: target.callback,

@@ -893,6 +893,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // the keyboard on a sub agent's callback.
                 turnWasSilentProgrammatic = programmaticSilentTurn
                 programmaticSilentTurn = false
+                abandonBotResultDelivery()
                 programmaticTurnOrigin = nil  // [T-user-ask]
                 // [T-ios-context-usage-hint] Offer the usage line for this
                 // turn. Only for a turn the user started and let finish:
@@ -1733,6 +1734,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// [T-user-ask] Origin of a programmatic prompt that STARTED the current
     /// run (Shortcut / CLI / job) — such a run has no one to ask, so user_ask
     /// is not exposed. Cleared on every isProcessing → false transition.
+    var botResultDeliveries: [String: Date] = [:]
+    var botDelegationMessages: [String: ChatMessage] = [:]
     var programmaticTurnOrigin: ProgrammaticPromptOrigin?
     /// [T-user-ask] Whether this run exposes user_ask, decided with the tool
     /// list so the system prompt's fragment agrees with it for the whole run.

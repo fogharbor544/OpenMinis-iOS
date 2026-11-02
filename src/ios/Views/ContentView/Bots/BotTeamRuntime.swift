@@ -48,7 +48,7 @@ extension AIChatViewModel {
     }
 
     static var botTaskTool: AgentToolDefinition {
-        AgentToolDefinition(name: "bot_task", description: "Commander only. Send a complete brief directly to the target Bot for execution in its own Bot-to-Bot conversation using its own configuration. Queued work starts automatically; result returns here. follow_up steers running work or requests one rework. complete records a finished review; resume starts a NEW attempt only after the user asks to continue an interrupted task. No private-chat history is shared.", parameters: [
+        AgentToolDefinition(name: "bot_task", description: "Commander only. Send a complete brief directly to the target Bot for execution in its own Bot-to-Bot conversation using its own configuration. Queued work starts automatically; result returns here. follow_up steers running work or requests one rework. Delivery completion is automatic; complete is a legacy receipt only; resume starts a NEW attempt only after the user asks to continue an interrupted task. No private-chat history is shared.", parameters: [
             "action": AgentToolParam(type: .string, description: "Operation.", enumValues: ["delegate", "status", "follow_up", "cancel", "complete", "resume"]),
             "bot_id": AgentToolParam(type: .string, description: "delegate: specialist ID from roster."),
             "task": AgentToolParam(type: .string, description: "delegate: complete brief, context, constraints and expected deliverable."),
@@ -107,10 +107,10 @@ extension AIChatViewModel {
             let records = store.data.delegations.filter { $0.parentSessionID == parent && (wanted == nil || $0.id == wanted) }
             return ("[" + records.map(Self.botTaskJSON).joined(separator: ",") + "]", true)
         case "complete":
-            guard let id = args["delegation_id"] as? String, var record = store.delegation(id),
+            guard let id = args["delegation_id"] as? String, let record = store.delegation(id),
                   record.parentSessionID == parent, record.state == .reviewing else { return ("Only a returned result awaiting review can be completed.", false) }
-            record.state = .completed; record.updatedAt = Date()
-            guard store.saveDelegation(record) else { return ("Unable to save review status.", false) }
+            // Legacy callers may acknowledge receipt, but only the actual
+            // persisted commander reply can mark delivery complete.
             return (Self.botTaskJSON(record), true)
         case "resume":
             if let existing = store.delegation(requestID) { return (Self.botTaskJSON(existing), true) }
@@ -160,6 +160,40 @@ extension AIChatViewModel {
             return (Self.botTaskJSON(record), true)
         default: return ("Unsupported bot_task action.", false)
         }
+    }
+
+    func beginBotResultDelivery(texts: [String]) {
+        abandonBotResultDelivery()
+        guard isCommander, let sid = sessionId else { return }
+        let store = BotWorkspaceStore.shared
+        botResultDeliveries = Dictionary(texts.compactMap { text -> (String, Date)? in
+            guard let callback = AgentCallback.parse(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  callback.kind == .finished,
+                  let record = store.directDelegation(jobID: callback.jobId, sessionID: callback.childSessionId),
+                  record.parentSessionID == sid, record.state == .reviewing,
+                  record.result?.trimmingCharacters(in: .whitespacesAndNewlines) == callback.body.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+            return (record.id, record.updatedAt)
+        }, uniquingKeysWith: { _, latest in latest })
+        store.summarizingDelegations.formUnion(botResultDeliveries.keys)
+    }
+
+    /// Called only after the final answer's DB insert succeeds, before any next
+    /// queued prompt is consumed. A queued callback is not yet delivered.
+    func completeBotResultDelivery() {
+        guard !Task.isCancelled, !userDidCancel, !canResume else { return }
+        let store = BotWorkspaceStore.shared
+        for (id, version) in botResultDeliveries {
+            guard var record = store.delegation(id), record.parentSessionID == sessionId,
+                  record.state == .reviewing, record.updatedAt == version else { continue }
+            record.state = .completed; record.updatedAt = Date()
+            _ = store.saveDelegation(record)
+        }
+        abandonBotResultDelivery()
+    }
+
+    func abandonBotResultDelivery() {
+        BotWorkspaceStore.shared.summarizingDelegations.subtract(botResultDeliveries.keys)
+        botResultDeliveries.removeAll()
     }
 
     static func botTaskJSON(_ record: BotDelegation) -> String {

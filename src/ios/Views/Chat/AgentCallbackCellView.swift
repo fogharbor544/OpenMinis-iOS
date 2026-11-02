@@ -30,6 +30,11 @@ struct AgentCallbackDetailTarget: Identifiable {
     /// (`ScheduledTaskDetailView`) instead of the agent sheet, which read the
     /// fire's `status="running"` as an interrupted agent run.
     var opensScheduledTaskPage: Bool { callback.kind == .scheduled }
+    var botDelegationID: String? {
+        guard callback.kind != .scheduled, callback.jobId.hasPrefix("bot:") else { return nil }
+        return String(callback.jobId.dropFirst(4))
+    }
+
 
     init(callback: AgentCallback, hostSessionId: String? = nil) {
         self.callback = callback
@@ -121,6 +126,12 @@ extension AgentCallback {
 }
 
 struct AgentCallbackCellView: View {
+    @ObservedObject private var botStore = BotWorkspaceStore.shared
+    private var botRecord: BotDelegation? {
+        botStore.directDelegation(jobID: callback.jobId, sessionID: callback.childSessionId)
+    }
+    private var isBotResult: Bool { callback.kind != .scheduled && callback.jobId.hasPrefix("bot:") }
+
     /// Fixed card height so CollectionViewMessageListV3 can precalc the row
     /// without a TextKit measurement (rowHeight = card + 2 × 4pt padding).
     static let cardHeight: CGFloat = 56
@@ -142,6 +153,7 @@ struct AgentCallbackCellView: View {
     let sessionId: String?
 
     private var accent: Color {
+        if isBotResult { return botRecord?.state == .completed ? .green : .accentColor }
         // [T-scheduled-task-card] Amber for the scheduler, whatever its status:
         // the colour distinguishes WHO injected the turn, not how it went. An
         // agent callback keeps its status-driven palette (blue running, green
@@ -158,6 +170,7 @@ struct AgentCallbackCellView: View {
     }
 
     private var icon: String {
+        if isBotResult { return "bubble.left.and.bubble.right.fill" }
         switch callback.kind {
         case .progress: return "arrow.triangle.2.circlepath"
         // [T-scheduled-task-card] Calendar+clock reads as "this fired on a
@@ -212,12 +225,19 @@ struct AgentCallbackCellView: View {
 
     /// "<kind> · <title>". [T-in-chat-search] Built by ChatSearchDisplayText,
     /// which also says where the (searched) title starts.
-    private var headline: String { ChatSearchDisplayText.callbackHeadline(callback).text }
+    private var headline: String {
+        if isBotResult { return "Bot 任务结果 · " + (botRecord?.toName ?? callback.agent ?? callback.title) }
+        return ChatSearchDisplayText.callbackHeadline(callback).text
+    }
 
     /// [T-in-chat-search] Set by the row that hosts this card.
     @Environment(\.chatSearchMessageId) private var searchMessageId
 
     private var subline: String {
+        if isBotResult {
+            guard let record = botRecord else { return "任务记录不可用" }
+            return record.title + " · " + botStore.statusLabel(for: record)
+        }
         // [T-scheduled-task-card] A firing has no status/elapsed worth showing
         // — it just happened. What matters is which run this is and how many
         // remain, which is also what the model is told to steer by.
@@ -268,10 +288,14 @@ struct AgentCallbackCellView: View {
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
-                Circle().fill(accent.opacity(0.15))
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(accent)
+                if let record = botRecord, let bot = botStore.bot(record.toBotID) {
+                    BotAvatar(profile: bot, size: 30)
+                } else {
+                    Circle().fill(accent.opacity(0.15))
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(accent)
+                }
             }
             .frame(width: 30, height: 30)
 

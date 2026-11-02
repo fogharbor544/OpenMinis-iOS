@@ -84,6 +84,11 @@ extension CollectionViewMessageListV3 {
             }
         }
         /// True during settleAfterInteraction flush — suppresses contentSize KVO offset changes.
+        var snapshotApplyInProgress = false
+        var snapshotFlushScheduled = false
+        var latestPositionPending = false
+        var latestPositionScheduled = false
+        var performingLatestPosition = false
         var isFlushing = false
         /// True while an animated setContentOffset is in flight. KVO grow events must not
         /// directly mutate contentOffset during this window — UIKit animation interpolation

@@ -92,7 +92,7 @@ extension AIChatViewModel {
             // ships in the same build as the tool (the 2026-07-17/20 lesson:
             // a capability the prompt does not describe honestly gets misused).
             + ((isHelper || !Self.toolEnabled(.agents)) ? "" :
-               "- subagent_task: Delegate a self-contained task to a sub agent that runs its own tool loop in an isolated hidden session, and inspect or stop the ones you started. Full contract in the tool schema. Two things it does not say: the `<agent_callback>` result and progress messages are written by the system, not typed by the user; and while a sub agent runs the user sees it in the tool bar and can watch or stop it.\n")
+               "- subagent_task: " + (isCommander ? "General helper work only; when the user specifies a Bot or a specialist Bot matches the task, use bot_task instead. Never impersonate that Bot with a helper. " : "") + "Delegate a self-contained task to a sub agent that runs its own tool loop in an isolated hidden session, and inspect or stop the ones you started. Full contract in the tool schema. Two things it does not say: the `<agent_callback>` result and progress messages are written by the system, not typed by the user; and while a sub agent runs the user sees it in the tool bar and can watch or stop it.\n")
             + ((isHelper || !Self.toolEnabled(.agents)) ? "" : Self.subAgentRosterSection(sessionId: sessionId))
             + "- memory_write: Manage scoped long-term entries when available.\n"
             + "- memory_get: Recall memories with keyword search. Check memory at the start of new topics to leverage past knowledge.\n"
@@ -195,7 +195,7 @@ extension AIChatViewModel {
             + (Self.toolEnabled(.agents) && !isHelper ? "(Do NOT run minis-scheduled to delegate work you could hand to subagent_task.)\n" : "")
             + "minis-model-use: Invoke other LLM models pre-configured by the user. "
             + "This is a single, tool-less request to one specific model. "
-            + (Self.toolEnabled(.agents) && !isHelper ? "For delegating a whole task that needs tools and multiple rounds, use the subagent_task tool instead. " : "")
+            + (Self.toolEnabled(.agents) && !isHelper ? (isCommander ? "For work assigned to a named specialist Bot use bot_task; otherwise general helper work may use subagent_task. " : "For delegating a whole task that needs tools and multiple rounds, use the subagent_task tool instead. ") : "")
             + "You have \(ProviderConfigStore.shared.resolvedAgentLoopEntries.count) model(s) available. "
             + "Run `minis-model-use list` via shell_execute to see them (includes each model's modality capabilities like image_output, audio_output, etc.), "
             + "`search <query>` to filter by name/provider. "

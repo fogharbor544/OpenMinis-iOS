@@ -96,8 +96,35 @@ extension CollectionViewMessageListV3.Coordinator {
                     guard let self, let vm else { return }
                     if vm.isLoadingSession { self.hasPendingSnapshot = true; return }
                     self.applySnapshot(messages: vm.messages, caller: "bot-workspace")
+                    BotWorkspaceStore.shared.refreshDelegationMessageCounts(botID: vm.botMemoryOwner?.botId) { ids in
+                        await ChatStore.shared.botConversationMessageCounts(sessionIDs: ids)
+                    }
                 }
                 .store(in: &subscriptions)
+
+            // Counts are refreshed at persisted message boundaries, never per
+            // streamed token, and publish through the same snapshot/height path.
+            let refreshCounts = {
+                BotWorkspaceStore.shared.refreshDelegationMessageCounts(botID: vm.botMemoryOwner?.botId, force: true) { ids in
+                    await ChatStore.shared.botConversationMessageCounts(sessionIDs: ids)
+                }
+            }
+            refreshCounts()
+            NotificationCenter.default.publisher(for: .sessionDidUpdate)
+                .receive(on: DispatchQueue.main)
+                .sink { note in
+                    guard let sid = note.object as? String,
+                          BotWorkspaceStore.shared.owner(forSession: sid)?.delegationID != nil else { return }
+                    BotWorkspaceStore.shared.refreshDelegationMessageCounts(changedSessionID: sid) { ids in
+                        await ChatStore.shared.botConversationMessageCounts(sessionIDs: ids)
+                    }
+                }.store(in: &subscriptions)
+            BotWorkspaceStore.shared.$delegationMessageCounts.combineLatest(BotWorkspaceStore.shared.$summarizingDelegations)
+                .dropFirst().receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    guard let self, let vm = self.vm else { return }
+                    self.applySnapshot(messages: vm.messages, caller: "bot-task-summary")
+                }.store(in: &subscriptions)
 
             // 1c. [T-ios-ui-blocks-lost-suspend-resume] Suspend-resume flush.
             //     `streamingUIUpdatesSuspended` is a plain (private(set)) var on
@@ -140,7 +167,7 @@ extension CollectionViewMessageListV3.Coordinator {
                     // foreground, so applying the snapshot here is safe.
                     guard self.hasPendingSnapshot else { return }
                     AppLogger(category: "PendingSnap").info("[PendingSnap] suspend-resume flush applied (hasPendingSnapshot=true, isProcessing=\(vm.isProcessing))")
-                    self.flushPendingSnapshotIfNeeded(caller: "suspend-resume")
+                    self.scheduleSnapshotFlush(caller: "suspend-resume")
                 }
             suspendResumeSub?.store(in: &subscriptions)
 
@@ -170,9 +197,9 @@ extension CollectionViewMessageListV3.Coordinator {
                     // last-rendered tool until an unrelated sheetDismiss/settle.
                     guard self.hasPendingSnapshot else { return }
                     AppLogger(category: "PendingSnap").info("[PendingSnap] suspend-resume flush (hasPendingSnapshot=true, isProcessing=\(self.vm?.isProcessing == true))")
-                    self.flushPendingSnapshotIfNeeded(caller: "suspend-resume")
+                    self.scheduleSnapshotFlush(caller: "suspend-resume")
                 }
-                if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+                DispatchQueue.main.async(execute: work)
             }
 
             // 1b. Retry truncation signal — `retryFromToolBlock`'s sub-message
@@ -208,19 +235,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] in
                     guard let self else { return }
-                    let cv = self.viewController?.collectionView
-                    let layout = self.viewController?.messageListLayout
-                    let cachedCount = layout?.debugCachedHeightCount ?? 0
-                    let precalcCount = layout?.debugPrecalcHeightCount ?? 0
-                    AppLogger(category: "ScrollDiag").info("[ScrollDiag][forceScrollToBottom] window=\(cv?.window != nil) contentSize=\(String(format: "%.0f", cv?.contentSize.height ?? 0)) bounds=\(String(format: "%.0f", cv?.bounds.height ?? 0)) adjInsetBot=\(String(format: "%.0f", cv?.adjustedContentInset.bottom ?? 0)) heightCache=\(cachedCount) precalc=\(precalcCount) visibleCells=\(cv?.visibleCells.count ?? 0)")
-                    self.vm?.setStreamingUIUpdatesSuspended(false)
-                    self.scrollMode = .autoScrolling
-                    // [T-send-composer-shrink-absorb] Sent on every send: the
-                    // composer is about to shrink and rows are about to arrive.
-                    self.composerShrinkAbsorbDeadline = CFAbsoluteTimeGetCurrent() + 2.0
-                    // Jumping to the bottom resets the up-button's turn-walk.
-                    self.lastJumpedUserId = nil
-                    self.scrollToBottomNow(animated: true)
+                    self.requestLatestPosition()
                 }
                 .store(in: &subscriptions)
 

@@ -491,6 +491,60 @@ extension CollectionViewMessageListV3.Coordinator {
             cv.layer.add(glide, forKey: "composerShrinkGlide")
         }
 
+        /// Coalesce explicit user navigation after the send's message insertion.
+        /// Do not animate through every self-sizing historical row to reach the tail.
+        func requestLatestPosition() {
+            latestPositionPending = true
+            guard !latestPositionScheduled else { return }
+            latestPositionScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.latestPositionScheduled = false
+                guard !self.snapshotApplyInProgress else { self.requestLatestPosition(); return }
+                guard let cv = self.viewController?.collectionView,
+                      let layout = self.viewController?.messageListLayout,
+                      let vm = self.vm else { self.latestPositionPending = false; return }
+                if vm.isLoadingSession { return } // post-load apply consumes the intent
+                self.performingLatestPosition = true
+                self.isFlushing = true
+                let start = CFAbsoluteTimeGetCurrent()
+                // Cancelling momentum can synchronously invoke the settle delegate.
+                // latestPositionPending fences that old historical-anchor restore.
+                if cv.isDragging || cv.isTracking {
+                    cv.panGestureRecognizer.isEnabled = false
+                    cv.panGestureRecognizer.isEnabled = true
+                }
+                cv.setContentOffset(cv.contentOffset, animated: false)
+                self.isAnimatingScrollToBottom = false
+                self.scrollMode = .autoScrolling
+                self.lastJumpedUserId = nil
+                self.composerShrinkAbsorbDeadline = CFAbsoluteTimeGetCurrent() + 2.0
+                layout.deferSelfSizing = false
+                layout.applyDeferredHeights()
+                vm.setStreamingUIUpdatesSuspended(false)
+                self.hasPendingSnapshot = false
+                self.applySnapshot(messages: vm.messages, caller: "user-latest-position")
+                cv.layoutIfNeeded()
+                self.scrollToBottomNow(animated: false)
+                self.latestPositionPending = false
+                self.performingLatestPosition = false
+                self.isFlushing = false
+                self.syncScrollFlags()
+                AppLogger(category: "ScrollDiag").info("[SendLatest] completed ms=\((CFAbsoluteTimeGetCurrent() - start) * 1000) items=\(cv.numberOfSections > 0 ? cv.numberOfItems(inSection: 0) : 0)")
+            }
+        }
+
+        func scheduleSnapshotFlush(caller: String) {
+            guard !snapshotFlushScheduled else { return }
+            snapshotFlushScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.snapshotFlushScheduled = false
+                guard !self.snapshotApplyInProgress, !self.latestPositionPending else { return }
+                self.flushPendingSnapshotIfNeeded(caller: caller)
+            }
+        }
+
         func scrollToBottomNow(animated: Bool = false) {
             guard let cv = viewController?.collectionView else { return }
             absorbPendingComposerShrink(caller: "scrollToBottom")

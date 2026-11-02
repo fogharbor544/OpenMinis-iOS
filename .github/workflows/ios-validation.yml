@@ -89,6 +89,9 @@ jobs:
       - name: Auxiliary inference billing persistence
         if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_auxiliary_usage_tests.py
+      - name: Bot delivery persistence and logical message count
+        if: ${{ !cancelled() }}
+        run: python3 src/ios/MinisTests/Standalone/run_bot_delivery_tests.py
       - name: Bot memory runtime boundaries
         if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_bot_memory_runtime_tests.py
@@ -201,6 +204,17 @@ jobs:
         with:
           name: ios-native-interaction-evidence
           path: build/validation/native-interactions
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Native history send and snapshot serialization
+        if: ${{ !cancelled() }}
+        run: python3 src/ios/MinisTests/Standalone/run_chat_send_native_tests.py
+      - name: Upload chat send evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-chat-send-evidence
+          path: build/validation/chat-send-native
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload native layout snapshots

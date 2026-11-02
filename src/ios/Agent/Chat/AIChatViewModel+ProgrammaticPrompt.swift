@@ -186,6 +186,7 @@ extension AIChatViewModel {
         // Idle: start a loop. send() flips isProcessing synchronously before
         // it spawns its Task, so the flip is the acceptance signal — every
         // other exit from send() is a silent return.
+        beginBotResultDelivery(texts: [text])
         programmaticSilentTurn = silent
         programmaticTurnOrigin = origin  // [T-user-ask] no one to ask in this run
         // [T-loop-reminder-scheduled-exempt] A scheduled fire starting a turn
@@ -200,6 +201,7 @@ extension AIChatViewModel {
         // must not leave it armed for the user's next message.
         if bypassContextPrompt { skipCompactCheck = false }
         guard isProcessing else {
+            abandonBotResultDelivery()
             programmaticSilentTurn = false
             programmaticTurnOrigin = nil
             let reason = showContextExhaustedPrompt ? "context_exhausted" : "send_declined"

@@ -275,6 +275,7 @@ extension AIChatViewModel {
                 self.agentHistory[qIdx].dbMessageId = pid
             }
 
+            self.beginBotResultDelivery(texts: queued.map(\.text))
             do {
                 try await self.runAgentLoop()
             } catch is CancellationError {
@@ -487,6 +488,7 @@ extension AIChatViewModel {
         // turn inside this loop: a sub-agent stop's mute was for the turn that
         // just ended, not for the user's queued message.
         delegationResultsMuted = false
+        beginBotResultDelivery(texts: queued.map(\.text))
         // Start a new assistant message so the next response appears below the queued user message
         messages.append(ChatMessage(role: .assistant, content: "", blocks: []))
         msgIdx = messages.count - 1

@@ -15,57 +15,103 @@ struct BotDelegationLink: View {
                 Text(incoming ? "消息来自" : "发消息给")
                 if let bot = store.bot(labelBotID) { BotAvatar(profile: bot, size: 20) }
                 Text(store.bot(labelBotID)?.name ?? labelName)
-                Text(current.statusLabel).font(.caption2)
+                Text(store.statusLabel(for: current)).font(.caption2)
                 Image(systemName: "chevron.right").font(.caption2)
             }.font(.caption).foregroundStyle(.secondary).frame(minHeight: 44)
         }.buttonStyle(.plain)
         .sheet(isPresented: $showingTranscript) {
-            if current.directExecution == true, let sid = current.childSessionID {
-                BotTaskConversation(delegationID: current.id, sessionID: sid)
-                    .presentationDetents([.large])
-            } else if let sid = current.childSessionID {
-                HelperTranscriptPage(target: HelperSheetTarget(id: sid, title: "\(current.fromName) ↔ \(current.toName)"))
-                    .presentationDetents([.large]).interactiveDismissDisabled()
-            } else {
-                NavigationStack {
-                    List {
-                        Text(current.title).font(.headline)
-                        Text(current.statusLabel).foregroundStyle(.secondary)
-                        Text(current.task).textSelection(.enabled)
-                        if let result = current.result { Text(result).textSelection(.enabled) }
-                    }
-                    .navigationTitle("\(current.fromName) ↔ \(current.toName)")
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showingTranscript = false } } }
-                }
-            }
+            BotTaskConversation(delegationID: current.id)
         }
     }
 }
 
 /// Part of the message timeline, not a floating overlay over chat content.
 /// The target Bot's normal, interactive conversation with the commander.
-private struct BotTaskConversation: View {
+struct BotTaskConversation: View {
     let delegationID: String
-    let sessionID: String
     @ObservedObject private var store = BotWorkspaceStore.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var checkedSession: String?
+    @State private var exists = false
+    private var record: BotDelegation? { store.delegation(delegationID) }
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if let record = store.delegation(delegationID) {
+                if let record {
                     HStack(spacing: 8) {
                         if let bot = store.bot(record.fromBotID) { BotAvatar(profile: bot, size: 24) }
                         VStack(alignment: .leading, spacing: 3) {
                             Text("与 \(record.fromName) 的会话").font(.subheadline.weight(.semibold))
-                            Text(record.state == .reviewing ? "结果已回传，等待核查" : record.statusLabel).font(.caption).foregroundStyle(.secondary)
+                            Text(store.statusLabel(for: record)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("完成") { dismiss() }.frame(minHeight: 44)
                     }.padding(.horizontal, 16).padding(.vertical, 8)
                     Divider()
+                    if let sid = record.childSessionID {
+                        if checkedSession != sid { ProgressView() }
+                        else if !exists { Text("会话记录不可用，任务不会重新执行。").padding() }
+                        else if record.directExecution == true {
+                            if store.owner(forSession: sid) == BotSessionOwner(botId: record.toBotID, delegationID: record.id) {
+                                AIChatView(sessionId: sid).id(sid)
+                            } else { Text("会话归属不可用，任务不会重新执行。").padding() }
+                        } else {
+                            // Historical helper runs stay read-only; never replay them.
+                            HelperTranscriptPage(target: HelperSheetTarget(id: sid, title: "\(record.fromName) ↔ \(record.toName)"))
+                        }
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text(record.title).font(.headline)
+                                Text(record.task).textSelection(.enabled)
+                                if let result = record.result { Text(result).textSelection(.enabled) }
+                                Text(record.state == .queued ? "等待目标 Bot 开始任务。" : "会话记录不可用。")
+                                    .foregroundStyle(.secondary)
+                            }.padding()
+                        }
+                    }
+                } else {
+                    Text("任务记录不可用。").padding()
+                    Button("完成") { dismiss() }.frame(minHeight: 44)
                 }
-                AIChatView(sessionId: sessionID).id(sessionID)
             }
+            .task(id: record?.childSessionID) {
+                guard let sid = record?.childSessionID else { return }
+                let found = await ChatStore.shared.sessionExists(id: sid)
+                guard !Task.isCancelled else { return }
+                exists = found; checkedSession = sid
+            }
+        }
+    }
+}
+
+struct BotTaskCard: View {
+    let delegationID: String
+    @ObservedObject private var store = BotWorkspaceStore.shared
+    @State private var showingConversation = false
+    var body: some View {
+        if let record = store.delegation(delegationID) {
+            Button { showingConversation = true } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        if let bot = store.bot(record.fromBotID) { BotAvatar(profile: bot, size: 28) }
+                        Text(record.state.isActive ? "消息来自 \(record.fromName)" : "与 \(record.fromName) 的会话")
+                            .font(.headline).foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    Text(record.title).font(.subheadline).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                    HStack(spacing: 8) {
+                        Text(store.statusLabel(for: record))
+                        if let count = store.delegationMessageCounts[record.id] { Text("\(count) 条消息") }
+                    }.font(.caption).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(16)
+                    .background(Color(UIColor.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
+                    .contentShape(Rectangle())
+            }.buttonStyle(.plain)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .fixedSize(horizontal: false, vertical: true)
+                .sheet(isPresented: $showingConversation) { BotTaskConversation(delegationID: record.id) }
         }
     }
 }
@@ -74,14 +120,9 @@ struct BotConversationOverview: View {
     @EnvironmentObject private var vm: AIChatViewModel
     @ObservedObject private var store = BotWorkspaceStore.shared
     @State private var selected: Set<Int> = []
-    @State private var showTaskHistory = false
     @State private var notice: String?
     @State private var error: String?
     private var bot: BotProfile? { vm.sessionId.flatMap { store.bot(forSession: $0) } }
-    private var records: [BotDelegation] {
-        guard let bot else { return [] }
-        return store.data.delegations.filter { $0.toBotID == bot.id }.sorted { $0.updatedAt > $1.updatedAt }
-    }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let bot {
@@ -116,27 +157,6 @@ struct BotConversationOverview: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(16).background(Color(UIColor.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
                 }
-                if !records.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("来自指挥官的任务").font(.headline)
-                        ForEach(Array(records.prefix(3))) { record in
-                            VStack(alignment: .leading, spacing: 0) {
-                                BotDelegationLink(record: record, incoming: true, fromCommander: true)
-                                Text(record.title).font(.subheadline).lineLimit(2)
-                                Text(record.statusLabel).font(.caption).foregroundStyle(.secondary)
-                                if let result = record.result, !result.isEmpty {
-                                    Text(record.state == .reviewing || record.state == .completed
-                                         ? "已回复 \(record.fromName)" : "任务结果")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                    Text(String(result.prefix(1000))).font(.subheadline).lineLimit(3).textSelection(.enabled)
-                                }
-                            }.padding(.vertical, 4)
-                        }
-                        if records.count > 3 {
-                            Button("查看全部 \(records.count) 项任务") { showTaskHistory = true }.frame(minHeight: 44)
-                        }
-                    }.padding(16).background(Color(UIColor.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
-                }
                 if let onboarding = bot.onboarding, onboarding.dismissed, !onboarding.selected.isEmpty {
                     Text((onboarding.memorySaved == true ? "已记住：" : "已选择（未写入长期记忆）：") + onboarding.selected.filter { onboarding.options.indices.contains($0) }.map { onboarding.options[$0] }.joined(separator: "、"))
                         .font(.subheadline).foregroundStyle(.secondary).padding(16)
@@ -147,28 +167,6 @@ struct BotConversationOverview: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .fixedSize(horizontal: false, vertical: true)
-        .overlay {
-            Color.clear.frame(width: 0, height: 0)
-                .sheet(isPresented: $showTaskHistory) {
-                    NavigationStack {
-                        List(records) { record in
-                            VStack(alignment: .leading, spacing: 4) {
-                                BotDelegationLink(record: record, incoming: true, fromCommander: true)
-                                Text(record.title)
-                                Text(record.statusLabel).font(.caption).foregroundStyle(.secondary)
-                                if let result = record.result, !result.isEmpty {
-                                    Text(result).font(.subheadline).lineLimit(3)
-                                }
-                            }
-                        }.navigationTitle("委派记录")
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Done") { showTaskHistory = false }
-                                }
-                            }
-                    }
-                }
-        }
         .onChange(of: error) { _ in resizeOverview() }
         .onChange(of: notice) { _ in resizeOverview() }
     }
@@ -227,7 +225,7 @@ struct BotSourceRow: View {
     @ObservedObject private var store = BotWorkspaceStore.shared
     var body: some View {
         if let callback = message.agentCallback,
-           let record = store.data.delegations.first(where: { ($0.childSessionID != nil && $0.childSessionID == callback.childSessionId) || "bot:" + $0.id == callback.jobId }) {
+           let record = store.directDelegation(jobID: callback.jobId, sessionID: callback.childSessionId) {
             BotDelegationLink(record: record, incoming: true).frame(maxWidth: .infinity)
         } else if let sid = vm.sessionId,
                   let record = store.data.delegations.first(where: { $0.childSessionID == sid }), message.role == .user,

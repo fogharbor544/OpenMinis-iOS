@@ -87,6 +87,15 @@ extension CollectionViewMessageListV3.Coordinator {
                 }
                 .store(in: &subscriptions)
 
+            // Only the Bot's private chat projects incoming task cards. Other
+            // chats must not query every Bot's task history when they open.
+            let taskBotID = { [weak vm] () -> String? in
+                guard let vm, !vm.isHelper, let sid = vm.sessionId,
+                      let owner = BotWorkspaceStore.shared.owner(forSession: sid),
+                      owner.roomId == nil, owner.delegationID == nil else { return nil }
+                return owner.botId
+            }
+
             // Task/onboarding changes do not necessarily publish vm.messages.
             // Refresh even a still-empty private chat when its Bot receives a task.
             BotWorkspaceStore.shared.$data
@@ -96,8 +105,10 @@ extension CollectionViewMessageListV3.Coordinator {
                     guard let self, let vm else { return }
                     if vm.isLoadingSession { self.hasPendingSnapshot = true; return }
                     self.applySnapshot(messages: vm.messages, caller: "bot-workspace")
-                    BotWorkspaceStore.shared.refreshDelegationMessageCounts(botID: vm.botMemoryOwner?.botId) { ids in
-                        await ChatStore.shared.botConversationMessageCounts(sessionIDs: ids)
+                    if let botID = taskBotID() {
+                        BotWorkspaceStore.shared.refreshDelegationMessageCounts(botID: botID) { ids in
+                            await ChatStore.shared.botConversationMessageCounts(sessionIDs: ids)
+                        }
                     }
                 }
                 .store(in: &subscriptions)
@@ -105,7 +116,8 @@ extension CollectionViewMessageListV3.Coordinator {
             // Counts are refreshed at persisted message boundaries, never per
             // streamed token, and publish through the same snapshot/height path.
             let refreshCounts = {
-                BotWorkspaceStore.shared.refreshDelegationMessageCounts(botID: vm.botMemoryOwner?.botId, force: true) { ids in
+                guard let botID = taskBotID() else { return }
+                BotWorkspaceStore.shared.refreshDelegationMessageCounts(botID: botID, force: true) { ids in
                     await ChatStore.shared.botConversationMessageCounts(sessionIDs: ids)
                 }
             }
@@ -113,8 +125,9 @@ extension CollectionViewMessageListV3.Coordinator {
             NotificationCenter.default.publisher(for: .sessionDidUpdate)
                 .receive(on: DispatchQueue.main)
                 .sink { note in
-                    guard let sid = note.object as? String,
-                          BotWorkspaceStore.shared.owner(forSession: sid)?.delegationID != nil else { return }
+                    guard let botID = taskBotID(), let sid = note.object as? String,
+                          let owner = BotWorkspaceStore.shared.owner(forSession: sid),
+                          owner.botId == botID, owner.delegationID != nil else { return }
                     BotWorkspaceStore.shared.refreshDelegationMessageCounts(changedSessionID: sid) { ids in
                         await ChatStore.shared.botConversationMessageCounts(sessionIDs: ids)
                     }
@@ -122,7 +135,7 @@ extension CollectionViewMessageListV3.Coordinator {
             BotWorkspaceStore.shared.$delegationMessageCounts.combineLatest(BotWorkspaceStore.shared.$summarizingDelegations)
                 .dropFirst().receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
-                    guard let self, let vm = self.vm else { return }
+                    guard let self, let vm = self.vm, taskBotID() != nil else { return }
                     self.applySnapshot(messages: vm.messages, caller: "bot-task-summary")
                 }.store(in: &subscriptions)
 

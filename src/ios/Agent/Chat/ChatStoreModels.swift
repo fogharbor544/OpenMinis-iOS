@@ -562,3 +562,28 @@ struct RawMessage: Identifiable, Codable, Hashable {
         }
     }
 }
+
+/// Mirrors the reload merge: invisible tool/reminder rows do not split an
+/// assistant run; a visible user message or callback does. No UI/markdown work.
+enum BotConversationMessageCounter {
+    struct Row {
+        let assistant: Bool
+        let visible: Bool
+        let internalRow: Bool
+        let callback: Bool
+    }
+    static func count(_ rows: [Row]) -> Int {
+        var total = 0
+        var assistantCounted = false
+        for row in rows where !row.internalRow {
+            if row.assistant {
+                if row.visible && !assistantCounted { total += 1; assistantCounted = true }
+            } else if row.callback {
+                assistantCounted = false
+            } else if row.visible {
+                total += 1; assistantCounted = false
+            }
+        }
+        return total
+    }
+}

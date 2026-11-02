@@ -152,6 +152,7 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard !performingLatestPosition else { return }
             // [T-scroll-sync-defer] Hold back sync refreshes while the user flings.
             if scrollView.isTracking || scrollView.isDecelerating {
                 ChatScrollActivity.noteMoving()
@@ -293,6 +294,7 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         private func settleAfterInteraction(_ scrollView: UIScrollView) {
+            guard !latestPositionPending && !performingLatestPosition else { return }
             // Re-acquire auto-scroll only when the user settled essentially at
             // the bottom (tight threshold), not merely "near" it. This stops
             // small trackpad scrolls on iPad from snapping back to the bottom

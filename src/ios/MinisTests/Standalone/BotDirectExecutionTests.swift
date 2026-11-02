@@ -34,14 +34,12 @@ extension ChatStore {
 
 enum ProgrammaticPromptOrigin { case job(jobId: String) }
 enum ProgrammaticSubmitOutcome: Equatable { case sent, queued, rejected(reason: String) }
-struct AgentCallback {
-    enum Kind { case finished }
-    var kind: Kind; var jobId: String; var childSessionId: String?
-    var title: String; var status: String
-    var tier: String?; var elapsed: String?; var tool: String?; var activity: String?; var turn: String?
-    var summary: String; var body: String; var siblings: String?; var modelIdentity: String?; var agent: String?
-    var xml: String { "Result from \(agent ?? "Bot"): \(status): \(body)" }
+// Model identity/localization are platform boundaries; the actual callback XML codec is compiled.
+struct HelperModelIdentity: Equatable {
+    init?(payload: [String: Any]) { return nil }
+    func payload() -> [String: Any] { [:] }
 }
+func AppLocalized(_ key: String) -> String { key }
 struct TestBlock {
     enum Kind { case text }
     var kind = Kind.text
@@ -82,6 +80,7 @@ struct TestJob {
     static var agentsEnabled = true
     static func toolEnabled(_ value: ToolSwitch) -> Bool { agentsEnabled }
     static func jsonString(_ value: [String: Any]) -> String { String(decoding: try! JSONSerialization.data(withJSONObject: value), as: UTF8.self) }
+    var botResultDeliveries: [String: Date] = [:]
     var sessionId: String?
     var isHelper = false
     var helperConfig: String?
@@ -176,7 +175,19 @@ struct TestJob {
         precondition(vm.helperConfig == nil && vm.submitted.first?.hasPrefix("消息来自 \(commander.name)\n\n") == true)
         precondition(parent.callbacks[0].contains(target.name) && parent.callbacks[0].contains(record.result!))
         precondition(parent.executeBotTask(["action": "complete", "delegation_id": first], toolUseID: "review").success)
+        precondition(store.delegation(first)?.state == .reviewing, "Legacy complete cannot claim delivery")
+        parent.beginBotResultDelivery(texts: [parent.callbacks[0]])
+        precondition(store.statusLabel(for: store.delegation(first)!) == "汇总中")
+        parent.canResume = true
+        parent.completeBotResultDelivery()
+        precondition(store.delegation(first)?.state == .reviewing, "An interrupted reply is not delivered")
+        parent.canResume = false
+        parent.abandonBotResultDelivery()
+        precondition(store.summarizingDelegations.isEmpty)
+        parent.beginBotResultDelivery(texts: [parent.callbacks[0]])
+        parent.completeBotResultDelivery()
         precondition(store.delegation(first)?.state == .completed)
+        precondition(store.statusLabel(for: store.delegation(first)!) == "已交付")
         precondition(parent.executeBotTask(["action": "follow_up", "delegation_id": first, "message": "Add original dates"], toolUseID: "rework").success)
         try await wait { store.delegation(first)?.state == .reviewing && parent.callbacks.count == 2 }
         precondition(store.delegation(first)?.childSessionID == sid && vm.submitted.count == 2)
@@ -193,6 +204,37 @@ struct TestJob {
         try await wait { store.delegation(third)?.state == .reviewing }
         precondition(running.cancelCount == 1 && store.delegation(second)?.state == .cancelled)
         precondition(store.bot(target.id)?.sessionId == privateID)
+        parent.beginBotResultDelivery(texts: parent.callbacks)
+        precondition(Set(parent.botResultDeliveries.keys) == Set([first, third]), "Merged callbacks retain their individual ownership")
+        parent.userDidCancel = true; parent.completeBotResultDelivery()
+        precondition(store.delegation(third)?.state == .reviewing, "Cancelled summarization cannot deliver")
+        parent.userDidCancel = false
+        var changed = store.delegation(first)!
+        changed.updatedAt = changed.updatedAt.addingTimeInterval(1)
+        precondition(store.saveDelegation(changed))
+        parent.completeBotResultDelivery()
+        precondition(store.delegation(first)?.state == .reviewing, "An old reply cannot deliver a newer result version")
+        precondition(store.delegation(third)?.state == .completed && store.delegation(second)?.state == .cancelled)
+        let oldCallbacks = parent.callbacks
+        changed.result = "New reworked report"; changed.updatedAt = Date(); precondition(store.saveDelegation(changed))
+        parent.beginBotResultDelivery(texts: oldCallbacks)
+        precondition(parent.botResultDeliveries.isEmpty, "Stale callback content must not claim a current result")
+        var countBatches = [[String]]()
+        store.refreshDelegationMessageCounts(botID: target.id, force: true) { sessions in
+            countBatches.append(sessions); return Dictionary(uniqueKeysWithValues: sessions.map { ($0, 2) })
+        }
+        try await wait { store.delegationMessageCounts[third] == 2 }
+        let countCalls = countBatches.count
+        store.refreshDelegationMessageCounts(botID: target.id) { sessions in
+            countBatches.append(sessions); return [:]
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+        precondition(countBatches.count == countCalls, "Unchanged tasks do not reload their histories")
+        store.refreshDelegationMessageCounts(changedSessionID: sid) { sessions in
+            countBatches.append(sessions); return [sid: 3]
+        }
+        try await wait { store.delegationMessageCounts[first] == 3 }
+        precondition(countBatches.last == [sid], "Persisted updates refresh only the changed task session")
         AIChatViewModel.holdAnswers = true
         let waitingTask = try delegate("waiting-user")
         try await wait { store.delegation(waitingTask)?.state == .running && store.delegation(waitingTask)?.childSessionID != nil }

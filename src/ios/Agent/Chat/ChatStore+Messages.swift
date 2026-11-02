@@ -179,6 +179,44 @@ extension ChatStore {
         return (count, maxSo)
     }
 
+    /// Confirm the exact write used by Bot delivery before changing its state.
+    func containsPersistedMessage(_ message: RawMessage) -> Bool {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT parts_json FROM messages WHERE id = ? AND session_id = ? AND role = ?", -1, &stmt, nil) == SQLITE_OK else { return false }
+        bindOptionalText(stmt, index: 1, value: message.id)
+        bindOptionalText(stmt, index: 2, value: message.sessionId)
+        bindOptionalText(stmt, index: 3, value: message.role.rawValue)
+        guard sqlite3_step(stmt) == SQLITE_ROW, let payload = sqlite3_column_text(stmt, 0),
+              let parts = try? JSONDecoder().decode([ContentPart].self, from: Data(String(cString: payload).utf8)) else { return false }
+        return parts == message.parts
+    }
+
+    /// One actor hop for all requested task conversations. Existing reload
+    /// records/stripping rules are reused without constructing UIKit messages.
+    func botConversationMessageCounts(sessionIDs: [String]) -> [String: Int] {
+        var result: [String: Int] = [:]
+        for sid in Set(sessionIDs) {
+            guard getSession(sid) != nil else { continue }
+            let rows = loadMessages(sessionId: sid).map { raw -> BotConversationMessageCounter.Row in
+                let presentation = BotMessagePresentation.decode(raw.presentationJSON)
+                let text = raw.parts.enumerated().compactMap { index, part -> String? in
+                    if index == presentation?.quotedPartIndex { return nil }
+                    guard case .text(let value) = part else { return nil }
+                    if raw.role == .assistant && RawMessage.isInternalBridgeText(value) { return nil }
+                    return SystemReminderStripper.strip(value)
+                }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                let visibleText = raw.role == .user ? SystemReminderStripper.userBubbleText(text) : text
+                let callback = raw.role == .user && AgentCallback.parse(text) != nil
+                let media = raw.parts.contains { if case .mediaRef = $0 { return true }; return false }
+                return .init(assistant: raw.role == .assistant, visible: !visibleText.isEmpty || media,
+                             internalRow: raw.isInternalBridge, callback: callback)
+            }
+            result[sid] = BotConversationMessageCounter.count(rows)
+        }
+        return result
+    }
+
     func loadMessages(sessionId: String) -> [RawMessage] {
         let totalStart = CFAbsoluteTimeGetCurrent()
         let sql = """

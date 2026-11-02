@@ -27,9 +27,18 @@ struct AgentToolDefinition {
     func stopExecution(_ id: String, reason: String) { stops.append(id) }
     func start() { starts += 1 }
 }
+struct AgentCallback {
+    enum Kind { case finished }
+    var kind: Kind; var jobId: String; var childSessionId: String?
+    var body = ""
+    static func parse(_ text: String) -> AgentCallback? { nil }
+}
 @MainActor final class AIChatViewModel {
     enum ToolSwitch { case agents }
     static var agentsEnabled = true
+    var botResultDeliveries: [String: Date] = [:]
+    var userDidCancel = false
+    var canResume = false
     var sessionId: String?; var isHelper = false; var programmaticTurnOrigin: String?
     var helperConfig: String?
     var steers: [[String: Any]] = []
@@ -99,7 +108,7 @@ struct AgentToolDefinition {
         record = store.delegation(delegationID)!; record.state = .reviewing; precondition(store.saveDelegation(record))
         precondition(!vm.executeBotTask(follow, toolUseID: "second-rework").success)
         _ = try object(vm.executeBotTask(["action": "complete", "delegation_id": delegationID], toolUseID: "reviewed"))
-        precondition(store.delegation(delegationID)?.state == .completed)
+        precondition(store.delegation(delegationID)?.state == .reviewing)
         record = store.delegation(delegationID)!; record.state = .interrupted; precondition(store.saveDelegation(record))
         let resume: [String: Any] = ["action": "resume", "delegation_id": delegationID]
         vm.programmaticTurnOrigin = "old callback"

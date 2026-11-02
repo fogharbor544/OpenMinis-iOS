@@ -101,6 +101,8 @@ final class ChatMessage: Identifiable, ObservableObject {
     /// awaits, so a Stop + Edit can reach this bubble before it has one.
     var awaitingHistoryEntry = false
     let timestamp = Date()
+    /// Persisted arrival time for chronological presentation rows on reload.
+    var sourceCreatedAt: Date?
     /// [T-usage-capsule-time] When this turn FINISHED, for the clock on the
     /// usage capsule.
     ///

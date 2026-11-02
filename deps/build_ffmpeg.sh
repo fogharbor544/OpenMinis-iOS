@@ -151,14 +151,37 @@ check_prerequisites() {
 fetch_ffmpeg_source() {
     local version="6.1.2"
     local tarball="ffmpeg-${version}.tar.xz"
-    local url="https://ffmpeg.org/releases/${tarball}"
+    # ffmpeg.org intermittently resets runner connections. Both mirrors publish
+    # the identical upstream release tarball; the checksum below gates partial
+    # or modified downloads.
+    local urls=(
+        "https://ffmpeg.org/releases/${tarball}"
+        "https://www.mirrorservice.org/sites/tinycorelinux.net/15.x/aarch64/tcz/src/ffmpeg/${tarball}"
+    )
+    local expected_sha256="3b624649725ecdc565c903ca6643d41f33bd49239922e45c9b1442c63dca4e38"
     local tmp
     tmp="$(mktemp -d)"
 
     log_info "FFmpeg source not present — downloading ${version}..."
-    if ! curl -fL# "$url" -o "$tmp/$tarball"; then
+    local downloaded=0
+    for url in "${urls[@]}"; do
+        log_info "Downloading from $url"
+        if curl -fL --retry 3 --retry-delay 2 --retry-all-errors "$url" -o "$tmp/$tarball"; then
+            downloaded=1
+            break
+        fi
+        rm -f "$tmp/$tarball"
+    done
+    if [ "$downloaded" -ne 1 ]; then
         rm -rf "$tmp"
-        log_error "Failed to download $url — check your network, or place the source at $FFMPEG_DIR manually."
+        log_error "Failed to download FFmpeg ${version} from all mirrors — check your network, or place the source at $FFMPEG_DIR manually."
+    fi
+
+    local got_sha256
+    got_sha256="$(shasum -a 256 "$tmp/$tarball" | awk '{print $1}')"
+    if [ "$got_sha256" != "$expected_sha256" ]; then
+        rm -rf "$tmp"
+        log_error "FFmpeg checksum mismatch: got $got_sha256, expected $expected_sha256"
     fi
 
     log_info "Extracting..."

@@ -41,6 +41,16 @@ actor ChatStore {
         precondition(BotConversationMessageCounter.count([user,thinking,tool,answer,tool,answer,reminder,answer])==2)
         precondition(BotConversationMessageCounter.count([user,answer,callback,answer,user,answer])==5)
         precondition(BotConversationMessageCounter.count([thinking,tool,reminder])==0)
+        let xml = #"<user-attached-files><file path="/var/minis/report.pdf" size="12" /></user-attached-files>"#
+        let legacy = "<user-attached-files>\n- path: /var/minis/old.pdf\nsize: 12\n</user-attached-files>"
+        for value in [xml, legacy] {
+            let attachment = SystemReminderStripper.hasVisibleUserAttachmentMetadata(value)
+            precondition(attachment && SystemReminderStripper.userBubbleText(value).isEmpty)
+            precondition(BotConversationMessageCounter.count([R(assistant:false,visible:attachment,internalRow:false,callback:false),answer]) == 2)
+        }
+        for invalid in [#"<user-attached-files><file path="" /></user-attached-files>"#, "<user-attached-files>no files</user-attached-files>", "<user-attached-files><file path=\"/missing-close.pdf\" />"] {
+            precondition(!SystemReminderStripper.hasVisibleUserAttachmentMetadata(invalid))
+        }
         print("PASS: actual SQLite delivery confirmation rejects absent/stale/wrong-session/role writes; logical count excludes tools, thought, reminders and callbacks and merges assistant continuations")
     }
 }

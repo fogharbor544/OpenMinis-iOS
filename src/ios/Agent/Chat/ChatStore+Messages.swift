@@ -209,7 +209,8 @@ extension ChatStore {
                 let visibleText = raw.role == .user ? SystemReminderStripper.userBubbleText(text) : text
                 let callback = raw.role == .user && AgentCallback.parse(text) != nil
                 let media = raw.parts.contains { if case .mediaRef = $0 { return true }; return false }
-                return .init(assistant: raw.role == .assistant, visible: !visibleText.isEmpty || media,
+                let attachment = raw.role == .user && SystemReminderStripper.hasVisibleUserAttachmentMetadata(text)
+                return .init(assistant: raw.role == .assistant, visible: !visibleText.isEmpty || media || attachment,
                              internalRow: raw.isInternalBridge, callback: callback)
             }
             result[sid] = BotConversationMessageCounter.count(rows)

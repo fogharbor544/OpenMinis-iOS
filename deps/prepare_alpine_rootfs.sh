@@ -141,12 +141,17 @@ build_fakefsify() {
         # host-side tool that runs on this Mac and never ships to a device, so
         # a failed assert is a loud build failure rather than a user crash —
         # which is what we want while generating a rootfs.
+        #
+        # The fakefs format is guest-independent. iSH's native build selects
+        # gadget assembly by host CPU family, so ARM64 guest cannot configure
+        # from an Intel Mac. Use the x86 guest for this host-only tool; the
+        # shipping iOS libraries are still built separately as ARM64 guest.
         meson setup "$BUILD_DIR" \
             --buildtype=release \
             -Dlog="" \
             -Dkernel=ish \
             -Dengine=asbestos \
-            -Dguest_arch=arm64
+            -Dguest_arch=x86
     fi
 
     # Build only fakefsify

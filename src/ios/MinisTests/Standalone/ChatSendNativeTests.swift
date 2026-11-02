@@ -108,6 +108,17 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         guard !performingLatestPosition else { return }
         // An unrelated scroll observation must not synchronously flush snapshots.
     }
+    func measureMainRunloopTurns() async -> Int {
+        var count=0
+        let signal=DispatchSemaphore(value:0)
+        func spin() {
+            count+=1
+            if count>=8 { signal.signal() } else { DispatchQueue.main.async(execute:spin) }
+        }
+        DispatchQueue.main.async(execute:spin)
+        while signal.wait(timeout:.now()) == .timedOut { await Task.yield() }
+        return count
+    }
     func applySnapshot(messages:[Int],caller:String="fixture",positioningLatest:Bool=false) {
         guard let vm=viewModel,!vm.isLoadingSession else { return }
         SHIPPING_SNAPSHOT_GUARD
@@ -149,6 +160,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             coordinator.layout?.deferSelfSizing=true;vm.setStreamingUIUpdatesSuspended(true)
             coordinator.hasPendingSnapshot=true
             vm.messages.append(vm.messages.count)
+            if name=="middle" { coordinator.forceReentry=true }
             vm.events.append("send-request-"+name)
             coordinator.requestLatestPosition();coordinator.requestLatestPosition();await pause()
             let bottom=max(0,cv.contentSize.height-cv.bounds.height+cv.adjustedContentInset.bottom)
@@ -163,12 +175,13 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             coordinator.applySnapshot(messages:vm.messages,caller:"stream-"+String(chunk));await pause()
         }
         check(coordinator.scrollMode == .autoScrolling && coordinator.maxSnapshotDepth==1,"stream-updates-remain-serial")
+        check(await coordinator.measureMainRunloopTurns()==8,"main-runloop-remains-responsive")
         let before=coordinator.applied
         for _ in 0..<5 { vm.messages.append(vm.messages.count);coordinator.requestLatestPosition() }
         await pause()
         check(coordinator.applied-before==1,"continuous-send-coalesced")
         coordinator.forceReentry=true;coordinator.applySnapshot(messages:vm.messages);await pause()
-        check(coordinator.maxSnapshotDepth==1 && coordinator.rejectedReentry==1,"snapshot-reentry-deferred")
+        check(coordinator.maxSnapshotDepth==1 && coordinator.rejectedReentry==2,"snapshot-reentry-deferred")
         let beforeLayout=coordinator.applied
         coordinator.latestPositionPending=true;coordinator.performingLatestPosition=true
         coordinator.applySnapshot(messages:vm.messages,caller:"hosted-layout-callback")

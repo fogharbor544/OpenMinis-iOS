@@ -151,13 +151,16 @@ struct TestJob {
         var commander = store.bot(BotProfile.commanderID)!
         commander.sessionId = "parent"; commander.conversationIds = ["parent"]
         precondition(store.save(commander))
+        var workspace = store.data
+        workspace.sessionOwners["parent"] = BotSessionOwner(botId: commander.id)
+        precondition(store.persist(workspace))
         var target = store.newBot(); target.name = "Research Bot"; target.modelGroupId = "alternate"
         target.instructions = "Verify primary sources"; precondition(store.save(target))
         let privateID = try await store.session(botID: target.id)
         let parent = ViewModelCache.shared.getOrCreate(for: "parent").vm
         func delegate(_ call: String) throws -> String {
             let outcome = parent.executeBotTask(["action": "delegate", "bot_id": target.id, "task": "Verify the provided source context"], toolUseID: call)
-            precondition(outcome.success)
+            precondition(outcome.success, "Delegation \(call) rejected: \(outcome.output)")
             return (try JSONSerialization.jsonObject(with: Data(outcome.output.utf8)) as! [String: Any])["delegation_id"] as! String
         }
         let first = try delegate("direct-1")

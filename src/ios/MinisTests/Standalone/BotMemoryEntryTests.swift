@@ -83,6 +83,37 @@ import Foundation
         _ = try store.save(longNote)
         let clipped = try store.recentContext(owner: "bot:lines", now: now, dateCalendar: dates)
         precondition(clipped.contains("L199") && !clipped.contains("L200"))
+
+        // Event records are scoped milestones, not ordinary fingerprint-deduplicated notes.
+        func makeEvent(_ text: String, kind: String?, source: String, assistant: String? = nil) -> BotMemoryEntry {
+            var entry = BotMemoryEntry(owner: "bot:event", content: text, category: "event", scope: "work-log",
+                                      sourceSession: "conversation", sourceMessage: source, evidence: "Fixed source snapshot")
+            entry.eventKind = kind
+            entry.sourceAssistantMessageID = assistant
+            return entry
+        }
+        let decision = try store.save(makeEvent("Decided to keep iOS memory scoped", kind: "decision", source: "user-1"))
+        precondition(decision.eventKind == "decision" && decision.sourceAssistantMessageID == nil)
+        let sameTurnDecision = try store.save(makeEvent("Decided to keep iOS memory scoped", kind: "decision", source: "user-1", assistant: "assistant-1"))
+        precondition(sameTurnDecision.id == decision.id)
+        let delivery = try store.save(makeEvent("Bot report: delivery complete", kind: "delivery", source: "user-1", assistant: "assistant-1"))
+        precondition(delivery.id != decision.id)
+        let repeatDelivery = try store.save(makeEvent("Bot report: delivery complete", kind: "delivery", source: "user-2", assistant: "assistant-2"))
+        precondition(repeatDelivery.id != delivery.id)
+        do { _ = try store.save(makeEvent("Wrong kind", kind: "milestone", source: "-invalid")); precondition(false) }
+        catch is BotMemoryError {}
+        do { _ = try store.save(makeEvent("Missing kind", kind: nil, source: "-invalid")); precondition(false) }
+        catch is BotMemoryError {}
+        do {
+            var nonEvent = make("bot:event", "Ordinary note")
+            nonEvent.eventKind = "decision"
+            _ = try store.save(nonEvent); precondition(false)
+        } catch is BotMemoryError {}
+        let eventReload = BotMemoryStore(fileURL: file)
+        try check(try eventReload.visible(to: "bot:event").contains { $0.id == delivery.id && $0.eventKind == "delivery" })
+        let legacyJSON = Data(#"{"id":"legacy-1","owner":"legacy:old","content":"Old row","category":"fact","scope":"legacy","evidence":""}"#.utf8)
+        let legacyEntry = try JSONDecoder().decode(BotMemoryEntry.self, from: legacyJSON)
+        precondition(legacyEntry.eventKind == nil && legacyEntry.sourceAssistantMessageID == nil)
         print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, multiple same-scope notes, date-based injection, line limits and secret refusal")
     }
 }

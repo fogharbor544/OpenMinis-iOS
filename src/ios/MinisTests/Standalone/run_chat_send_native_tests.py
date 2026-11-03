@@ -24,6 +24,23 @@ def capture(*args, timeout=60):
     return subprocess.check_output(args, text=True, timeout=timeout).strip()
 
 
+def run_retry(*args, attempts=3, timeout=180, **kwargs):
+    """Run a simulator command, retrying a bounded number of times.
+
+    The simulator service on the runner is slow and times out intermittently,
+    especially while the device-build job compiles in parallel. One timed-out
+    call must not fail the whole native gate.
+    """
+    failure = None
+    for _ in range(attempts):
+        try:
+            return subprocess.run(args, check=True, text=True, timeout=timeout, **kwargs)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            failure = error
+            time.sleep(5)
+    raise failure
+
+
 def capture_retry(*args, timeout=120, attempts=3):
     """Query the simulator with a bounded retry.
 
@@ -38,23 +55,6 @@ def capture_retry(*args, timeout=120, attempts=3):
             failure = error
             time.sleep(5)
     raise failure
-
-
-def launch_with_retry(udid, bundle, attempts=3):
-    """Launch the fixture app, retrying a bounded number of times.
-
-    The simulator intermittently refuses the first launch right after a boot;
-    the run must not fail on that alone.
-    """
-    failure = None
-    for _ in range(attempts):
-        failure = subprocess.run(
-            ["xcrun", "simctl", "launch", "--terminate-running-process", udid, bundle],
-            text=True, capture_output=True)
-        if failure.returncode == 0:
-            return failure.stdout.strip()
-        time.sleep(5)
-    raise RuntimeError(f"simctl launch failed after {attempts} attempts: {failure.stderr.strip() or failure.stdout.strip()}")
 
 
 def build_sources(folder):
@@ -91,17 +91,17 @@ def main():
     bundle="com.openminis.chat-send-validation"
     try:
         if booted_here: run("xcrun","simctl","boot",udid)
-        run("xcrun","simctl","bootstatus",udid,"-b",timeout=240)
+        run_retry("xcrun","simctl","bootstatus",udid,"-b",timeout=300)
         arch="arm64" if platform.machine()=="arm64" else "x86_64"
         with tempfile.TemporaryDirectory(prefix="minis-chat-send-") as temp:
             folder=Path(temp);app=folder/"ChatSendValidation.app";app.mkdir()
             info={"CFBundleIdentifier":bundle,"CFBundleName":"ChatSendValidation","CFBundleExecutable":"ChatSendValidation","CFBundlePackageType":"APPL","CFBundleVersion":"1","CFBundleShortVersionString":"1.0","MinimumOSVersion":"16.0","UIDeviceFamily":[1,2],"UILaunchScreen":{}}
             (app/"Info.plist").write_bytes(plistlib.dumps(info))
             build_sources(folder)
-            run(swiftc,"-swift-version","5","-sdk",sdk,"-target",f"{arch}-apple-ios16.0-simulator",str(folder/"Fixture.swift"),str(folder/"Layout.swift"),"-o",str(app/"ChatSendValidation"),timeout=180)
-            run("codesign","--force","--sign","-",str(app))
-            run("xcrun","simctl","install",udid,str(app))
-            launch_with_retry(udid,bundle)
+            run(swiftc,"-swift-version","5","-sdk",sdk,"-target",f"{arch}-apple-ios16.0-simulator",str(folder/"Fixture.swift"),str(folder/"Layout.swift"),"-o",str(app/"ChatSendValidation"),timeout=300)
+            run("codesign","--force","--sign","-",str(app),timeout=120)
+            run_retry("xcrun","simctl","install",udid,str(app),timeout=180)
+            run_retry("xcrun","simctl","launch","--terminate-running-process",udid,bundle,timeout=120)
             container=Path(capture("xcrun","simctl","get_app_container",udid,bundle,"data"))
             report=container/"Documents/chat-send-native-results.json"
             for _ in range(120):

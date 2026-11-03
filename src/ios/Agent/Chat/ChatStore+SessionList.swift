@@ -665,8 +665,9 @@ extension ChatStore {
             if let p = str("path") { return cap("Reading image " + p) }
         case "browser_use":
             let action = str("action") ?? "browse"
-            if let url = str("url") { return cap("\(action) \(url)") }
-            return cap("browser_use \(action)")
+            let title = BrowserAction.displayTitle(for: action)
+            if let url = str("url") { return cap("\(title) \(url)") }
+            return cap(title)
         case "memory_write":
             if let content = str("content") { return cap("memory_write: " + content) }
         case "memory_get":

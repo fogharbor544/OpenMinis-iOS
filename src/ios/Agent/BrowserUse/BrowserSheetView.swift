@@ -5,6 +5,8 @@ struct BrowserSheetView: View {
     @ObservedObject var pool: BrowserTabPool
     var isAgentBusy: Bool = false
     var onTakeover: (() -> Void)? = nil
+    var onTakeoverDone: (() -> Void)? = nil
+    var isUserTakeoverActive: Bool = false
     @Environment(\.dismiss) private var dismiss
     @State private var addressText: String = ""
     @State private var showHistory = false
@@ -12,9 +14,14 @@ struct BrowserSheetView: View {
     @State private var showPasswords = false
     @State private var isFullscreen = false
     @State private var prepared = false
+    @State private var showsTakeoverLabel = false
+    @State private var takeoverLabelTask: Task<Void, Never>?
     @FocusState private var addressFocused: Bool
 
     private var manager: BrowserUseManager? { pool.activeManager }
+    private var isAgentBrowsingInSheet: Bool {
+        isAgentBusy && !isUserTakeoverActive
+    }
 
     var body: some View {
         NavigationStack {
@@ -22,7 +29,7 @@ struct BrowserSheetView: View {
                 if !isFullscreen {
                     // Tab bar
                     tabBar
-                        .allowsHitTesting(!isAgentBusy && !pool.hasSecureInput)
+                        .allowsHitTesting(!isAgentBrowsingInSheet && !pool.hasSecureInput)
 
                     // URL bar
                     HStack(spacing: 8) {
@@ -35,7 +42,7 @@ struct BrowserSheetView: View {
                             .keyboardType(.URL)
                             .submitLabel(.go)
                             .focused($addressFocused)
-                            .disabled(isAgentBusy || pool.hasSecureInput)
+                            .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
                             .onSubmit {
                                 let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
@@ -51,15 +58,24 @@ struct BrowserSheetView: View {
                             }
                             .transition(.identity)
                         }
+
+                        if isUserTakeoverActive {
+                            BrowserTakeoverStatusControl(
+                                showsLabel: showsTakeoverLabel,
+                                onShowLabel: { showTakeoverLabelAgain() },
+                                onReturn: {
+                                    onTakeoverDone?()
+                                })
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color(UIColor.secondarySystemBackground))
-                    .allowsHitTesting(!isAgentBusy && !pool.hasSecureInput)
+                    .allowsHitTesting(!isAgentBrowsingInSheet && !pool.hasSecureInput)
                 }
 
                 if let manager, !manager.isSecureInputActive {
-                    BrowserLoginAutofillButton(manager: manager, isAgentBusy: isAgentBusy) { showPasswords = true }
+                    BrowserLoginAutofillButton(manager: manager, isAgentBusy: isAgentBrowsingInSheet) { showPasswords = true }
                 }
 
                 // Live webview + agent overlay
@@ -102,8 +118,13 @@ struct BrowserSheetView: View {
                         }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
-                    if isAgentBusy {
-                        AgentBrowsingOverlay(onTakeover: onTakeover)
+                    if isAgentBrowsingInSheet {
+                        AgentBrowsingOverlay(
+                            currentStep: pool.currentAgentStep,
+                            onTakeover: {
+                                showTakeoverLabelAgain()
+                                onTakeover?()
+                            })
                             .transition(.opacity)
                     }
 
@@ -128,7 +149,7 @@ struct BrowserSheetView: View {
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.3), value: isAgentBusy)
+                .animation(.easeInOut(duration: 0.3), value: isAgentBrowsingInSheet)
 
                 // Download progress banner — visible in both normal and
                 // fullscreen modes so an in-flight download is never silent.
@@ -146,20 +167,20 @@ struct BrowserSheetView: View {
                             Image(systemName: "chevron.left")
                                 .frame(maxWidth: .infinity)
                         }
-                        .disabled(isAgentBusy || !(manager?.canGoBack ?? false))
+                        .disabled(isAgentBrowsingInSheet || !(manager?.canGoBack ?? false))
 
                         Button { pool.touchActivity(); manager?.goForward() } label: {
                             Image(systemName: "chevron.right")
                                 .frame(maxWidth: .infinity)
                         }
-                        .disabled(isAgentBusy || !(manager?.canGoForward ?? false))
+                        .disabled(isAgentBrowsingInSheet || !(manager?.canGoForward ?? false))
 
                         if manager?.isLoading ?? false {
                             Button { pool.touchActivity(); manager?.stopLoading() } label: {
                                 Image(systemName: "xmark")
                                     .frame(maxWidth: .infinity)
                             }
-                            .disabled(isAgentBusy || pool.hasSecureInput)
+                            .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
                             .transition(.identity)
                         } else {
                             Button { pool.touchActivity(); manager?.reload() } label: {
@@ -167,7 +188,7 @@ struct BrowserSheetView: View {
                                     .frame(maxWidth: .infinity)
                             }
                             .transition(.identity)
-                            .disabled(isAgentBusy || pool.hasSecureInput)
+                            .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
                         }
 
                         Button {
@@ -176,12 +197,12 @@ struct BrowserSheetView: View {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .frame(maxWidth: .infinity)
                         }
-                        .disabled(isAgentBusy || pool.hasSecureInput)
+                        .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
                     }
                     .font(.system(size: 18))
                     .padding(.vertical, 10)
                     .background(Color(UIColor.secondarySystemBackground))
-                    .allowsHitTesting(!isAgentBusy && !pool.hasSecureInput)
+                    .allowsHitTesting(!isAgentBrowsingInSheet && !pool.hasSecureInput)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -211,26 +232,26 @@ struct BrowserSheetView: View {
                         } label: {
                             Image(systemName: "plus")
                         }
-                        .disabled(isAgentBusy || pool.hasSecureInput || pool.tabs.count >= BrowserTabPool.maxTabs)
+                        .disabled(isAgentBrowsingInSheet || pool.hasSecureInput || pool.tabs.count >= BrowserTabPool.maxTabs)
 
                         Button {
                             showHistory = true
                         } label: {
                             Image(systemName: "clock.arrow.circlepath")
                         }
-                        .disabled(isAgentBusy || pool.hasSecureInput)
+                        .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
                         Button {
                             showBookmarks = true
                         } label: {
                             Image(systemName: "bookmark")
                         }
                         .accessibilityLabel("Bookmarks")
-                        .disabled(isAgentBusy || pool.hasSecureInput)
+                        .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
                         Button { showPasswords = true } label: {
                             Image(systemName: "key")
                         }
                         .accessibilityLabel("Passwords")
-                        .disabled(isAgentBusy || pool.hasSecureInput || manager == nil)
+                        .disabled(isAgentBrowsingInSheet || pool.hasSecureInput || manager == nil)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -264,6 +285,13 @@ struct BrowserSheetView: View {
             }
             .onChange(of: isAgentBusy) { busy in
                 if busy { showPasswords = false }
+            }
+            .onChange(of: isUserTakeoverActive) { active in
+                if active { showTakeoverLabelAgain() }
+            }
+            .onDisappear {
+                takeoverLabelTask?.cancel()
+                takeoverLabelTask = nil
             }
             .onAppear {
                 // Ensure at least one tab exists when opened manually
@@ -331,7 +359,7 @@ struct BrowserSheetView: View {
                     .lineLimit(1)
                     .frame(maxWidth: 120)
 
-                if !isAgentBusy {
+                if !isAgentBrowsingInSheet {
                     Button {
                         _ = pool.closeTab(id: tab.id)
                     } label: {
@@ -359,6 +387,18 @@ struct BrowserSheetView: View {
         let url = tab.manager.currentURL
         if !url.isEmpty { return String(url.prefix(20)) }
         return "标签 \(tab.id)"
+    }
+}
+
+private extension BrowserSheetView {
+    func showTakeoverLabelAgain() {
+        withAnimation(.easeInOut(duration: 0.2)) { showsTakeoverLabel = true }
+        takeoverLabelTask?.cancel()
+        takeoverLabelTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.2)) { showsTakeoverLabel = false }
+        }
     }
 }
 
@@ -396,8 +436,13 @@ private struct BrowserAddressBarIcon: View {
 /// Breathing-light overlay shown when the agent is controlling the browser.
 /// Blocks all user interaction on the webview while providing a visual cue.
 private struct AgentBrowsingOverlay: View {
+    let currentStep: String
     var onTakeover: (() -> Void)?
-    @State private var breathing = false
+    @State private var runningLightPhase: CGFloat = 0
+
+    private var stepText: String {
+        currentStep.isEmpty ? AppLocalized("Minis is browsing") : currentStep
+    }
 
     var body: some View {
         ZStack {
@@ -405,42 +450,85 @@ private struct AgentBrowsingOverlay: View {
             Color.black.opacity(0.35)
 
             // Centered indicator with breathing glow
-            HStack(spacing: 12) {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 8, height: 8)
-                    .opacity(breathing ? 1.0 : 0.3)
-                    .shadow(color: Color.accentColor.opacity(breathing ? 0.8 : 0), radius: breathing ? 8 : 0)
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Capsule()
+                            .fill(Color.accentColor.opacity(0.25))
+                            .frame(width: 32, height: 4)
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 8, height: 8)
+                            .shadow(color: Color.accentColor.opacity(0.8), radius: 8)
+                            .offset(x: runningLightPhase * 12)
+                    }
 
-                Text("Minis is browsing")
+                    Text(AppLocalized("Minis is browsing"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.9))
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Capsule().fill(Color.black.opacity(0.7)))
 
                 if let onTakeover {
-                    Divider()
-                        .frame(height: 14)
-                        .overlay(Color.white.opacity(0.3))
-
-                    Button("Takeover") {
+                    Button {
                         onTakeover()
+                    } label: {
+                        Label(stepText, systemImage: "hand.point.up.left")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(Capsule().fill(Color.accentColor))
+                            .frame(minHeight: 44)
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(
-                Capsule()
-                    .fill(Color.black.opacity(0.7))
-            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle()) // capture all touches
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                breathing = true
+            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                runningLightPhase = 1
             }
+        }
+    }
+}
+
+private struct BrowserTakeoverStatusControl: View {
+    let showsLabel: Bool
+    let onShowLabel: () -> Void
+    let onReturn: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if showsLabel {
+                Text(AppLocalized("You are operating"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.orange)
+                    .fixedSize()
+                    .transition(.opacity)
+            }
+
+            Button(action: onShowLabel) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.orange)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(AppLocalized("You are operating"))
+
+            Button(action: onReturn) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(AppLocalized("Return to Minis"))
         }
     }
 }

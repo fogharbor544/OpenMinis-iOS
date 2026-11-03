@@ -296,7 +296,7 @@ struct ChatMessageRow: View {
             case .fileEditTool(let path):
                 parts.append("Edit: \(path)\n\(block.content)")
             case .browserTool(let action):
-                parts.append("Browser: \(action)\n\(block.content)")
+                parts.append("\(BrowserAction.displayTitle(for: action))\n\(block.content)")
             case .readImageTool(let path):
                 parts.append("Image: \(path)")
             case .memoryTool(let action):

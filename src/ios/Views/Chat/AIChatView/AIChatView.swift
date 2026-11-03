@@ -1100,9 +1100,12 @@ struct AIChatView: View {
             }
         }
         .sheet(isPresented: $showBrowserSheet) {
-            BrowserSheetView(pool: vm.browserTabPool, isAgentBusy: vm.browserTabPool.isAgentBrowsing, onTakeover: {
-                vm.browserTakeoverActive = true
-            })
+            BrowserSheetView(
+                pool: vm.browserTabPool,
+                isAgentBusy: vm.browserTabPool.isAgentBrowsing,
+                onTakeover: { vm.browserTakeoverActive = true },
+                onTakeoverDone: { [vm] in vm.resumeFromBrowserTakeover() },
+                isUserTakeoverActive: vm.browserTakeoverActive)
         }
         .sheet(isPresented: $showModelPicker) {
             NavigationStack {

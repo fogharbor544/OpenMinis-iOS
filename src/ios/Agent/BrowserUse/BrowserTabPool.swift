@@ -399,6 +399,9 @@ final class BrowserTabPool: ObservableObject {
         tabs.contains { $0.inUse }
     }
 
+    /// The most recent browser action, shown by the live browser sheet.
+    @Published private(set) var currentAgentStep: String = ""
+
     /// The manager for the currently selected UI tab.
     var activeManager: BrowserUseManager? {
         tabs.first { $0.id == selectedTabId }?.manager
@@ -815,6 +818,7 @@ final class BrowserTabPool: ObservableObject {
             url: input.url,
             tabId: input.tabId
         )
+        currentAgentStep = input.action.displayTitle
         let secureGeneration = BrowserUseManager.secureInteractionGeneration
         do {
             var result = try await executeInner(action: input, singleTab: singleTab, owner: owner)

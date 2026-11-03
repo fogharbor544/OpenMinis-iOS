@@ -2,7 +2,17 @@ import Foundation
 enum ProgrammaticPromptOrigin { case job(jobId: String) }
 
 enum ThinkingLevel { case off }
-struct AgentToolDefinition { var name: String }
+struct AgentToolDefinition {
+    var name: String
+    var categoryValues: [String] = []
+    var eventKindValues: [String] = []
+
+    init(name: String, categoryValues: [String] = [], eventKindValues: [String] = []) {
+        self.name = name
+        self.categoryValues = categoryValues
+        self.eventKindValues = eventKindValues
+    }
+}
 struct AgentMessage {
     enum Role { case user }
     enum Part { case text(String) }
@@ -69,7 +79,11 @@ final class MemoryReviewProvider: AgentProvider {
     var botMemoryReviewedSourceID: String?
     var transientNotice: String?
     var sessionInputTokens = 0, sessionOutputTokens = 0, sessionCacheReadTokens = 0, sessionCacheWriteTokens = 0
-    func makeAgentTools() -> [AgentToolDefinition] { [.init(name: "memory_write")] }
+    func makeAgentTools() -> [AgentToolDefinition] {
+        [.init(name: "memory_write",
+               categoryValues: ["preference", "fact", "convention", "experience", "event"],
+               eventKindValues: ["decision", "delivery", "verification"])]
+    }
     var memoryEnabled = true
     var messages: [Message] = []
     var programmaticTurnOrigin: ProgrammaticPromptOrigin?
@@ -153,6 +167,16 @@ actor ChatStore {
         precondition(!vm.executeBotMemoryWrite("{\"action\":\"replace\",\"entry_id\":\"missing\",\"content\":\"changed\"}").success)
         precondition(!vm.executeBotMemoryWrite("{\"action\":\"forget\",\"entry_id\":\"missing\"}").success)
         precondition(!vm.executeBotMemoryWrite("{\"content\":\"password is secret\"}").success)
+        let memoryTools = vm.makeAgentTools()
+        precondition(memoryTools.contains { $0.categoryValues.contains("event") })
+        precondition(memoryTools.contains { $0.eventKindValues == ["decision", "delivery", "verification"] })
+        vm.loadUser("Remember that we decided to use scoped memories", rowID: "event-source")
+        let eventJSON = "{\"action\":\"save\",\"content\":\"决策：Bot 继续使用作用域记忆\",\"category\":\"event\",\"event_kind\":\"decision\",\"intent\":\"explicit\",\"scope\":\"memory-design\"}"
+        precondition(vm.executeBotMemoryWrite(eventJSON).success)
+        let savedEvent = try BotMemoryStore.shared.visible(to: "bot:\(a.id)").last { $0.category == "event" }!
+        precondition(savedEvent.eventKind == "decision" && savedEvent.sourceMessage == "event-source")
+        precondition(!vm.executeBotMemoryWrite("{\"action\":\"save\",\"content\":\"Bad event\",\"category\":\"event\",\"event_kind\":\"milestone\"}").success)
+        precondition(!vm.executeBotMemoryWrite("{\"action\":\"save\",\"content\":\"普通记忆\",\"category\":\"fact\",\"event_kind\":\"decision\"}").success)
         vm.messages = [.init(content: explicitWords)] // Provenance is optional for a new note.
         precondition(vm.botMemorySource == nil)
         vm.programmaticTurnOrigin = .job(jobId: "scheduled-job")

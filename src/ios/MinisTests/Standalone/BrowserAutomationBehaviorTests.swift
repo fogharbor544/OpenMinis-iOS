@@ -49,7 +49,13 @@ typealias CGFloat = Double
 @propertyWrapper struct Published<Value> { var wrappedValue: Value }
 struct TestLogger { func info(_ text: String) {}; func warning(_ text: String) {} }
 let logger = TestLogger()
-enum ContentWorld { case page }
+enum WKContentWorld {
+    case page, batch
+    static func world(name: String) -> Self { .batch }
+}
+enum BrowserUseJS {
+    static func batchCommand(install: Bool, action: BrowserBatchRequest.Step.Action?) -> String { "batch" }
+}
 final class WKSnapshotConfiguration { var rect = CGRect.zero }
 final class UIImage { func jpegData(compressionQuality: Double) -> Data? { Data([1, 2, 3]) } }
 
@@ -58,13 +64,20 @@ final class UIImage { func jpegData(compressionQuality: Double) -> Data? { Data(
     var frame = CGRect(x: 0, y: 0, width: 390, height: 844)
     var hangAt = ""
     var reads = 0
+    var batchCalls: [String] = []
+    var batchReply: ((String) -> [String: Any])?
     var snapshots = 0
     var setupDelay: UInt64 = 0
     var pending: [CheckedContinuation<Any?, Error>] = []
     var pendingImages: [CheckedContinuation<UIImage, Error>] = []
     func setNeedsLayout() {}
     func layoutIfNeeded() {}
-    func callAsyncJavaScript(_ js: String, arguments: [String: Any], contentWorld: ContentWorld) async throws -> Any? {
+    func callAsyncJavaScript(_ js: String, arguments: [String: Any], contentWorld: WKContentWorld) async throws -> Any? {
+        if contentWorld == .batch {
+            let kind = arguments["kind"] as! String
+            batchCalls.append(kind)
+            return BrowserBatchReport.json(batchReply?(kind) ?? ["status": "ok"])
+        }
         reads += 1
         let phase = js.contains("window.__postActionDom =") ? "setup" : js.contains("return JSON.stringify") ? "read" : "poll"
         if hangAt == phase { return try await withCheckedThrowingContinuation { pending.append($0) } }
@@ -91,6 +104,10 @@ final class UIImage { func jpegData(compressionQuality: Double) -> Data? { Data(
     let webView = FakeWebView()
     static var secureInteractionManager: BrowserUseManager?
     var isSecureInputActive = false
+    var isLoading = false
+    static let secureInteractionGeneration = UUID()
+    var legacyKeyboardReleases = 0
+    func releaseWebViewKeyboard() { legacyKeyboardReleases += 1 }
     var lastScreenshot: UIImage?
     var navigationContinuation: CheckedContinuation<Void, Error>?
     var currentViewport = (width: 390, height: 844)
@@ -142,6 +159,51 @@ final class UIImage { func jpegData(compressionQuality: Double) -> Data? { Data(
         check(fast.resultMode == .collected && fast.preview == .none, "valid collection mode")
         for bad in ["{\"action\":\"click\",\"preview\":\"none\",\"result_mode\":\"collected\"}", "{\"action\":\"new_tab\",\"result_mode\":\"collected\"}", "{\"action\":\"scroll_and_collect\",\"result_mode\":\"collected\"}"] {
             check(BrowserActionInput.parse(from: bad) == nil, "invalid combination rejected at boundary")
+        }
+        let batchJSON = #"""
+        {"action":"run","tab_id":0,"document_version":"d","frame_id":"main","steps":[{"action":"click","ref":"e1"},{"action":"click","ref":"e2"}]}
+        """#
+        check(BrowserActionInput.parse(from: batchJSON)?.preview == .none, "run accepts a pinned scope and defaults to no preview")
+        for invalid in [
+            batchJSON.replacingOccurrences(of: "\"tab_id\":0,", with: ""),
+            batchJSON.replacingOccurrences(of: "\"tab_id\":0", with: "\"tab_id\":true"),
+            batchJSON.replacingOccurrences(of: "\"main\"", with: "\"child\""),
+            batchJSON.replacingOccurrences(of: "\"click\"", with: "\"execute_js\""),
+        ] {
+            check(BrowserActionInput.parse(from: invalid) == nil, "invalid batch input is rejected")
+        }
+        for stop in ["stale_ref", "navigation", "takeover"] {
+            let batchManager = BrowserUseManager()
+            var dispatched = 0
+            batchManager.webView.batchReply = { [weak batchManager] kind in
+                if kind != "step" { return ["status": "ok"] }
+                dispatched += 1
+                if dispatched == 1 {
+                    if stop == "navigation" { batchManager?.navigationForTest() }
+                    if stop == "takeover" { batchManager?.requestUserTakeover() }
+                    return ["status": "ok", "applied": true]
+                }
+                return ["status": "stale_ref"]
+            }
+            let result = try await batchManager.execute(action: input(batchJSON))
+            check(!result.success && result.batchReport?.stopReason == stop, "reports batch stop reason")
+            check(result.batchReport?.completedSteps == [0], "reports the applied step exactly once")
+            check(dispatched == (stop == "stale_ref" ? 2 : 1), "does not dispatch after interruption")
+            check(batchManager.webView.reads == 0, "batch never runs legacy settling")
+        }
+        for status in ["ok", "timeout"] {
+            let batchManager = BrowserUseManager()
+            batchManager.webView.batchReply = { kind in
+                kind == "step" ? ["status": status, "applied": true] : ["status": "ok"]
+            }
+            let typeJSON = #"""
+            {"action":"run","tab_id":0,"document_version":"d","frame_id":"main","steps":[{"action":"type","ref":"e1","text":""}]}
+            """#
+            let result = try await batchManager.execute(action: input(typeJSON))
+            check(result.batchReport?.completedSteps == [0], "type dispatch remains confirmed")
+            check(result.batchReport?.failedStep == (status == "timeout" ? 0 : nil), "reports type timeout with confirmed progress")
+            check(result.batchReport?.uncertainStep == nil, "does not treat confirmed input as uncertain")
+            check(batchManager.legacyKeyboardReleases == 0, "batch does not enqueue unguarded keyboard release")
         }
         let manager = BrowserUseManager()
         let collected = try await manager.execute(action: fast)

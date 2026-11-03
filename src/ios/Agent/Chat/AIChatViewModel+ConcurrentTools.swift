@@ -732,16 +732,17 @@ extension AIChatViewModel {
                 toolSuccess = false
                 break
             }
-            let isSecureInput = BrowserActionInput.parse(from: argsJson)?.action == .secureInput
+            let browserInput = BrowserActionInput.parse(from: argsJson)
+            let isSecureInput = browserInput?.action == .secureInput
             var browserResult: BrowserActionResult
-            if let input = BrowserActionInput.parse(from: argsJson) {
+            if let input = browserInput {
                 do {
                     browserResult = try await browserTabPool.execute(action: input, owner: sessionId)
                 } catch {
                     browserResult = .error(error.localizedDescription)
                 }
             } else {
-                browserResult = .error("Invalid browser_use input. Provide a valid action; preview must be default/none and result_mode must be standard/collected. collected requires scroll_and_collect with preview=none.")
+                browserResult = .error(BrowserBatchRequest.invalidInputMessage)
             }
 
             if browserTakeoverActive && !isSecureInput && !browserTabPool.hasSecureInput {
@@ -750,7 +751,9 @@ extension AIChatViewModel {
                     success: browserResult.success,
                     base64Image: browserResult.base64Image,
                     imageFilePath: browserResult.imageFilePath,
-                    pageURL: browserResult.pageURL
+                    pageURL: browserResult.pageURL,
+                    tabId: browserResult.tabId,
+                    batchReport: browserResult.batchReport
                 )
             }
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {

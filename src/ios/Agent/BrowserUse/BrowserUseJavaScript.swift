@@ -73,24 +73,275 @@ enum BrowserUseJS {
         return result
     }
 
+
+    // Executed in a named WKContentWorld, in the main frame only. The page
+    // cannot replace the registry or substitute a different node for a ref.
+    static let batchRuntime = #"""
+    globalThis.__minisBrowserBatch ??= (() => {
+        let binding, version, counter = 0, refs = new Map(), run, gate;
+        const modalSelector = 'dialog[open],[role="dialog"][aria-modal="true"],[role="alertdialog"]';
+        const interactive = 'a[href],button,input:not([type="hidden"]),textarea,select,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="textbox"],[role="checkbox"],[role="tab"],[role="radio"],[tabindex]:not([tabindex="-1"])';
+        const visible = el => el.getClientRects().length > 0 &&
+            !['hidden', 'collapse'].includes(getComputedStyle(el).visibility) &&
+            !el.closest('[inert],[aria-hidden="true"]');
+        const disabled = el => el.disabled === true || el.matches(':disabled') ||
+            !!el.closest('[aria-disabled="true"]');
+        const compact = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+        const secret = el => el.matches('input[type="password"],[autocomplete~="current-password"],[autocomplete~="new-password"],[autocomplete~="one-time-code"]');
+        const shortText = (root, limit = 2000) => {
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            let result = '', node;
+            for (let i = 0; i < 800 && result.length < limit && (node = walker.nextNode()); i++) {
+                const parent = node.parentElement;
+                if (parent && !parent.closest('script,style,noscript,input,textarea,select,[contenteditable],[autocomplete]') && visible(parent)) {
+                    const text = compact(node.nodeValue, limit - result.length);
+                    if (text) result += (result ? ' ' : '') + text;
+                }
+            }
+            return result.slice(0, limit);
+        };
+
+        function observation(selector) {
+            let scope = document.body;
+            if (selector) {
+                let matches;
+                try { matches = document.querySelectorAll(selector); }
+                catch { return {status: 'invalid_selector'}; }
+                if (matches.length !== 1) return {status: matches.length ? 'ambiguous_scope' : 'missing_scope'};
+                scope = matches[0];
+            }
+            if (!scope) return {status: 'page_not_ready'};
+            const elements = [];
+            const candidates = scope.querySelectorAll(interactive);
+            const scopeMatches = scope.matches(interactive);
+            refs = new Map();
+            for (let i = scopeMatches ? -1 : 0; i < Math.min(candidates.length, 250) && elements.length < 20; i++) {
+                const el = i === -1 ? scope : candidates[i];
+                if (!visible(el)) continue;
+                const ref = 'e' + (++counter);
+                refs.set(ref, el);
+                const tag = el.tagName.toLowerCase();
+                const editable = tag === 'input' || tag === 'textarea' || el.isContentEditable;
+                const role = compact(el.getAttribute('role'), 32) ||
+                    ({a:'link', input:'textbox', textarea:'textbox', button:'button', select:'combobox'}[tag] || tag);
+                const label = el.getAttribute('aria-label') ||
+                    (el.labels && el.labels[0] && shortText(el.labels[0], 100)) ||
+                    el.getAttribute('alt') || el.getAttribute('title') || el.getAttribute('placeholder') ||
+                    (!editable && shortText(el, 100)) || el.getAttribute('name');
+                elements.push({ref, role, name: compact(label, 100), disabled: disabled(el), secure: secret(el)});
+            }
+            return {status: 'ok', observation: {
+                documentVersion: version, frameId: 'main', url: String(location.href).slice(0, 800),
+                title: compact(document.title, 140), text: shortText(scope), elements,
+                hasIframes: !!document.querySelector('iframe,frame'),
+            }};
+        }
+
+        function check(condition) {
+            if (condition.kind === 'url_contains') {
+                return String(location.href).includes(condition.value) ? 'ok' : 'waiting';
+            }
+            let matches;
+            try { matches = document.querySelectorAll(condition.selector); }
+            catch { return 'invalid_selector'; }
+            if (matches.length > 1) return 'ambiguous_condition';
+            const el = matches[0];
+            return el && visible(el) && (condition.kind !== 'enabled' || !disabled(el)) ? 'ok' : 'waiting';
+        }
+
+        function clearGate() {
+            if (!gate) return;
+            const old = gate;
+            gate = undefined;
+            old.observer.disconnect();
+            clearTimeout(old.expire);
+            old.wake?.();
+        }
+
+        const dialogs = () => Array.from(document.querySelectorAll(modalSelector)).filter(visible);
+        function newDialog() { return dialogs().some(el => !run.dialogs.includes(el)); }
+
+        function checkGate() {
+            if (newDialog()) return 'dialog';
+            let status = 'ok';
+            for (const condition of gate?.conditions || []) {
+                const value = check(condition);
+                if (value !== 'ok' && value !== 'waiting') return value;
+                if (value === 'waiting') status = value;
+            }
+            return status;
+        }
+
+        function reply(status, applied) {
+            if (status !== 'waiting') clearGate();
+            return applied ? {status, applied: true} : {status};
+        }
+
+        async function command(kind, epoch, args, actions) {
+            if (Date.now() >= args.deadline) return reply('timeout');
+            if (kind === 'observe') {
+                clearGate();
+                run = undefined;
+                if (binding !== epoch) { binding = epoch; version = args.version; }
+                return observation(args.selector);
+            }
+            if (binding !== epoch || version !== args.version) return reply('stale_document');
+            if (kind === 'begin') {
+                clearGate();
+                run = {id: args.runId, dialogs: dialogs()};
+                return {status: 'ok'};
+            }
+            if (run?.id !== args.runId) return reply('stale_document');
+            if (kind === 'finish') {
+                clearGate();
+                run = undefined;
+                return observation(args.selector);
+            }
+            if (newDialog()) return reply('dialog');
+            if (kind === 'wait') {
+                if (!gate) return reply('timeout');
+                const active = gate;
+                const initial = checkGate();
+                if (initial !== 'waiting') return reply(initial);
+                await new Promise(resolve => {
+                    const timer = setTimeout(() => active.wake(), Math.min(100, Math.max(0, args.deadline - Date.now())));
+                    active.wake = () => { clearTimeout(timer); active.wake = undefined; resolve(); };
+                });
+                if (gate !== active || Date.now() >= args.deadline) return reply('timeout');
+                return reply(checkGate());
+            }
+
+            clearGate();
+            const node = refs.get(args.ref);
+            if (!node || !node.isConnected || node.ownerDocument !== document) return reply('stale_ref');
+            if (!visible(node) || disabled(node)) return reply('target_unavailable');
+            if (secret(node) && args.action === 'type') return reply('secure_input_required');
+            if (args.action === 'type' && (node.readOnly || (!node.isContentEditable &&
+                !node.matches('textarea,input:not([type]),input:is([type="text"],[type="search"],[type="email"],[type="tel"],[type="url"],[type="number"])')))) {
+                return reply('target_not_editable');
+            }
+            const activeDialogs = dialogs();
+            if (activeDialogs.length && !activeDialogs.some(el => el.contains(node))) return reply('dialog');
+            const conditions = [args.condition, args.goal].filter(Boolean);
+            for (const condition of conditions) {
+                const status = check(condition);
+                if (status !== 'ok' && status !== 'waiting') return reply(status);
+            }
+            if (conditions.length) {
+                const active = {conditions};
+                active.observer = new MutationObserver(() => active.wake?.());
+                gate = active;
+                active.observer.observe(document.documentElement, {
+                    childList: true, subtree: true, characterData: true, attributes: true,
+                });
+                active.expire = setTimeout(() => { if (gate === active) clearGate(); }, Math.max(0, args.deadline - Date.now()));
+            }
+            const activeRun = run;
+            const root = document.documentElement;
+            const canDispatch = () => Date.now() < args.deadline && run === activeRun &&
+                binding === epoch && root === document.documentElement &&
+                node.isConnected && node.ownerDocument === document;
+            if (!canDispatch()) return reply(Date.now() >= args.deadline ? 'timeout' : 'stale_ref');
+            let result, linkClick, formSubmit;
+            const captureClick = event => {
+                const link = event.target.closest?.('a[href],area[href]');
+                if (link) linkClick = {event, link};
+            };
+            const captureSubmit = event => { formSubmit = event; };
+            const beforeURL = String(location.href);
+            document.addEventListener('click', captureClick, true);
+            document.addEventListener('submit', captureSubmit, true);
+            try {
+                result = JSON.parse(actions[args.action](node, canDispatch, args.text));
+                // Real focus cleanup stays in this dispatch and only affects its own input.
+                if (args.action === 'type' && result.typed && !newDialog() &&
+                    (!formSubmit || formSubmit.defaultPrevented) &&
+                    (!linkClick || linkClick.event.defaultPrevented) &&
+                    canDispatch() && document.activeElement === node) {
+                    node.blur();
+                }
+            } catch {
+                // If focus cleanup failed, the preceding type is still confirmed.
+                // Otherwise an event may have fired without a result. Do not retry.
+                return result?.typed ? reply('bridge_unavailable', true) : reply('dispatch_unconfirmed');
+            } finally {
+                document.removeEventListener('click', captureClick, true);
+                document.removeEventListener('submit', captureSubmit, true);
+            }
+            if (result.interrupted) return reply('dispatch_unconfirmed');
+            if (result.error) return reply('target_unavailable');
+
+            // Native policy callbacks can arrive after the script reply. A
+            // synchronous default link/form action gives us an earlier stop.
+            // A preventDefault() SPA handler can still continue in this document.
+            let transition;
+            if (formSubmit && !formSubmit.defaultPrevented) {
+                transition = 'navigation';
+            } else if (linkClick && !linkClick.event.defaultPrevented) {
+                const link = linkClick.link;
+                const href = new URL(link.href, beforeURL);
+                const target = (link.target || document.querySelector('base[target]')?.target || '').toLowerCase();
+                if (link.hasAttribute('download')) transition = 'download';
+                else if (target && target !== '_self') transition = 'popup';
+                else if (!href.hash || href.href.split('#')[0] !== beforeURL.split('#')[0]) transition = 'navigation';
+            }
+            if (transition) {
+                refs.clear();
+                return reply(transition, true);
+            }
+            if (Date.now() >= args.deadline) return reply('timeout', true);
+            return reply(checkGate(), true);
+        }
+        return {command};
+    })();
+    """#
+
+    static func batchCommand(install: Bool, action: BrowserBatchRequest.Step.Action?) -> String {
+        let actions: String
+        switch action {
+        case .click:
+            actions = "{click: (node, allowed) => \(click(selector: "", target: "node", guardName: "allowed"))}"
+        case .type:
+            actions = "{type: (node, allowed, value) => \(type(selector: "", text: "", target: "node", value: "value", guardName: "allowed"))}"
+        case nil:
+            actions = "{}"
+        }
+        return """
+        \(install ? batchRuntime : "")
+        const runtime = globalThis.__minisBrowserBatch;
+        return JSON.stringify(runtime ? await runtime.command(kind, epoch, payload, \(actions)) : {status: 'stale_document'});
+        """
+    }
+
+    // Between page callbacks only. A running synchronous listener cannot be
+    // preempted, but it must not start another synthetic action after expiry.
+    private static func batchActionCheck(_ guardName: String?) -> String {
+        guard let guardName else { return "" }
+        return "if (!\(guardName)()) return JSON.stringify({interrupted: true}); "
+    }
+
     // MARK: - Click
 
-    static func click(selector: String) -> String {
-        """
+    static func click(selector: String, target: String? = nil, guardName: String? = nil) -> String {
+        let actionCheck = batchActionCheck(guardName)
+        // The main click is already known once el.click() returns, even
+        // if its page handler replaced the target or used the deadline.
+        let cleanupCheck = guardName.map { "if (!\($0)()) return JSON.stringify({clicked: true}); " } ?? ""
+        return """
         (function() {
-            var el = document.querySelector('\(jsQuote(selector))');
+            var el = \(target ?? "document.querySelector('\(jsQuote(selector))')");
             if (!el) return JSON.stringify({error: 'Element not found: \(jsQuote(selector))'});
             if (el.disabled) return JSON.stringify({error: 'Element is disabled', tag: el.tagName});
             var bOpts = {bubbles: true, cancelable: true, view: window};
             var nbOpts = {bubbles: false, cancelable: true, view: window};
-            el.dispatchEvent(new MouseEvent('mouseover', bOpts));
-            el.dispatchEvent(new MouseEvent('mouseenter', nbOpts));
-            el.dispatchEvent(new MouseEvent('mousemove', bOpts));
-            el.dispatchEvent(new MouseEvent('mousedown', bOpts));
-            el.dispatchEvent(new MouseEvent('mouseup', bOpts));
-            el.click();
-            el.dispatchEvent(new MouseEvent('mouseleave', nbOpts));
-            el.dispatchEvent(new MouseEvent('mouseout', bOpts));
+            \(actionCheck)el.dispatchEvent(new MouseEvent('mouseover', bOpts));
+            \(actionCheck)el.dispatchEvent(new MouseEvent('mouseenter', nbOpts));
+            \(actionCheck)el.dispatchEvent(new MouseEvent('mousemove', bOpts));
+            \(actionCheck)el.dispatchEvent(new MouseEvent('mousedown', bOpts));
+            \(actionCheck)el.dispatchEvent(new MouseEvent('mouseup', bOpts));
+            \(actionCheck)el.click();
+            \(cleanupCheck)el.dispatchEvent(new MouseEvent('mouseleave', nbOpts));
+            \(cleanupCheck)el.dispatchEvent(new MouseEvent('mouseout', bOpts));
             return JSON.stringify({clicked: true, tag: el.tagName, text: (el.innerText || '').substring(0, 100)});
         })()
         """
@@ -119,47 +370,56 @@ enum BrowserUseJS {
 
     // MARK: - Type
 
-    static func type(selector: String, text: String) -> String {
-        """
+    static func type(selector: String, text: String, target: String? = nil, value: String? = nil,
+                     guardName: String? = nil) -> String {
+        let actionCheck = batchActionCheck(guardName)
+        let isBatch = guardName != nil
+        let canFinish = guardName.map { "\($0)()" } ?? "true"
+        let typedValue = value ?? "'\(jsQuote(text))'"
+        return """
         (function() {
-            var el = document.querySelector('\(jsQuote(selector))');
+            var el = \(target ?? "document.querySelector('\(jsQuote(selector))')");
             if (!el) return JSON.stringify({error: 'Element not found: \(jsQuote(selector))'});
-            el.focus();
-            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+            \(actionCheck)el.focus();
+            \(actionCheck)if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
                 // Use native setter to bypass React/Vue controlled input guards
                 var nativeSetter = Object.getOwnPropertyDescriptor(
                     el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value'
                 );
                 if (nativeSetter && nativeSetter.set) {
-                    nativeSetter.set.call(el, '\(jsQuote(text))');
+                    \(actionCheck)nativeSetter.set.call(el, \(typedValue));
                 } else {
-                    el.value = '\(jsQuote(text))';
+                    \(actionCheck)el.value = \(typedValue);
                 }
             } else {
-                el.innerText = '\(jsQuote(text))';
+                \(actionCheck)el.innerText = \(typedValue);
             }
-            // Simulate keyboard events for each character
-            var chars = '\(jsQuote(text))';
+            var chars = \(typedValue);
+            // Clearing has no character events, but controlled fields still need input.
+            if (chars.length === 0) {
+                \(actionCheck)el.dispatchEvent(new InputEvent('input', {inputType: 'deleteContentBackward', bubbles: true}));
+            }
+            // Simulate keyboard events for each character.
             for (var i = 0; i < chars.length; i++) {
                 var c = chars[i];
-                el.dispatchEvent(new KeyboardEvent('keydown', {key: c, bubbles: true}));
-                el.dispatchEvent(new KeyboardEvent('keypress', {key: c, bubbles: true}));
-                el.dispatchEvent(new InputEvent('input', {data: c, inputType: 'insertText', bubbles: true}));
-                el.dispatchEvent(new KeyboardEvent('keyup', {key: c, bubbles: true}));
+                \(actionCheck)el.dispatchEvent(new KeyboardEvent('keydown', {key: c, bubbles: true}));
+                \(actionCheck)el.dispatchEvent(new KeyboardEvent('keypress', {key: c, bubbles: true}));
+                \(actionCheck)el.dispatchEvent(new InputEvent('input', {data: c, inputType: 'insertText', bubbles: true}));
+                \(actionCheck)el.dispatchEvent(new KeyboardEvent('keyup', {key: c, bubbles: true}));
             }
-            el.dispatchEvent(new Event('change', {bubbles: true}));
+            \(actionCheck)el.dispatchEvent(new Event('change', {bubbles: true}));
             try {
-                if (window.angular) {
+                if (\(canFinish) && window.angular) {
                     var ngEl = window.angular.element(el);
                     var scope = ngEl.scope() || (ngEl.injector && ngEl.injector().get('$rootScope'));
                     if (scope && !scope.$$phase) scope.$apply();
                 }
             } catch(e) {}
             try {
-                if (el.__vue__) el.__vue__.$forceUpdate();
-                if (el._vei || el.__vueParentComponent) el.dispatchEvent(new Event('input', {bubbles: true}));
+                if (\(canFinish) && el.__vue__) el.__vue__.$forceUpdate();
+                if (\(canFinish) && chars.length && (el._vei || el.__vueParentComponent)) el.dispatchEvent(new Event('input', {bubbles: true}));
             } catch(e) {}
-            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) {
+            if (!\(isBatch) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
                 el.dispatchEvent(new FocusEvent('blur', {bubbles: true, relatedTarget: null}));
                 el.dispatchEvent(new FocusEvent('focusout', {bubbles: true, relatedTarget: null}));
             }

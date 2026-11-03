@@ -119,6 +119,14 @@ enum MountActivationState: Equatable {
     }
 }
 
+/// The values needed to add a freshly-picked folder. `URL` is `Sendable`, and
+/// carrying the original picker URL preserves its security scope.
+struct PendingFolderAddition: Sendable {
+    let url: URL
+    let customName: String
+    let userAllowWrite: Bool
+}
+
 /// Singleton that owns mount metadata + active security scopes.
 ///
 /// All mutating operations are main-actor-isolated; read access (`list`,
@@ -281,26 +289,69 @@ final class MountedFoldersManager {
             throw AddError.limitReached(Self.maxMountCount)
         }
 
-        // The picker gives us a URL with scope already active, but for safety
-        // re-start it; balanced stop in defer.
+        let pending = PendingFolderAddition(
+            url: pickedURL,
+            customName: customName,
+            userAllowWrite: userAllowWrite
+        )
         let startedHere = pickedURL.startAccessingSecurityScopedResource()
         defer { if startedHere { pickedURL.stopAccessingSecurityScopedResource() } }
 
         let bookmark: Data
         do {
-            // iOS: do NOT pass .withSecurityScope (macOS-only).
-            bookmark = try pickedURL.bookmarkData(
-                options: [],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
+            bookmark = try Self.createBookmark(at: pickedURL)
         } catch {
             throw AddError.bookmarkFailed(error.localizedDescription)
         }
-
-        // Probe writability by creating + deleting a tiny hidden file.
-        // This happens while the security scope is still active.
         let writable = Self.probeWritable(at: pickedURL)
+        return finishAdd(pending: pending, bookmark: bookmark, writable: writable)
+    }
+
+    /// Add a picked folder, doing bookmark creation and the writability probe
+    /// off the main thread.
+    ///
+    /// Both operations are synchronous XPC round-trips for Files-backed
+    /// folders. Running them from the document picker callback froze the main
+    /// thread, which looked exactly like the system picker's Open button doing
+    /// nothing.
+    @discardableResult
+    func add(pending: PendingFolderAddition) async throws -> MountedFolderEntry {
+        let name = pending.customName.trimmingCharacters(in: .whitespaces)
+        guard MountedFolderEntry.isValidMountName(name) else { throw AddError.invalidName }
+        guard isNameAvailable(name) else { throw AddError.nameTaken }
+        guard entries.count < Self.maxMountCount else {
+            throw AddError.limitReached(Self.maxMountCount)
+        }
+
+        let url = pending.url
+        let bookmark: Data
+        do {
+            bookmark = try await Self.createBookmarkInBackground(at: url)
+        } catch {
+            throw AddError.bookmarkFailed(error.localizedDescription)
+        }
+        let writable = await Self.probeWritableInBackground(at: url)
+        return finishAdd(pending: pending, bookmark: bookmark, writable: writable)
+    }
+
+    private nonisolated static func createBookmark(at url: URL) throws -> Data {
+        let started = url.startAccessingSecurityScopedResource()
+        defer { if started { url.stopAccessingSecurityScopedResource() } }
+        // iOS: do NOT pass .withSecurityScope (macOS-only).
+        return try url.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+    }
+
+    private func finishAdd(
+        pending: PendingFolderAddition,
+        bookmark: Data,
+        writable: Bool
+    ) throws -> MountedFolderEntry {
+        let name = pending.customName.trimmingCharacters(in: .whitespaces)
+        let pickedURL = pending.url
 
         let entry = MountedFolderEntry(
             id: UUID(),
@@ -309,7 +360,7 @@ final class MountedFoldersManager {
             bookmark: bookmark,
             createdAt: Date(),
             isWritable: writable,
-            userAllowWrite: userAllowWrite
+            userAllowWrite: pending.userAllowWrite
         )
         entries.append(entry)
         save()
@@ -921,22 +972,10 @@ final class MountedFoldersManager {
         activeURLs[entry.id] = url
 
         if stale {
-            // Try to refresh the bookmark transparently.
-            if let refreshed = try? url.bookmarkData(
-                options: [],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            ), let idx = entries.firstIndex(where: { $0.id == entry.id }) {
-                entries[idx].bookmark = refreshed
-                save()
-                mountLog.info("refreshed stale bookmark for '\(entry.name)'")
-            } else {
-                activationStates[entry.id] = .stale
-                return .stale
-            }
+            activationStates[entry.id] = .stale
         }
 
-        let state = MountActivationState.active(resolvedURL: url)
+        let state = stale ? MountActivationState.stale : MountActivationState.active(resolvedURL: url)
         activationStates[entry.id] = state
         cacheCanonicalPath(for: entry.id, url: url)
         mountLog.info("activated '\(entry.name)' -> \(url.path)")
@@ -1016,6 +1055,20 @@ final class MountedFoldersManager {
         }
         // Non-iCloud path — fall back to the last component.
         return url.lastPathComponent
+    }
+
+    private static func probeWritableInBackground(at url: URL) async -> Bool {
+        await Task.detached(priority: .userInitiated) { () -> Bool in
+            let started = url.startAccessingSecurityScopedResource()
+            defer { if started { url.stopAccessingSecurityScopedResource() } }
+            return Self.probeWritable(at: url)
+        }.value
+    }
+
+    private static func createBookmarkInBackground(at url: URL) async throws -> Data {
+        try await Task.detached(priority: .userInitiated) { () -> Data in
+            try Self.createBookmark(at: url)
+        }.value
     }
 
     /// Probe whether we can write to the given folder URL. The caller must

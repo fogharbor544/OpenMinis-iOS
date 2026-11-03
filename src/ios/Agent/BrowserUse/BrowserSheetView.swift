@@ -31,12 +31,6 @@ struct BrowserSheetView: View {
                     .padding(12)
                     .background(Color(UIColor.secondarySystemBackground))
                 }
-                if !pool.isUserTakeoverActive && !pool.hasSecureInput {
-                    TakeoverControlOutsideActionButton(onTakeover: {
-                        pool.beginUserTakeover()
-                        onTakeover?()
-                    })
-                }
                 if !isFullscreen {
                     // Tab bar
                     tabBar
@@ -255,6 +249,14 @@ struct BrowserSheetView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    if !pool.isUserTakeoverActive && !pool.hasSecureInput {
+                        Button("Takeover") {
+                            pool.beginUserTakeover()
+                            onTakeover?()
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -466,26 +468,6 @@ private struct AgentBrowsingOverlay: View {
                 breathing = true
             }
         }
-    }
-}
-
-private struct TakeoverControlOutsideActionButton: View {
-    var onTakeover: () -> Void
-
-    var body: some View {
-        // Always reachable: model gaps can occur between browser actions, where
-        // `isAgentBrowsing` is false but a next action would still race user edits.
-        HStack {
-            Spacer()
-            Button("Takeover") { onTakeover() }
-                .frame(minHeight: 44)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 12)
-                .background(Capsule().fill(Color.black.opacity(0.7)))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
     }
 }
 

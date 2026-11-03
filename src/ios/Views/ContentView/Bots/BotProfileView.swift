@@ -234,8 +234,13 @@ struct BotProfileView: View {
                 Group {
                     if let preview {
                         GeometryReader { geometry in
-                            Image(uiImage: preview.image).resizable().scaledToFit()
+                            let displayedHeight = preview.image.size.height * geometry.size.width / preview.image.size.width
+                            Image(uiImage: preview.image).resizable().scaledToFill()
                                 .frame(width: geometry.size.width, height: geometry.size.height)
+                                .position(
+                                    x: geometry.size.width / 2,
+                                    y: min(geometry.size.height / 2, displayedHeight / 2)
+                                )
                                 .background(Color(UIColor.tertiarySystemFill))
                         }
                     } else {
@@ -247,7 +252,7 @@ struct BotProfileView: View {
                         .background(Color(UIColor.tertiarySystemFill))
                     }
                 }
-                .frame(height: 188)
+                .frame(height: 260)
                 .frame(maxWidth: .infinity)
                 .clipped()
                 .overlay(alignment: .top) {
@@ -400,12 +405,8 @@ struct BotProfileView: View {
         }
         manager.reload()
         Task { @MainActor in
-            // Let the reload paint before re-capturing the card's preview.
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            if !manager.isSecureInputActive,
-               let image = try? await manager.webView.takeSnapshot(configuration: nil),
-               !manager.isSecureInputActive {
-                manager.lastScreenshot = image
+            if let pool = ViewModelCache.shared.get(for: sid)?.browserTabPool {
+                await pool.refreshProfilePreview(sessionId: sid)
             }
             loadPreview()
         }

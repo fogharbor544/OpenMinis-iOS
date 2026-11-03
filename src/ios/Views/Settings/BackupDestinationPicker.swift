@@ -28,6 +28,7 @@ struct BackupDestinationPicker: View {
     @State private var showAddServer = false
     @State private var showFolderPicker = false
     @State private var errorText: String?
+    @State private var isAddingFolder = false
 
     var body: some View {
         NavigationStack {
@@ -42,6 +43,19 @@ struct BackupDestinationPicker: View {
                         Text(errorText)
                             .font(.footnote)
                             .foregroundStyle(.red)
+                    }
+                }
+                if isAddingFolder {
+                    Section {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(AppLocalized("Adding folder…"))
+                                Text(AppLocalized("Checking that Minis can write to it"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
             }
@@ -60,12 +74,17 @@ struct BackupDestinationPicker: View {
             }
             .sheet(isPresented: $showFolderPicker) {
                 BackupFolderPicker { url in
-                    do {
-                        _ = try BackupDestinations.addDestination(pickedURL: url)
-                        reload()
-                        onChanged()
-                    } catch {
-                        errorText = error.localizedDescription
+                    guard !isAddingFolder else { return }
+                    isAddingFolder = true
+                    Task {
+                        defer { isAddingFolder = false }
+                        do {
+                            _ = try await BackupDestinations.addDestination(pickedURL: url)
+                            reload()
+                            onChanged()
+                        } catch {
+                            errorText = error.localizedDescription
+                        }
                     }
                 }
             }
@@ -194,6 +213,7 @@ struct BackupDestinationPicker: View {
                     }
                 }
             }
+            .disabled(isAddingFolder)
         } header: {
             Text("Add New")
         }

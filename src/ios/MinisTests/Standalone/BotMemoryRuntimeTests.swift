@@ -76,9 +76,9 @@ final class VerificationEventReviewProvider: AgentProvider {
     func streamAgentMessage(messages: [AgentMessage], systemPrompt: String?, tools: [AgentToolDefinition],
                             maxTokens: Int, thinkingLevel: ThinkingLevel) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
         calls += 1
-        AsyncThrowingStream { continuation in
+        return AsyncThrowingStream { continuation in
             continuation.yield(.toolCallComplete(id: "verification", name: "memory_write", args: [
-                "content": "已核验：事件记忆硬约束", "category": "event", "event_kind": "verification", "intent": "automatic", "scope": "memory-design"
+                "content": "Unverified: release tests", "evidence": "No tool output is available", "category": "event", "event_kind": "verification", "intent": "automatic", "scope": "memory-design"
             ], metadata: nil))
             continuation.finish()
         }
@@ -271,7 +271,7 @@ actor ChatStore {
                                   assistantSnapshot: (id: "secret-assistant-source-assistant",
                                                       text: "password=tiny-secret-value"))
         precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 2)
-        // Verification must come from explicit confirmed/tool evidence, not mere assistant wording.
+        // Generated evidence and negative wording cannot promote a report to independent verification.
         vm.loadUser("User confirmed the verification result", rowID: "verification-source")
         let verificationReviewer = VerificationEventReviewProvider()
         vm.scheduleBotMemoryReview(provider: verificationReviewer,
@@ -279,8 +279,10 @@ actor ChatStore {
                                                       text: "No evidence of verification"))
         await vm.botMemoryReviewTask?.value
         precondition(verificationReviewer.calls == 1)
-        try check(!BotMemoryStore.shared.visible(to: "bot:\(a.id)").contains {
-            $0.sourceMessage == "verification-source" && $0.eventKind == "verification"
+        try check(BotMemoryStore.shared.visible(to: "bot:\(a.id)").contains {
+            $0.sourceMessage == "verification-source" && $0.eventKind == "verification" &&
+            $0.content == "Bot report (not independently verified): Unverified: release tests" &&
+            $0.evidence == "Assistant final reply; not independently verified"
         })
         vm.helperConfig = "specialist"
         vm.scheduleBotMemoryReview(provider: reviewer)

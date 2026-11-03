@@ -68,7 +68,6 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     var rejectedReentry=0
     var forceReentry=false
     var coalescedScrollWork: DispatchWorkItem?
-    var lastPinnedHeight: CGFloat = 0
     var pinDeadline: CFTimeInterval = 0
     var layout:MessageListLayout? { collectionView?.collectionViewLayout as? MessageListLayout }
     init(collectionView:UICollectionView,vm:VM) {
@@ -145,7 +144,6 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         isFlushing=false
         if scrollMode == .autoScrolling {
             scrollToBottomNow(animated:false)
-            lastPinnedHeight=collectionView?.contentSize.height ?? 0
             pinDeadline=CFAbsoluteTimeGetCurrent()+2.0
             scheduleCoalescedPin()
         }
@@ -153,19 +151,16 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     }
     // The shipping coordinator re-pins whenever the content size changes, so
     // a tail cell that learns its height after the apply still ends at the
-    // bottom. The fixture cannot observe that signal directly, so it polls
-    // the content size for a short window after every apply and re-pins
-    // whenever the height moved.
+    // bottom. The fixture cannot observe that signal directly, so it re-pins
+    // for a short window after every apply. The pin has to be repeated: the
+    // first one is clamped to the content UIKit knows about, and the tail
+    // cell only reaches its real height once it has been laid out.
     func scheduleCoalescedPin() {
         coalescedScrollWork?.cancel()
         let work=DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard self.scrollMode == .autoScrolling, CFAbsoluteTimeGetCurrent() < self.pinDeadline else { return }
-            let height=self.collectionView?.contentSize.height ?? 0
-            if height != self.lastPinnedHeight {
-                self.lastPinnedHeight=height
-                self.scrollToBottomNow(animated:false)
-            }
+            self.scrollToBottomNow(animated:false)
             self.scheduleCoalescedPin()
         }
         coalescedScrollWork=work

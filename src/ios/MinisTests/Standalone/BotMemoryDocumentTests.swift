@@ -11,6 +11,10 @@ import Foundation
         let first = try store.save(preference)
         _ = try store.save(BotMemoryEntry(owner: "bot:a", content: "Project alpha\n\nUses SwiftUI", category: "fact", scope: "project", evidence: ""))
         _ = try store.save(BotMemoryEntry(owner: "bot:b", content: "B private context", category: "fact", scope: "general", evidence: ""))
+        var event = BotMemoryEntry(owner: "bot:a", content: "Bot report: memory event integration delivered", category: "event", scope: "work-log", sourceSession: "chat", sourceMessage: "event-source", evidence: "Assistant final reply")
+        event.eventKind = "delivery"
+        event.sourceAssistantMessageID = "assistant-source"
+        let savedEvent = try store.save(event)
         let baseline = try store.documentEntries(owner: "bot:a")
         let original = BotMemoryStore.documentText(baseline)
         precondition(original == "Prefer concise replies\n\nProject alpha\n\nUses SwiftUI")
@@ -18,7 +22,9 @@ import Foundation
         var document = try store.documentEntries(owner: "bot:a")
         precondition(document.first?.content == "Research context")
         let retained = document.first { $0.id == first.id }!
+        let retainedEvent = document.first { $0.id == savedEvent.id }!
         precondition(retained.sourceMessage == "source" && retained.pinned && retained.grants == ["bot:b"])
+        precondition(retainedEvent.eventKind == "delivery" && retainedEvent.sourceAssistantMessageID == "assistant-source")
         precondition(document.first?.grants.isEmpty == true, "New paragraphs stay private")
         precondition(document.contains { $0.content == "Project alpha\n\nUses SwiftUI" }, "Unchanged multiline notes retain their identity")
         let stale = document

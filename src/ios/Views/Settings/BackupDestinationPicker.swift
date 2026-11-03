@@ -76,7 +76,7 @@ struct BackupDestinationPicker: View {
                 BackupFolderPicker { url in
                     guard !isAddingFolder else { return }
                     isAddingFolder = true
-                    Task {
+                    Task { @MainActor in
                         defer { isAddingFolder = false }
                         do {
                             _ = try await BackupDestinations.addDestination(pickedURL: url)

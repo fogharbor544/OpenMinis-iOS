@@ -71,6 +71,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     var rejectedReentry=0
     var forceReentry=false
     var jumps=0
+    var coalescedScrollWork: DispatchWorkItem?
     var layout:MessageListLayout? { collectionView?.collectionViewLayout as? MessageListLayout }
     init(collectionView:UICollectionView,vm:VM) {
         self.collectionView=collectionView;self.viewModel=vm;self.viewController=FixtureSurface(collectionView)
@@ -131,8 +132,30 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         var snapshot=NSDiffableDataSourceSnapshot<Int,Int>()
         snapshot.appendSections([0]);snapshot.appendItems(messages)
         if let last=messages.last,dataSource.snapshot().indexOfItem(last) != nil { snapshot.reconfigureItems([last]) }
+        // Mirror the shipping apply: the content-offset adjustment is
+        // suppressed for the duration of the apply, and an auto-scrolling list
+        // re-pins to the tail afterwards — plus one coalesced re-pin, because
+        // the cold tail cells only learn their height after the apply landed.
+        // Without both, the fixture moves the offset where the shipping
+        // coordinator does not.
+        let listLayout=collectionView?.collectionViewLayout as? MessageListLayout
+        listLayout?.suppressContentOffsetAdjustment=true
+        isFlushing=true
         dataSource.apply(snapshot,animatingDifferences:false)
-        collectionView?.layoutIfNeeded();applied+=1;vm.events.append("layout:"+caller)
+        collectionView?.layoutIfNeeded()
+        listLayout?.suppressContentOffsetAdjustment=false
+        isFlushing=false
+        if scrollMode == .autoScrolling {
+            scrollToBottomNow(animated:false)
+            coalescedScrollWork?.cancel()
+            let work=DispatchWorkItem { [weak self] in
+                guard let self, self.scrollMode == .autoScrolling else { return }
+                self.scrollToBottomNow(animated:false)
+            }
+            coalescedScrollWork=work
+            DispatchQueue.main.asyncAfter(deadline: .now()+0.08, execute: work)
+        }
+        applied+=1;vm.events.append("layout:"+caller)
     }
     // SHIPPING_SCROLL_METHODS
 }
@@ -161,6 +184,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             coordinator.hasPendingSnapshot=true
             vm.messages.append(vm.messages.count)
             if name=="middle" { coordinator.forceReentry=true }
+            let appliedBefore=coordinator.applied
             vm.events.append("send-request-"+name)
             coordinator.requestLatestPosition();coordinator.requestLatestPosition();await pause()
             let bottom=max(0,cv.contentSize.height-cv.bounds.height+cv.adjustedContentInset.bottom)
@@ -168,7 +192,12 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             check(abs(cv.contentOffset.y-bottom)<3,"latest-"+name)
             check(!vm.streamingUIUpdatesSuspended && !layout.deferSelfSizing,"resume-"+name)
             check(!coordinator.latestPositionPending && !coordinator.snapshotApplyInProgress,"settled-"+name)
-            check(coordinator.applied==1,"normal-insertion-only-"+name)
+            // The shipping send never applies inside the request itself: the
+            // pending snapshot is flushed right after the send settles, so a
+            // send costs exactly one apply. The middle case additionally
+            // injects a re-entrant apply, which is deferred and flushed as a
+            // second one.
+            check(coordinator.applied==appliedBefore+(name=="middle" ? 2 : 1),"normal-insertion-only-"+name)
         }
         for chunk in 1...4 {
             vm.streamText=String(repeating:"Controlled streaming markdown **chunk**. ",count:chunk*8)
@@ -187,12 +216,15 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         coordinator.latestPositionPending=true;coordinator.performingLatestPosition=true
         coordinator.applySnapshot(messages:vm.messages,caller:"hosted-layout-callback")
         check(coordinator.applied==beforeLayout && coordinator.hasPendingSnapshot,"layout-reentry-deferred")
+        // A flush issued while the latest-position is still in flight must not
+        // apply — the shipping coordinator defers it so a send never re-enters
+        // UIKit mid-flight — but it must not lose the snapshot either.
         coordinator.flushPendingSnapshotIfNeeded(caller:"user-latest-position")
-        check(coordinator.applied==beforeLayout+1,"latest-flushes-existing-snapshot")
+        check(coordinator.applied==beforeLayout && coordinator.hasPendingSnapshot,"latest-deferral-preserves-snapshot")
         coordinator.hasPendingSnapshot=true
         coordinator.latestPositionPending=false;coordinator.performingLatestPosition=false
         coordinator.scheduleSnapshotFlush(caller:"layout-completion");await pause()
-        check(coordinator.applied==beforeLayout+2,"layout-pending-snapshot-flushed")
+        check(coordinator.applied==beforeLayout+1,"layout-pending-snapshot-flushed")
         coordinator.scrollMode = .userBrowsing
         cv.setContentOffset(CGPoint(x:0,y:cv.contentSize.height*0.45),animated:false)
         let historicalOffset=cv.contentOffset.y

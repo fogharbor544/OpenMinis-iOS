@@ -24,6 +24,39 @@ def capture(*args, timeout=60):
     return subprocess.check_output(args, text=True, timeout=timeout).strip()
 
 
+def capture_retry(*args, timeout=120, attempts=3):
+    """Query the simulator with a bounded retry.
+
+    The simulator service is slow to answer right after the runner boots, and
+    a timed-out query must not fail the whole native send gate.
+    """
+    failure = None
+    for _ in range(attempts):
+        try:
+            return capture(*args, timeout=timeout)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            failure = error
+            time.sleep(5)
+    raise failure
+
+
+def launch_with_retry(udid, bundle, attempts=3):
+    """Launch the fixture app, retrying a bounded number of times.
+
+    The simulator intermittently refuses the first launch right after a boot;
+    the run must not fail on that alone.
+    """
+    failure = None
+    for _ in range(attempts):
+        failure = subprocess.run(
+            ["xcrun", "simctl", "launch", "--terminate-running-process", udid, bundle],
+            text=True, capture_output=True)
+        if failure.returncode == 0:
+            return failure.stdout.strip()
+        time.sleep(5)
+    raise RuntimeError(f"simctl launch failed after {attempts} attempts: {failure.stderr.strip() or failure.stdout.strip()}")
+
+
 def build_sources(folder):
     coordinator=ROOT/"Agent/MessageList/CollectionViewMessageListV3/Coordinator"
     scroll=(coordinator/"MessageListV3Coordinator+Scroll.swift").read_text(encoding="utf-8")
@@ -48,9 +81,9 @@ def build_sources(folder):
 def main():
     output = Path(os.environ.get("NATIVE_SEND_ARTIFACTS", str(ROOT.parents[1] / "build/validation/chat-send-native")))
     output.mkdir(parents=True, exist_ok=True)
-    sdk = capture("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
+    sdk = capture_retry("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     swiftc = capture("xcrun", "--find", "swiftc")
-    devices=json.loads(capture("xcrun","simctl","list","devices","available","--json"))["devices"]
+    devices=json.loads(capture_retry("xcrun","simctl","list","devices","available","--json"))["devices"]
     phones=[d for r,ds in devices.items() if ".iOS-" in r for d in ds if d["name"].startswith("iPhone")]
     if not phones: raise RuntimeError("No iOS simulator installed")
     device=next((d for d in phones if d["state"]=="Booted"),phones[0]);udid=device["udid"]
@@ -68,7 +101,7 @@ def main():
             run(swiftc,"-swift-version","5","-sdk",sdk,"-target",f"{arch}-apple-ios16.0-simulator",str(folder/"Fixture.swift"),str(folder/"Layout.swift"),"-o",str(app/"ChatSendValidation"),timeout=180)
             run("codesign","--force","--sign","-",str(app))
             run("xcrun","simctl","install",udid,str(app))
-            run("xcrun","simctl","launch",udid,bundle)
+            launch_with_retry(udid,bundle)
             container=Path(capture("xcrun","simctl","get_app_container",udid,bundle,"data"))
             report=container/"Documents/chat-send-native-results.json"
             for _ in range(120):

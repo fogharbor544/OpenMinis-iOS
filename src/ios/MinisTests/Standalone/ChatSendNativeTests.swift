@@ -68,6 +68,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     var rejectedReentry=0
     var forceReentry=false
     var coalescedScrollWork: DispatchWorkItem?
+    var contentSizeObservation: NSKeyValueObservation?
     var layout:MessageListLayout? { collectionView?.collectionViewLayout as? MessageListLayout }
     init(collectionView:UICollectionView,vm:VM) {
         self.collectionView=collectionView;self.viewModel=vm;self.viewController=FixtureSurface(collectionView)
@@ -88,6 +89,19 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             return cell
         }
         vm.onResume={ [weak self] in self?.scheduleSnapshotFlush(caller:"resume") }
+        // The shipping coordinator observes the collection view's content size
+        // and re-pins while the list auto-scrolls, so a tail cell that learns
+        // its height after the apply still ends at the bottom. Mirror that
+        // here — without it the fixture settles above the tail and the
+        // "at the bottom" assertion races the cold cell measurement.
+        contentSizeObservation = collectionView.observe(\.contentSize, options: [.new, .old]) { [weak self] cv, change in
+            guard let self, !self.isFlushing, self.scrollMode == .autoScrolling else { return }
+            let newH = change.newValue?.height ?? 0
+            let oldH = change.oldValue?.height ?? 0
+            guard newH != oldH else { return }
+            let maxOff = max(0, newH - cv.bounds.height + cv.adjustedContentInset.bottom)
+            if maxOff > 0 { cv.contentOffset.y = max(cv.contentOffset.y, maxOff) }
+        }
     }
     func absorbPendingComposerShrink(caller:String) {}
     func applySubViewportCompensation(caller:String)->Bool { false }

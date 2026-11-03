@@ -22,6 +22,22 @@ def capture(*args, timeout=60):
     return subprocess.check_output(args, text=True, timeout=timeout).strip()
 
 
+def capture_retry(*args, timeout=120, attempts=3):
+    """Query the simulator with a bounded retry.
+
+    The simulator service is slow to answer right after the runner boots, and
+    a timed-out query must not fail the whole native layout gate.
+    """
+    failure = None
+    for _ in range(attempts):
+        try:
+            return capture(*args, timeout=timeout)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            failure = error
+            time.sleep(5)
+    raise failure
+
+
 def launch_with_retry(udid, bundle, attempts=3):
     """Launch the validation app, retrying a bounded number of times.
 
@@ -49,9 +65,9 @@ def launch_with_retry(udid, bundle, attempts=3):
 def main():
     # Resolve the toolchain before the simulator's first-boot work competes
     # for resources. SDK discovery timed out after boot on an ARM worker.
-    sdk = capture("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path", timeout=120)
+    sdk = capture_retry("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     swiftc = capture("xcrun", "--find", "swiftc")
-    devices = json.loads(capture("xcrun", "simctl", "list", "devices", "available", "--json"))["devices"]
+    devices = json.loads(capture_retry("xcrun", "simctl", "list", "devices", "available", "--json"))["devices"]
     phones = [device for runtime, values in devices.items() if ".iOS-" in runtime
               for device in values if device["name"].startswith("iPhone")]
     if not phones:

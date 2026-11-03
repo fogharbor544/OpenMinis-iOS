@@ -742,7 +742,7 @@ extension AIChatViewModel {
                     browserResult = .error(error.localizedDescription)
                 }
             } else {
-                browserResult = .error(BrowserBatchRequest.invalidInputMessage)
+                browserResult = .error("Invalid browser_use input. Required: 'action' parameter.")
             }
 
             if browserTakeoverActive && !isSecureInput && !browserTabPool.hasSecureInput {
@@ -752,8 +752,7 @@ extension AIChatViewModel {
                     base64Image: browserResult.base64Image,
                     imageFilePath: browserResult.imageFilePath,
                     pageURL: browserResult.pageURL,
-                    tabId: browserResult.tabId,
-                    batchReport: browserResult.batchReport
+                    tabId: browserResult.tabId
                 )
             }
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {

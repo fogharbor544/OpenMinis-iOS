@@ -198,7 +198,7 @@ import Foundation
 
         guard let input = BrowserActionInput.parse(from: json) else {
             completion([
-                "text": "Error: \(BrowserBatchRequest.invalidInputMessage)",
+                "text": "Error: Invalid browser_use input. Required: 'action' parameter.",
                 "success": false,
             ] as NSDictionary)
             return 0
@@ -270,8 +270,6 @@ import Foundation
         let out = NSMutableDictionary()
         out["text"] = r.text
         out["success"] = r.success
-        if let tabId = r.tabId { out["tab_id"] = tabId }
-        if let batch = r.batchReport { out["batch"] = batch.payload }
         if let url = r.pageURL, !url.isEmpty { out["page_url"] = url }
 
         // Persist screenshot + fetched bytes under the invoking session's

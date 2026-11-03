@@ -86,8 +86,6 @@ let keyLines = ["uaProfileKey = ", "uaCustomStringKey = ", "viewportWidthKey = "
 let liftedFromActions = [
     block(actions, "enum BrowserAction: String, CaseIterable {"),
     block(actions, "struct BrowserActionInput {"),
-    block(actions, "enum BrowserBatchRequest {"),
-    block(actions, "struct BrowserBatchReport {"),
     block(actions, "enum UserAgentProfile: String {"),
     block(actions, "extension UserAgentProfile {"),
     block(actions, "struct BrowserActionResult {"),
@@ -95,7 +93,6 @@ let liftedFromActions = [
 
 let prelude = #"""
 import Foundation
-import CoreFoundation
 
 var failures = 0
 func check(_ label: String, _ cond: Bool) {

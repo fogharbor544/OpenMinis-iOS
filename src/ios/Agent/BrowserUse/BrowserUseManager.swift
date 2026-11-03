@@ -30,32 +30,6 @@ final class BrowserUseManager: NSObject, ObservableObject {
     @Published var secureInputSession: BrowserSecureInputSession?
     var secureInputRequester: String?
     var isSecureInputActive: Bool { secureInputProtected || secureInputSession != nil }
-    private var userTakeoverRequested = false
-    private var automationGeneration: UInt64 = 0
-    private var batchBoundary: UInt64 = 0
-    private var batchBoundaryReason = "navigation"
-    private var postActionTask: Task<BrowserActionResult, Error>?
-
-    struct UserTakeoverRequested: LocalizedError {
-        var errorDescription: String? {
-            "Browser navigation wait was interrupted by user takeover. The page may still be loading; observe it before retrying."
-        }
-    }
-
-    func requestUserTakeover() {
-        userTakeoverRequested = true
-        automationGeneration &+= 1
-        postActionTask?.cancel()
-        // Release the navigation wait without tearing down the page. Loading
-        // can finish normally under human control (or the user can stop it).
-        // Arbitrary page JS is allowed to finish safely.
-        if let continuation = navigationContinuation {
-            navigationContinuation = nil
-            continuation.resume(throwing: UserTakeoverRequested())
-        }
-    }
-
-    func endUserTakeover() { userTakeoverRequested = false }
     private var secureCleanupNavigation: WKNavigation?
     private var secureCleanupTimeout: Task<Void, Never>?
     private var manualNavigationTimeout: Task<Void, Never>?
@@ -335,15 +309,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
     ]
 
     func execute(action input: BrowserActionInput) async throws -> BrowserActionResult {
-        guard !userTakeoverRequested else { throw UserTakeoverRequested() }
-        let generation = automationGeneration
         guard Self.secureInteractionManager == nil, !isSecureInputActive else {
             return .error("Native secure input is active or its page is refreshing. Wait for the user to finish; retry after the page is ready.")
-        }
-        // These actions operate on an existing document and use its live cookie
-        // store. Cookie backup remains on the original navigation/action path.
-        if let batch = input.batchRequest {
-            return await executeBatch(batch, preview: input.preview)
         }
         let mgrStart = CFAbsoluteTimeGetCurrent()
         logger.info("[MgrTiming] enter action=\(input.action.rawValue)")
@@ -351,12 +318,9 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // cookies survive WebKit ITP's site-data wipes. Runs before the
         // action so a restored cookie is already in place for a navigate.
         await CookieBackupStore.shared.syncIfNeeded()
-        guard !userTakeoverRequested, generation == automationGeneration else { throw UserTakeoverRequested() }
         guard Self.secureInteractionManager == nil, !isSecureInputActive else { return .error("安全输入正在进行，请稍后重试。") }
         var result: BrowserActionResult
         switch input.action {
-        case .observe, .run:
-            return .error(BrowserBatchRequest.invalidInputMessage)
         case .navigate:
             result = try await navigate(to: input.url)
         case .screenshot:
@@ -414,225 +378,14 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // After visual-change actions: wait for DOM to settle, append change summary,
         // and take a snapshot for UI preview (not sent to model).
         if result.success, Self.visualChangeActions.contains(input.action) {
-            if generation != automationGeneration {
-                result.text += "\n[Browser takeover] Action already executed; post-action observation omitted. Observe the page before deciding what to do next; do not blindly repeat the action."
-                return result
-            }
-            if input.resultMode == .collected {
-                logger.info("[MgrTiming] postprocessing_skipped mode=collected elapsed=\(actionMs)ms")
-                result.text += "\n[Collected result] Final DOM settling and preview were omitted. This is the collected data, not a guarantee that the final page is stable."
-                return result
-            }
             let settleStart = CFAbsoluteTimeGetCurrent()
-            let actionResult = result
-            let task = Task { try await self.waitForDomSettleAndSnapshot(result: actionResult, preview: input.preview) }
-            postActionTask = task
-            defer { postActionTask = nil }
-            do {
-                result = try await withTaskCancellationHandler(operation: {
-                    try await task.value
-                }, onCancel: { task.cancel() })
-            } catch is CancellationError where generation != automationGeneration {
-                result.text += "\n[Browser takeover] Action already executed; post-action observation interrupted. Do not blindly repeat the action."
-            }
+            result = await waitForDomSettleAndSnapshot(result: result)
             let settleMs = Int((CFAbsoluteTimeGetCurrent() - settleStart) * 1000)
             logger.info("[MgrTiming] dom_settle_snapshot elapsed=\(settleMs)ms action=\(input.action.rawValue)")
         }
         let totalMs = Int((CFAbsoluteTimeGetCurrent() - mgrStart) * 1000)
         logger.info("[MgrTiming] total elapsed=\(totalMs)ms action=\(input.action.rawValue)")
         return result
-    }
-
-
-    // MARK: - Same-document browser automation
-
-    private struct BatchContext {
-        let automation: UInt64
-        let boundary: UInt64
-        let secure: UUID
-        var epoch: String { "\(automation):\(boundary):\(secure.uuidString)" }
-    }
-
-    private static let batchWorld = WKContentWorld.world(name: "OpenMinis.BrowserBatch")
-
-    // Called synchronously from WebKit delegates, so the next bridge dispatch
-    // cannot slip between a reported navigation/dialog and its actor update.
-    func noteBatchBoundary(_ reason: String) {
-        batchBoundary &+= 1
-        batchBoundaryReason = reason
-    }
-
-    private func batchInterruption(_ context: BatchContext) -> String? {
-        if context.secure != Self.secureInteractionGeneration || isSecureInputActive || Self.secureInteractionManager != nil {
-            return "secure_input"
-        }
-        if userTakeoverRequested || automationGeneration != context.automation { return "takeover" }
-        if batchBoundary != context.boundary { return batchBoundaryReason }
-        if isLoading { return "navigation" }
-        if Task.isCancelled { return "cancelled" }
-        return nil
-    }
-
-    private func executeBatch(_ request: BrowserBatchRequest, preview: BrowserActionInput.Preview) async -> BrowserActionResult {
-        let context = BatchContext(automation: automationGeneration, boundary: batchBoundary,
-                                   secure: Self.secureInteractionGeneration)
-        switch request {
-        case .observe(let selector):
-            do {
-                let deadline = ProcessInfo.processInfo.systemUptime + 3
-                var arguments: [String: Any] = ["version": UUID().uuidString]
-                arguments["selector"] = selector
-                let response = try await batchCall("observe", context: context, payload: arguments, deadline: deadline)
-                if let reason = batchInterruption(context) { return .error("observe stopped: \(reason)") }
-                guard let observation = response["observation"] as? [String: Any] else {
-                    return .error("observe stopped: \(response["status"] as? String ?? "unavailable")")
-                }
-                return BrowserActionResult(text: BrowserBatchReport.json(observation))
-            } catch {
-                return .error("observe stopped: \(batchInterruption(context) ?? (error is JSEvalTimeout ? "timeout" : "bridge_unavailable"))")
-            }
-        case .run(let input):
-            return await runBrowserBatch(input, context: context, preview: preview)
-        }
-    }
-
-    private func runBrowserBatch(_ input: BrowserBatchRequest.Run, context: BatchContext,
-                                 preview: BrowserActionInput.Preview) async -> BrowserActionResult {
-        var report = BrowserBatchReport()
-        let deadline = ProcessInfo.processInfo.systemUptime + input.timeout
-        // Leave a small part of the same budget for the final observation.
-        let stepDeadline = deadline - min(0.25, input.timeout * 0.1)
-        let base: [String: Any] = ["version": input.version, "runId": UUID().uuidString]
-        var failedIndex: Int?
-        var dispatchedIndex: Int?
-
-        func status(_ response: [String: Any]) -> String {
-            response["status"] as? String ?? "bridge_unavailable"
-        }
-        func call(_ kind: String, extra: [String: Any] = [:],
-                  action: BrowserBatchRequest.Step.Action? = nil,
-                  end: TimeInterval) async throws -> [String: Any] {
-            try await batchCall(kind, context: context,
-                                payload: extra.merging(base) { _, value in value },
-                                deadline: end, action: action)
-        }
-
-        do {
-            let begin = try await call("begin", end: stepDeadline)
-            let beginStatus = batchInterruption(context) ?? status(begin)
-            guard beginStatus == "ok" else {
-                report.stopReason = beginStatus
-                return report.result()
-            }
-
-            for (index, step) in input.steps.enumerated() {
-                failedIndex = index
-                if let reason = batchInterruption(context) {
-                    report.stopReason = reason
-                    break
-                }
-                guard ProcessInfo.processInfo.systemUptime < stepDeadline else {
-                    report.stopReason = "timeout"
-                    break
-                }
-
-                var args: [String: Any] = ["ref": step.ref, "action": step.action.rawValue]
-                args["text"] = step.text
-                args["condition"] = step.until?.arguments
-                if index == input.steps.count - 1 { args["goal"] = input.until?.arguments }
-
-                dispatchedIndex = index
-                var reply = try await call("step", extra: args, action: step.action, end: stepDeadline)
-                dispatchedIndex = nil
-                if (reply["applied"] as? Bool) == true {
-                    report.completedSteps.append(index)
-                } else if ["dispatch_unconfirmed", "bridge_unavailable", "ok", "waiting"].contains(status(reply)) {
-                    report.uncertainStep = index
-                    report.stopReason = "dispatch_unconfirmed"
-                    break
-                }
-
-                while batchInterruption(context) == nil, status(reply) == "waiting",
-                      ProcessInfo.processInfo.systemUptime < stepDeadline {
-                    reply = try await call("wait", end: stepDeadline)
-                }
-
-                let finalStatus = batchInterruption(context) ?? status(reply)
-                guard finalStatus == "ok" else {
-                    report.stopReason = finalStatus == "waiting" ? "timeout" : finalStatus
-                    break
-                }
-                failedIndex = nil
-            }
-        } catch {
-            report.stopReason = batchInterruption(context) ?? (error is JSEvalTimeout ? "timeout" : "bridge_unavailable")
-            // The bridge could time out after the browser dispatched the event.
-            report.uncertainStep = dispatchedIndex
-        }
-        report.failedStep = failedIndex
-
-        if batchInterruption(context) == nil, ProcessInfo.processInfo.systemUptime < deadline,
-           !["navigation", "popup", "download", "stale_document"].contains(report.stopReason) {
-            do {
-                let response = try await call("finish", end: deadline)
-                if let reason = batchInterruption(context) {
-                    report.stopReason = reason
-                } else {
-                    report.observation = response["observation"] as? [String: Any]
-                    if report.stopReason == "completed", status(response) != "ok" {
-                        report.stopReason = status(response)
-                    }
-                }
-            } catch {
-                if report.stopReason == "completed" {
-                    report.stopReason = batchInterruption(context) ?? (error is JSEvalTimeout ? "timeout" : "bridge_unavailable")
-                }
-            }
-        }
-
-        var previewPath: String?
-        if preview == .default, report.stopReason == "completed", report.observation != nil,
-           batchInterruption(context) == nil, deadline > ProcessInfo.processInfo.systemUptime {
-            let config = WKSnapshotConfiguration()
-            config.rect = CGRect(origin: .zero, size: webView.frame.size)
-            let remaining = deadline - ProcessInfo.processInfo.systemUptime
-            if remaining > 0,
-               let image = try? await takeSnapshotBounded(configuration: config, timeout: remaining),
-               batchInterruption(context) == nil {
-                lastScreenshot = image
-                if let jpeg = image.jpegData(compressionQuality: 0.7) {
-                    let file = Self.screenshotsDir.appendingPathComponent("batch_\(UUID().uuidString).jpg")
-                    do { try jpeg.write(to: file); previewPath = file.path }
-                    catch { logger.warning("Batch preview save failed: \(error.localizedDescription)") }
-                }
-            }
-        }
-
-        if let reason = batchInterruption(context) {
-            report.stopReason = reason
-            report.observation = nil
-            previewPath = nil
-        }
-        return report.result(previewPath: previewPath)
-    }
-
-    private func batchCall(_ kind: String, context: BatchContext, payload: [String: Any],
-                           deadline: TimeInterval, action: BrowserBatchRequest.Step.Action? = nil) async throws -> [String: Any] {
-        if let reason = batchInterruption(context) { return ["status": reason] }
-        let remaining = deadline - ProcessInfo.processInfo.systemUptime
-        guard remaining > 0 else { throw JSEvalTimeout() }
-        var args = payload
-        args["deadline"] = (Date().timeIntervalSince1970 + remaining) * 1_000
-        let raw = try await callAsyncJavaScriptBounded(
-            BrowserUseJS.batchCommand(install: kind == "observe", action: action),
-            timeout: remaining, arguments: ["kind": kind, "epoch": context.epoch, "payload": args],
-            contentWorld: Self.batchWorld, beforeDispatch: { self.batchInterruption(context) == nil }
-        )
-        guard let text = raw as? String,
-              let response = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
-            return ["status": "bridge_unavailable"]
-        }
-        return response
     }
 
     private func requestSecureInput(_ input: BrowserActionInput) async -> BrowserActionResult {
@@ -703,19 +456,11 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// concise change summary to the result text and take a snapshot for UI preview.
     /// The DOM summary IS sent to the model (appended to text); the snapshot is NOT
     /// (only imageFilePath is set, no base64Image).
-    private func waitForDomSettleAndSnapshot(result: BrowserActionResult, preview: BrowserActionInput.Preview) async throws -> BrowserActionResult {
+    private func waitForDomSettleAndSnapshot(result: BrowserActionResult) async -> BrowserActionResult {
         let prevURL = webView.url
         let settleStart = CFAbsoluteTimeGetCurrent()
         // 1. Install MutationObserver and collect a DOM change summary
-        let domSummary: String
-        do {
-            domSummary = try await collectDomChangeSummary(timeout: 5.0)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            domSummary = "DOM observation incomplete or timed out; the action already executed. Do not repeat it without checking the page."
-        }
-        try Task.checkCancellation()
+        let domSummary = await collectDomChangeSummary(timeout: 5.0)
         let domMs = Int((CFAbsoluteTimeGetCurrent() - settleStart) * 1000)
         logger.info("[SettleTiming] dom_summary elapsed=\(domMs)ms")
 
@@ -725,47 +470,47 @@ final class BrowserUseManager: NSObject, ObservableObject {
         //    sheet is stretching the WKWebView to fill a different container.
         let snapStart = CFAbsoluteTimeGetCurrent()
         var snapshotPath: String? = nil
-        if preview == .default {
-            let targetSize = CGSize(width: CGFloat(currentViewport.width),
-                                    height: CGFloat(currentViewport.height))
-            let savedFrame = webView.frame
-            let shouldResize = abs(savedFrame.size.width - targetSize.width) > 0.5 ||
-                               abs(savedFrame.size.height - targetSize.height) > 0.5
-            if shouldResize {
-                webView.frame = CGRect(origin: savedFrame.origin, size: targetSize)
-                webView.setNeedsLayout()
-                webView.layoutIfNeeded()
+        let targetSize = CGSize(width: CGFloat(currentViewport.width),
+                                height: CGFloat(currentViewport.height))
+        let savedFrame = webView.frame
+        let shouldResize = abs(savedFrame.size.width - targetSize.width) > 0.5 ||
+                           abs(savedFrame.size.height - targetSize.height) > 0.5
+        if shouldResize {
+            webView.frame = CGRect(origin: savedFrame.origin, size: targetSize)
+            webView.setNeedsLayout()
+            webView.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 120_000_000)
+        }
+        do {
+            let config = WKSnapshotConfiguration()
+            config.rect = CGRect(origin: .zero, size: targetSize)
+            let image = try await webView.takeSnapshot(configuration: config)
+            lastScreenshot = image
+            if let jpegData = image.jpegData(compressionQuality: 0.7) {
+                let filename = "snapshot_\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
+                let fileURL = Self.screenshotsDir.appendingPathComponent(filename)
+                try jpegData.write(to: fileURL)
+                snapshotPath = fileURL.path
             }
-            defer { if shouldResize { restoreViewportFrame() } }
-            do {
-                if shouldResize { try await Task.sleep(nanoseconds: 120_000_000) }
-                let config = WKSnapshotConfiguration()
-                config.rect = CGRect(origin: .zero, size: targetSize)
-                let image = try await takeSnapshotBounded(configuration: config)
-                try Task.checkCancellation()
-                lastScreenshot = image
-                if let jpegData = image.jpegData(compressionQuality: 0.7) {
-                    let filename = "snapshot_\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
-                    let fileURL = Self.screenshotsDir.appendingPathComponent(filename)
-                    try jpegData.write(to: fileURL)
-                    snapshotPath = fileURL.path
-                }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                logger.warning("Post-action snapshot failed: \(error.localizedDescription)")
-            }
+        } catch {
+            logger.warning("Post-action snapshot failed: \(error.localizedDescription)")
+        }
+        if shouldResize {
+            // Restore to the configured viewport (not necessarily savedFrame,
+            // which may itself be a sheet-polluted 620 width) and force a
+            // reflow so the page is left laid out at the intended width.
+            // (T-ios-browser-sheet-viewport-pollution)
+            restoreViewportFrame()
         }
 
         let snapMs = Int((CFAbsoluteTimeGetCurrent() - snapStart) * 1000)
-        logger.info("[SettleTiming] snapshot elapsed=\(snapMs)ms preview=\(preview.rawValue)")
+        logger.info("[SettleTiming] snapshot elapsed=\(snapMs)ms")
 
         // 3. Append DOM summary to result text
         var text = result.text
         if !domSummary.isEmpty {
             text += "\n" + domSummary
         }
-        if preview == .none { text += "\n[Preview omitted] No image was captured for this action." }
 
         // 4. Detect URL change (ignore hash-only changes)
         let newURL = webView.url
@@ -789,16 +534,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// count gradient is stable (non-increasing) for 3 consecutive 0.5s intervals.
     /// Returns a concise text summary of what changed: added/removed element counts,
     /// URL changes, and notable new text content.
-    private func collectDomChangeSummary(timeout: Double) async throws -> String {
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        func remainingBudget() throws -> TimeInterval {
-            try Task.checkCancellation()
-            let remaining = deadline - ProcessInfo.processInfo.systemUptime
-            guard remaining > 0 else { throw JSEvalTimeout() }
-            return remaining
-        }
+    private func collectDomChangeSummary(timeout: Double) async -> String {
         let setupJS = """
-        if (window.__postActionObserver) window.__postActionObserver.disconnect();
         window.__postActionDom = {
             mutations: 0,
             addedTags: {},
@@ -834,15 +571,12 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 }
             }
         });
-        // Self-cleanup still runs if the host stops waiting or is cancelled.
-        var currentObserver = window.__postActionObserver;
-        setTimeout(function() { currentObserver.disconnect(); }, \(Int(timeout * 1000)));
         window.__postActionObserver.observe(document.documentElement, {
             childList: true, subtree: true, attributes: true, characterData: true
         });
         return 'ok';
         """
-        _ = try await callAsyncJavaScriptBounded(setupJS, timeout: remainingBudget())
+        _ = try? await webView.callAsyncJavaScript(setupJS, arguments: [:], contentWorld: .page)
 
         // Poll until stable: read cumulative mutation count each interval,
         // compute delta (new mutations since last poll). When delta is
@@ -852,13 +586,16 @@ final class BrowserUseManager: NSObject, ObservableObject {
         var lastTotal = 0
         var lastDelta = Int.max
         var stableRuns = 0
-        while true {
-            let sleepSeconds = min(Double(pollNs) / 1_000_000_000, try remainingBudget())
-            try await Task.sleep(nanoseconds: UInt64(sleepSeconds * 1_000_000_000))
+        let startTime = CFAbsoluteTimeGetCurrent()
 
-            let countResult = try await callAsyncJavaScriptBounded(
+        while true {
+            try? await Task.sleep(nanoseconds: pollNs)
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            if elapsed >= timeout { break }
+
+            let countResult = try? await webView.callAsyncJavaScript(
                 "return window.__postActionDom ? window.__postActionDom.mutations : 0;",
-                timeout: remainingBudget()
+                arguments: [:], contentWorld: .page
             )
             let total: Int
             if let n = countResult as? Int { total = n }
@@ -896,7 +633,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
             titleNow: document.title
         });
         """
-        guard let jsonStr = try await callAsyncJavaScriptBounded(readJS, timeout: remainingBudget()) as? String,
+        guard let jsonStr = try? await webView.callAsyncJavaScript(readJS, arguments: [:], contentWorld: .page) as? String,
               let jsonData = jsonStr.data(using: .utf8),
               let info = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             return ""
@@ -1004,11 +741,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     /// frees the serial slot so unrelated actions proceed, and a genuinely
     /// wedged WebContent is still caught by the pool's dead-tab ceiling, which
     /// replaces the whole WKWebView.
-    private func callAsyncJavaScriptBounded(
-        _ js: String, timeout: TimeInterval, arguments: [String: Any] = [:],
-        contentWorld: WKContentWorld = .page, beforeDispatch: (() -> Bool)? = nil
-    ) async throws -> Any? {
-        try Task.checkCancellation()
+    private func callAsyncJavaScriptBounded(_ js: String, timeout: TimeInterval) async throws -> Any? {
         let box = ContinuationBox()
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.schedule(deadline: .now() + timeout)
@@ -1021,46 +754,19 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // identical to how `withDeadOnTimeout` abandons its wedged operation,
         // and for the same reason: a call parked on a WebKit callback that never
         // fires cannot honour cooperative cancellation.
-        return try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
-                box.cont = cont
-                let evalTask = Task { @MainActor in
-                    do {
-                        try Task.checkCancellation()
-                        if beforeDispatch?() == false { throw CancellationError() }
-                        let value = try await self.webView.callAsyncJavaScript(js, arguments: arguments, contentWorld: contentWorld)
-                        box.finish(.success(value))
-                    } catch {
-                        box.finish(.failure(error))
-                    }
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
+            box.cont = cont
+            let evalTask = Task { @MainActor in
+                do {
+                    let value = try await self.webView.callAsyncJavaScript(js, arguments: [:], contentWorld: .page)
+                    box.finish(.success(value))
+                } catch {
+                    box.finish(.failure(error))
                 }
-                box.onFinish = { timer.cancel(); evalTask.cancel() }
-                timer.resume()
             }
-        }, onCancel: { box.finish(.failure(CancellationError())) })
-    }
-
-    private func takeSnapshotBounded(configuration: WKSnapshotConfiguration, timeout: TimeInterval = 10) async throws -> UIImage {
-        try Task.checkCancellation()
-        let box = ContinuationBox()
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: .now() + timeout)
-        timer.setEventHandler { box.finish(.failure(JSEvalTimeout())) }
-        let value = try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
-                box.cont = cont
-                let task = Task { @MainActor in
-                    do {
-                        try Task.checkCancellation()
-                        box.finish(.success(try await self.webView.takeSnapshot(configuration: configuration)))
-                    } catch { box.finish(.failure(error)) }
-                }
-                box.onFinish = { timer.cancel(); task.cancel() }
-                timer.resume()
-            }
-        }, onCancel: { box.finish(.failure(CancellationError())) })
-        guard let image = value as? UIImage else { throw URLError(.cannotDecodeContentData) }
-        return image
+            box.onFinish = { timer.cancel(); evalTask.cancel() }
+            timer.resume()
+        }
     }
 
     /// One-shot guard so exactly one of {eval-completion, timeout} resumes the
@@ -1069,37 +775,16 @@ final class BrowserUseManager: NSObject, ObservableObject {
     private final class ContinuationBox: @unchecked Sendable {
         private let lock = NSLock()
         private var done = false
-        private var continuation: CheckedContinuation<Any?, Error>?
-        private var pending: Result<Any?, Error>?
-        private var cleanup: (() -> Void)?
-        var cont: CheckedContinuation<Any?, Error>? {
-            get { lock.lock(); defer { lock.unlock() }; return continuation }
-            set {
-                lock.lock()
-                if let pending {
-                    lock.unlock(); newValue?.resume(with: pending)
-                } else {
-                    continuation = newValue; lock.unlock()
-                }
-            }
-        }
+        var cont: CheckedContinuation<Any?, Error>?
         /// Cleanup run once, on the winning side (used to cancel the GCD timer
         /// when the eval completes, or drop nothing when the timer itself fires).
-        var onFinish: (() -> Void)? {
-            get { lock.lock(); defer { lock.unlock() }; return cleanup }
-            set {
-                lock.lock()
-                if done { lock.unlock(); newValue?() }
-                else { cleanup = newValue; lock.unlock() }
-            }
-        }
+        var onFinish: (() -> Void)?
         func finish(_ result: Result<Any?, Error>) {
             lock.lock()
             if done { lock.unlock(); return }
             done = true
-            let c = continuation; continuation = nil
-            if c == nil { pending = result }
-            let cleanup = self.cleanup; self.cleanup = nil
+            let c = cont; cont = nil
+            let cleanup = onFinish; onFinish = nil
             lock.unlock()
             cleanup?()
             switch result {
@@ -1210,7 +895,6 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // 90s ceiling — reintroducing the pile-up this fix exists to prevent.
         let navTimer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         navTimer.schedule(deadline: .now() + Self.navigationTimeout)
-        defer { navTimer.cancel() }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             self.navigationContinuation = continuation
@@ -1232,6 +916,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
             }
             navTimer.resume()
         }
+        navTimer.cancel()
 
         let navDoneMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
         logger.info("[NavTiming] wait_returned elapsed=\(navDoneMs)ms url=\(url.absoluteString.prefix(100))")
@@ -1342,7 +1027,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let config = WKSnapshotConfiguration()
         config.rect = CGRect(origin: .zero, size: targetSize)
         let takeSnapStart = CFAbsoluteTimeGetCurrent()
-        let image = try await takeSnapshotBounded(configuration: config)
+        let image = try await webView.takeSnapshot(configuration: config)
         let takeSnapMs = Int((CFAbsoluteTimeGetCurrent() - takeSnapStart) * 1000)
         logger.info("[ScreenshotTiming] takeSnapshot elapsed=\(takeSnapMs)ms")
         lastScreenshot = image
@@ -1404,7 +1089,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
         // Get scroll position and page dimensions via JS
         var scrollX = 0, scrollY = 0, pageW = 0, pageH = 0
-        if let js = try? await evaluateJavaScriptBounded(
+        if let js = try? await webView.evaluateJavaScript(
             "JSON.stringify({sx:window.scrollX,sy:window.scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})"
         ) as? String,
            let data = js.data(using: .utf8),
@@ -2745,7 +2430,6 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
 extension BrowserUseManager: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        MainActor.assumeIsolated { self.noteBatchBoundary("navigation") }
         Task { @MainActor in
             self.manualNavigationTimeout?.cancel()
             self.isLoading = true
@@ -2837,20 +2521,6 @@ extension BrowserUseManager: WKNavigationDelegate {
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         let allowedSchemes: Set<String> = ["http", "https", "about", "blob", "minis"]
-        MainActor.assumeIsolated {
-            if navigationAction.shouldPerformDownload {
-                self.noteBatchBoundary("download")
-            } else if navigationAction.targetFrame == nil {
-                self.noteBatchBoundary("popup")
-            } else if navigationAction.targetFrame?.isMainFrame == true {
-                let source = webView.url?.absoluteString
-                let target = navigationAction.request.url?.absoluteString
-                let fragmentOnly = source != target && source != nil && target != nil &&
-                    source?.split(separator: "#", maxSplits: 1).first == target?.split(separator: "#", maxSplits: 1).first &&
-                    navigationAction.request.httpMethod == "GET"
-                if !fragmentOnly { self.noteBatchBoundary("navigation") }
-            }
-        }
 
         // <a download> anchors (including blob: URLs) mark the action as a
         // download — route it through WKDownload instead of navigating.
@@ -2939,7 +2609,6 @@ extension BrowserUseManager: WKNavigationDelegate {
     /// pending navigate() continuation (the "navigation" turned into a download).
     private func attachDownload(_ download: WKDownload) {
         guard !isSecureInputActive else { download.cancel { _ in }; return }
-        noteBatchBoundary("download")
         download.delegate = self
         inflightDownloads[ObjectIdentifier(download)] = download
         isLoading = false
@@ -2961,7 +2630,6 @@ extension BrowserUseManager: WKNavigationDelegate {
     /// of hanging until the agent's own timeout — or never. [BrowserToolDiag]
     nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         MainActor.assumeIsolated {
-            self.noteBatchBoundary("web_content_terminated")
             let url = self.isSecureInputActive || self.currentURL.isEmpty ? nil : self.currentURL
             let tabId = self.tabIdProvider?()
             BrowserResourceMonitor.shared.webContentProcessDidTerminate(tabId: tabId, url: url)
@@ -3107,7 +2775,6 @@ extension BrowserUseManager {
                                              defaultText: String?,
                                              defaultResponse: String) {
         guard !isSecureInputActive else { return }
-        noteBatchBoundary("dialog")
         if pendingDialogEvents.count >= Self.maxPendingDialogEvents {
             pendingDialogEvents.removeFirst()
             droppedDialogEvents += 1
@@ -3184,7 +2851,6 @@ extension BrowserUseManager: WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        noteBatchBoundary("popup")
         if isSecureInputActive {
             // Keep the user-controlled login inside its protected native host.
             webView.load(navigationAction.request)
@@ -3203,7 +2869,6 @@ extension BrowserUseManager: WKUIDelegate {
 
     nonisolated func webViewDidClose(_ webView: WKWebView) {
         // The child window called window.close() (e.g. OAuth popup finishing).
-        MainActor.assumeIsolated { self.noteBatchBoundary("tab_closed") }
         Task { @MainActor in
             self.closeHandler?(webView)
         }

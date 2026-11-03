@@ -75,14 +75,9 @@ static NSString *const HELP_TEXT =
      "                  the shell intact — write the array to a temp file first.\n"
      "  scroll_and_collect --scroll-count <n> --item-selector <css> --keywords <list>\n"
      "  wait_for_dom_stable [--timeout <ms>]\n"
-     "  observe [--tab-id <n>] [--selector <css>]   Get main-frame element refs\n"
-     "  run             Use --json with tab_id, document_version, frame_id=main,\n"
-     "                  steps (click/type by ref), optional until and timeout.\n"
      "\n"
      "COMMON OPTIONS:\n"
      "  --tab-id <n>     Route the action to a specific tab (default: active tab)\n"
-     "  --preview <mode>   default (keep preview) or none (omit implicit image)\n"
-     "  --result-mode <m>  standard or collected; collected requires scroll_and_collect --preview none\n"
      "  --json '<s>'     Pass the full input object as JSON (matches browser_use schema)\n"
      "  --with-base64    Also include image_base64 in the screenshot output.\n"
      "                   Off by default — screenshots are saved to\n"
@@ -96,9 +91,6 @@ static NSString *const HELP_TEXT =
      "  JSON envelope with a `data` object containing:\n"
      "    text              Human-readable result the agent would see\n"
      "    success           true / false\n"
-     "    tab_id            Verified tab id when routed\n"
-     "    batch             run: completedSteps, stopReason, optional failedStep,\n"
-     "                      uncertainStep and observation. Do not blindly replay.\n"
      "    page_url          URL after the action (when applicable)\n"
      "    image_path        Linux path of the persisted JPEG, e.g.\n"
      "                      /var/minis/browser/screenshot_<ms>.jpg\n"
@@ -117,9 +109,7 @@ static NSString *const HELP_TEXT =
      "  minis-browser-use click --selector '.btn-primary'\n"
      "  minis-browser-use type --selector 'input[name=q]' --text 'hello'\n"
      "  minis-browser-use execute_js --script 'return document.title'\n"
-     "  minis-browser-use scroll_and_collect --scroll-count 5 --preview none --result-mode collected\n"
-     "  minis-browser-use --json '{\"action\":\"navigate\",\"url\":\"https://x.com\"}'\n"
-     "  minis-browser-use --json '{\"action\":\"run\",\"tab_id\":0,\"document_version\":\"<from observe>\",\"frame_id\":\"main\",\"steps\":[{\"action\":\"click\",\"ref\":\"e1\"}]}'\n";
+     "  minis-browser-use --json '{\"action\":\"navigate\",\"url\":\"https://x.com\"}'\n";
 
 // ── Netscape cookies.txt parsing ──
 
@@ -198,8 +188,6 @@ static NSDictionary *buildInputJson(int argc, char **argv, NSString **errOut) {
     if ((s = noff_find_arg(argc, argv, "--direction")))      obj[@"direction"] = s;
     if ((s = noff_find_arg(argc, argv, "--script")))         obj[@"script"] = s;
     if ((s = noff_find_arg(argc, argv, "--item-selector")))  obj[@"item_selector"] = s;
-    if ((s = noff_find_arg(argc, argv, "--preview")))        obj[@"preview"] = s;
-    if ((s = noff_find_arg(argc, argv, "--result-mode")))    obj[@"result_mode"] = s;
 
     // user-agent: accept both --user-agent and --ua
     s = noff_find_arg(argc, argv, "--user-agent");
@@ -291,23 +279,6 @@ static NSDictionary *buildInputJson(int argc, char **argv, NSString **errOut) {
 
 // ── Handler ──
 
-static int browser_use_emit_result(int fd, NSString *action, NSDictionary *result, BOOL compact, BOOL quiet) {
-    BOOL ok = [result[@"success"] boolValue];
-    BOOL hasBatch = result[@"batch"] != nil;
-    NSDictionary *envelope;
-    if (ok || (quiet && hasBatch)) {
-        // Quiet mode emits only data. A stopped batch still has useful data.
-        envelope = noff_json_envelope(TOOL_NAME, action, result);
-    } else {
-        NSString *msg = result[@"text"] ?: @"browser action failed";
-        NSMutableDictionary *error = [noff_json_error(TOOL_NAME, action, NOFF_ERR_INTERNAL_ERROR, msg) mutableCopy];
-        if (hasBatch) error[@"data"] = result;
-        envelope = error;
-    }
-    noff_emit_json(fd, envelope, compact, quiet);
-    return ok ? NOFF_EXIT_SUCCESS : NOFF_EXIT_ERROR;
-}
-
 static int browser_use_handler(int argc, char **argv,
                                int stdin_fd, int stdout_fd, int stderr_fd) {
     // Bare invocation → show the full help so users discover the command.
@@ -380,8 +351,19 @@ static int browser_use_handler(int argc, char **argv,
         return NOFF_EXIT_ERROR;
     }
 
-    return browser_use_emit_result(stdout_fd, inputDict[@"action"] ?: @"execute",
-                                   resultDict, compact, quiet);
+    BOOL ok = [resultDict[@"success"] boolValue];
+    NSString *action = inputDict[@"action"] ?: @"execute";
+    if (ok) {
+        NSDictionary *envelope = noff_json_envelope(TOOL_NAME, action, resultDict);
+        noff_emit_json(stdout_fd, envelope, compact, quiet);
+        return NOFF_EXIT_SUCCESS;
+    } else {
+        NSString *msg = resultDict[@"text"] ?: @"browser action failed";
+        NSDictionary *err = noff_json_error(TOOL_NAME, action,
+                                            NOFF_ERR_INTERNAL_ERROR, msg);
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_ERROR;
+    }
 }
 
 void browser_use_offload_register(void) {

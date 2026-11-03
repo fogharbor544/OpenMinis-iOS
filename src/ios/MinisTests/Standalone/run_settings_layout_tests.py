@@ -22,6 +22,30 @@ def capture(*args, timeout=60):
     return subprocess.check_output(args, text=True, timeout=timeout).strip()
 
 
+def launch_with_retry(udid, bundle, attempts=3):
+    """Launch the validation app, retrying a bounded number of times.
+
+    The simulator intermittently refuses the first launch right after a boot
+    ("Waiting on System App" is still settling). When the launch keeps
+    failing the app's crash report is copied next to the other layout
+    evidence, so the next run can explain it instead of only reporting a
+    non-zero exit code.
+    """
+    last = None
+    for _ in range(attempts):
+        last = subprocess.run(
+            ["xcrun", "simctl", "launch", "--terminate-running-process", udid, bundle],
+            text=True, capture_output=True)
+        if last.returncode == 0:
+            return last.stdout.strip()
+        time.sleep(5)
+    reports = Path.home() / "Library/Logs/DiagnosticReports"
+    if reports.is_dir():
+        for report in sorted(reports.glob(f"{bundle}*.ips"), key=lambda item: item.stat().st_mtime, reverse=True)[:1]:
+            shutil.copy2(report, OUTPUT / report.name)
+    raise RuntimeError(f"simctl launch failed after {attempts} attempts: {last.stderr.strip() or last.stdout.strip()}")
+
+
 def main():
     # Resolve the toolchain before the simulator's first-boot work competes
     # for resources. SDK discovery timed out after boot on an ARM worker.
@@ -54,7 +78,7 @@ def main():
                 str(ROOT / "MinisTests/Standalone/SettingsRowLayoutTests.swift"), "-o", str(app / "LayoutValidation"), timeout=180)
             run("codesign", "--force", "--sign", "-", str(app))
             run("xcrun", "simctl", "install", udid, str(app))
-            run("xcrun", "simctl", "launch", "--terminate-running-process", udid, BUNDLE)
+            launch_with_retry(udid, BUNDLE)
             container = Path(capture("xcrun", "simctl", "get_app_container", udid, BUNDLE, "data"))
             result_file = container / "Documents/result.json"
             for _ in range(90):

@@ -1,4 +1,15 @@
 import Foundation
+
+/// Assertion helper for this standalone harness. The condition may itself
+/// throw, so it is evaluated inside the helper and reported as a failure
+/// instead of an unreadable trap. Same shape as the helper in
+/// BotMemoryEntryTests.swift, whose checks these event-memory rows extend.
+func check(_ condition: @autoclosure () throws -> Bool,
+           _ message: @autoclosure () -> String = "memory runtime check failed") throws {
+    let result = try condition()
+    precondition(result, message())
+}
+
 enum ProgrammaticPromptOrigin { case job(jobId: String) }
 
 enum ThinkingLevel { case off }

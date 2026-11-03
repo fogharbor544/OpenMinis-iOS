@@ -95,7 +95,6 @@ def main():
             (app / "Info.plist").write_bytes(plistlib.dumps(info))
             run(swiftc, "-swift-version", "5", "-sdk", sdk, "-target", f"{arch}-apple-ios16.0-simulator",
                 str(ROOT / "Views/ContentView/Support/SettingsRowStyle.swift"),
-                str(ROOT / "Views/ContentView/Support/BotBrowserSectionHeader.swift"),
                 str(ROOT / "MinisTests/Standalone/SettingsRowLayoutTests.swift"), "-o", str(app / "LayoutValidation"), timeout=180)
             run("codesign", "--force", "--sign", "-", str(app), timeout=120)
             run_retry("xcrun", "simctl", "install", udid, str(app), timeout=180)

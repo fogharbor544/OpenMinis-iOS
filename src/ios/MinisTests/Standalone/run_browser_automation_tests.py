@@ -34,7 +34,11 @@ def sources():
     agent_loop = (ROOT / "Agent/Chat/AIChatViewModel+AgentLoop.swift").read_text(encoding="utf-8")
     # Must be updated together: this harness has no SwiftUI/ViewModel runtime, but a missing
     # persistent control or a resumed loop-wait would rebuild the audited deadlocks.
-    assert "TakeoverControlOutsideAction" in sheet
+    takeover_item = sheet.split('ToolbarItem(placement: .topBarTrailing) {', 1)[1].split(
+        'ToolbarItem(placement: .topBarTrailing)', 1
+    )[0]
+    assert 'Button("Takeover")' in takeover_item
+    assert "if !pool.isUserTakeoverActive && !pool.hasSecureInput" in takeover_item
     assert "await waitIfBrowserTakeover()" not in agent_loop
     background_task = (ROOT / "Agent/Chat/AIChatViewModel+BackgroundTask.swift").read_text(encoding="utf-8")
     # The VM must not park loops or tools on the takeover gate; execution admission is the only wait point.

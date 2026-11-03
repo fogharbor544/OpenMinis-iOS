@@ -1115,7 +1115,12 @@ struct ToolLiveSheet: View {
             switch sheet {
             case .takeoverBrowser:
                 if let pool = browserPool {
-                    BrowserSheetView(pool: pool, isAgentBusy: false)
+                    BrowserSheetView(
+                        pool: pool,
+                        isAgentBusy: false,
+                        onTakeover: onBrowserTakeover,
+                        onTakeoverDone: onTakeoverDone,
+                        isUserTakeoverActive: true)
                 }
             case .linkPreview(let url):
                 MinisLinkPreviewView(url: url, browserPool: browserPool)
@@ -1387,7 +1392,7 @@ struct ToolLiveSheet: View {
         case .fileEditTool(let path):
             return "file_edit(\(truncateParam(path)))"
         case .browserTool(let action):
-            return "browser_use(\(truncateParam(action)))"
+            return BrowserAction.displayTitle(for: action)
         case .readImageTool(let path):
             return "read_image(\(truncateParam(path)))"
         case .memoryTool(let action):
@@ -1539,7 +1544,7 @@ struct ToolLiveSheet: View {
     /// Combined browser result: action capsules + screenshot image + result text card.
     private func browserResultContent(image: UIImage, text: String) -> some View {
         let action: String = {
-            if case .browserTool(let a) = block.kind { return a }
+            if case .browserTool(let a) = block.kind { return BrowserAction.displayTitle(for: a) }
             return ""
         }()
         let url: String = resolvedBrowserURL
@@ -1643,7 +1648,7 @@ struct ToolLiveSheet: View {
     /// Browser text-only result: action + URL capsules + file-editor-style result card.
     private func browserTextResultContent(_ text: String) -> some View {
         let action: String = {
-            if case .browserTool(let a) = block.kind { return a }
+            if case .browserTool(let a) = block.kind { return BrowserAction.displayTitle(for: a) }
             return ""
         }()
         let url: String = resolvedBrowserURL
@@ -2618,7 +2623,7 @@ struct ToolLiveSheet: View {
 
     private var browserContent: some View {
         let action: String = {
-            if case .browserTool(let a) = block.kind { return a }
+            if case .browserTool(let a) = block.kind { return BrowserAction.displayTitle(for: a) }
             return ""
         }()
         let url: String = resolvedBrowserURL
@@ -2867,7 +2872,7 @@ struct ToolLiveSheet: View {
         case .fileReadTool(let p): return (p as NSString).lastPathComponent
         case .fileWriteTool(let p): return (p as NSString).lastPathComponent
         case .fileEditTool(let p): return (p as NSString).lastPathComponent
-        case .browserTool(let a): return a
+        case .browserTool(let a): return BrowserAction.displayTitle(for: a)
         case .readImageTool(let p): return (p as NSString).lastPathComponent
         case .memoryTool(let a): return a
         default: return ""
@@ -3270,7 +3275,7 @@ private struct ToolPreviewThumbnail: View {
         case .fileEditTool(let p):
             let name = (p as NSString).lastPathComponent
             return (!p.isEmpty && name != "/" && name.contains(".")) ? name : AppLocalized("Edit file")
-        case .browserTool(let a): return a
+        case .browserTool(let a): return BrowserAction.displayTitle(for: a)
         case .readImageTool(let p):
             let name = (p as NSString).lastPathComponent
             return (!p.isEmpty && name != "/" && name.contains(".")) ? name : AppLocalized("Read image")

@@ -28,6 +28,40 @@ enum BrowserAction: String, CaseIterable {
     case waitForDomStable = "wait_for_dom_stable"
 }
 
+extension BrowserAction {
+    var displayTitle: String {
+        switch self {
+        case .navigate: return AppLocalized("Navigating")
+        case .screenshot: return AppLocalized("Taking screenshot")
+        case .click: return AppLocalized("Clicking")
+        case .type: return AppLocalized("Typing")
+        case .secureInput: return AppLocalized("Secure input")
+        case .getText: return AppLocalized("Reading text")
+        case .scroll: return AppLocalized("Scrolling")
+        case .getPageInfo: return AppLocalized("Reading page info")
+        case .executeJS: return AppLocalized("Executing script")
+        case .findElements: return AppLocalized("Finding elements")
+        case .hover: return AppLocalized("Hovering")
+        case .getReadable: return AppLocalized("Reading page")
+        case .setUserAgent: return AppLocalized("Setting user agent")
+        case .setViewport: return AppLocalized("Setting viewport")
+        case .getBackbone: return AppLocalized("Reading page structure")
+        case .fetch: return AppLocalized("Downloading file")
+        case .newTab: return AppLocalized("Opening new tab")
+        case .closeTab: return AppLocalized("Closing tab")
+        case .listTabs: return AppLocalized("Viewing tabs")
+        case .getCookies: return AppLocalized("Reading cookies")
+        case .setCookies: return AppLocalized("Writing cookies")
+        case .scrollAndCollect: return AppLocalized("Scrolling and collecting")
+        case .waitForDomStable: return AppLocalized("Waiting for page")
+        }
+    }
+
+    static func displayTitle(for rawValue: String) -> String {
+        BrowserAction(rawValue: rawValue)?.displayTitle ?? rawValue
+    }
+}
+
 // MARK: - Browser Action Input
 
 struct BrowserActionInput {

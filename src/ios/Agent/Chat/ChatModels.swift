@@ -656,12 +656,12 @@ final class AssistantBlock: Identifiable, ObservableObject {
             }
             return "Shell command"
         case .browserTool(let action):
-            if !action.isEmpty { return action }
+            if !action.isEmpty { return BrowserAction.displayTitle(for: action) }
             if content.hasPrefix("Browser: ") {
                 let firstLine = content.prefix(while: { $0 != "\n" })
                 return String(firstLine.dropFirst(9))
             }
-            return "Browser action"
+            return AppLocalized("Browser action")
         case .fileReadTool(let path):
             let name = (path as NSString).lastPathComponent
             return (!path.isEmpty && name != "/" && name.contains(".")) ? name : "Read file"

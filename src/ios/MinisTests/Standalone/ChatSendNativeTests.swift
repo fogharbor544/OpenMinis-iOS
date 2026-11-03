@@ -62,15 +62,11 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     var isAnimatingScrollToBottom=false
     var lastJumpedUserId:UUID?
     var composerShrinkAbsorbDeadline:CFTimeInterval=0
-    var isScrolling=false
-    var isAwayFromBottom=false
-    var isUserBrowsing=false
     var snapshotDepth=0
     var maxSnapshotDepth=0
     var applied=0
     var rejectedReentry=0
     var forceReentry=false
-    var jumps=0
     var coalescedScrollWork: DispatchWorkItem?
     var layout:MessageListLayout? { collectionView?.collectionViewLayout as? MessageListLayout }
     init(collectionView:UICollectionView,vm:VM) {
@@ -120,7 +116,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         while signal.wait(timeout:.now()) == .timedOut { await Task.yield() }
         return count
     }
-    func applySnapshot(messages:[Int],caller:String="fixture",positioningLatest:Bool=false) {
+    func applySnapshot(messages:[Int],caller:String="fixture") {
         guard let vm=viewModel,!vm.isLoadingSession else { return }
         SHIPPING_SNAPSHOT_GUARD
         vm.events.append("snapshot:"+caller)

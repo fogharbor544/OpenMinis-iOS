@@ -99,7 +99,15 @@ extension AIChatViewModel {
             }
             let evidence = args["evidence"] as? String ?? ""
             let category = args["category"] as? String ?? "fact"
-            guard ["preference", "fact", "convention", "experience"].contains(category) else { throw BotMemoryError.invalid("Invalid memory category.") }
+            let eventKind = args["event_kind"] as? String
+            guard ["preference", "fact", "convention", "experience", "event"].contains(category) else { throw BotMemoryError.invalid("Invalid memory category.") }
+            if category == "event" {
+                guard ["decision", "delivery", "verification"].contains(eventKind ?? "") else {
+                    throw BotMemoryError.invalid("Event memories require event_kind to be decision, delivery or verification.")
+                }
+            } else if eventKind != nil {
+                throw BotMemoryError.invalid("event_kind is valid only for event memories.")
+            }
             guard action != "replace" || (explicit && args["entry_id"] as? String != nil) else { throw BotMemoryError.invalid("Ask the user before replacing a memory and provide its entry ID.") }
             let store = BotMemoryStore.shared
             // An old explicitly-worded message replayed after deletion is still old evidence.
@@ -109,6 +117,7 @@ extension AIChatViewModel {
             let draft = BotMemoryEntry(owner: owner.memoryKey, content: content, category: category,
                 scope: args["scope"] as? String ?? "general", sourceSession: sessionId, sourceMessage: source?.id,
                 evidence: evidence, automatic: !explicit)
+            draft.eventKind = eventKind
             let entry = try store.save(draft, replacing: action == "replace" ? args["entry_id"] as? String : nil, userInitiated: explicit)
             botMemoryReviewedSourceID = source?.id
             return FileToolResult(output: "Remembered [\(entry.id)]: \(entry.content)\nUndo: open this Bot/group's Memory page and delete this entry.", success: true)

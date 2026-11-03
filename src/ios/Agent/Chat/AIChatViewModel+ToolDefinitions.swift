@@ -145,11 +145,12 @@ extension AIChatViewModel {
                     "action": AgentToolParam(type: .string, description: "Operation; defaults to save when omitted.", enumValues: ["save", "replace", "forget"]),
                     "content": AgentToolParam(type: .string, description: "Concise factual summary, up to 2000 characters. Required for save/replace."),
                     "evidence": AgentToolParam(type: .string, description: "Optional source or provenance; a verbatim user quote is not required. Never include secrets."),
-                    "category": AgentToolParam(type: .string, description: "Memory category.", enumValues: ["preference", "fact", "convention", "experience"]),
+                    "category": AgentToolParam(type: .string, description: "Memory category. Use event for significant decisions, deliveries or verification reports.", enumValues: ["preference", "fact", "convention", "experience", "event"]),
+                    "event_kind": AgentToolParam(type: .string, description: "Required only when category is event.", enumValues: ["decision", "delivery", "verification"]),
                     "scope": AgentToolParam(type: .string, description: "Stable applicability/topic, e.g. writing style or project X language. Reuse the same scope when correcting a fact."),
                     "intent": AgentToolParam(type: .string, description: "Explicit user request or proactive automatic save.", enumValues: ["explicit", "automatic"]),
                     "entry_id": AgentToolParam(type: .string, description: "Existing owned entry ID, required for replace/forget.")
-                ], required: ["tool_title"], propertyOrdering: ["tool_title", "action", "content", "evidence", "category", "scope", "intent", "entry_id"]
+                ], required: ["tool_title"], propertyOrdering: ["tool_title", "action", "content", "evidence", "category", "event_kind", "scope", "intent", "entry_id"]
             ))
             tools.append(AgentToolDefinition(
                 name: "memory_get", description: "Retrieve a bounded set of entries owned by this Bot/group or explicitly shared with it. Private Bot memory is excluded from groups. Current user instructions take priority.",

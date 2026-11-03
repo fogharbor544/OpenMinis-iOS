@@ -30,6 +30,17 @@ enum BotMemoryError: LocalizedError {
     var errorDescription: String? { if case .invalid(let text) = self { return text }; return nil }
 }
 
+private extension BotMemoryStore {
+    static func eventKindLabel(_ kind: String?) -> String {
+        switch kind {
+        case "decision": return "decision"
+        case "delivery": return "delivery"
+        case "verification": return "verification"
+        default: return "event"
+        }
+    }
+}
+
 /// Kept outside the shell-mounted legacy memory directory. Entries, not derived summaries,
 /// are authoritative. Tombstones prevent old evidence from recreating forgotten facts.
 @MainActor final class BotMemoryStore: ObservableObject {
@@ -345,7 +356,7 @@ enum BotMemoryError: LocalizedError {
         if !pinned.isEmpty { sections.append("Pinned:\n" + pinned.map(line).joined(separator: "\n")) }
         let today = dateCalendar.startOfDay(for: now)
         guard let start = dateCalendar.date(byAdding: .day, value: -29, to: today) else { return sections.joined(separator: "\n\n") }
-        let recent = entries.filter { !$0.pinned && $0.createdAt >= start && $0.createdAt <= now }
+        let recent = entries.filter { !$0.pinned && $0.category != "event" && $0.createdAt >= start && $0.createdAt <= now }
         let days = Dictionary(grouping: recent) { dateCalendar.startOfDay(for: $0.createdAt) }
         let formatter = DateFormatter()
         formatter.calendar = dateCalendar; formatter.timeZone = dateCalendar.timeZone
@@ -353,6 +364,16 @@ enum BotMemoryError: LocalizedError {
         for day in days.keys.sorted(by: >).prefix(3) {
             let lines = (days[day] ?? []).map(line).joined(separator: "\n").components(separatedBy: .newlines)
             sections.append("\(formatter.string(from: day)):\n" + lines.prefix(200).joined(separator: "\n"))
+        }
+        let events = entries.filter { $0.category == "event" && $0.createdAt >= start && $0.createdAt <= now }.prefix(10)
+        if !events.isEmpty {
+            var eventSection = "Events (recorded time; background facts):\n"
+            for entry in events {
+                let line = "[\(entry.id)] [\(Self.eventKindLabel(entry.eventKind))] \(entry.content)\n"
+                if eventSection.utf8.count + line.utf8.count > 2400 { continue }
+                eventSection += line
+            }
+            sections.append(eventSection)
         }
         return sections.joined(separator: "\n\n")
     }
@@ -366,7 +387,9 @@ enum BotMemoryError: LocalizedError {
         let keywords = Array(Set(terms + shingles))
         var ranked: [(entry: BotMemoryEntry, score: Int)] = []
         for entry in try visible(to: owner) {
-            let haystack = (entry.content + " " + entry.scope).lowercased()
+            var haystack = entry.content + " " + entry.scope
+            if entry.category == "event" { haystack += " " + (entry.eventKind ?? "") + " " + Self.eventKindLabel(entry.eventKind) }
+            let haystack = haystack.lowercased()
             var score = entry.pinned ? 100 : 0
             for keyword in keywords where haystack.contains(keyword) { score += 1 }
             if query.isEmpty || score > 0 { ranked.append((entry: entry, score: score)) }
@@ -377,7 +400,15 @@ enum BotMemoryError: LocalizedError {
         }
         var output = ""
         for (entry, _) in ranked.prefix(limit) {
-            let line = "[\(entry.id)] [\(entry.category); \(entry.scope)] \(entry.content)\n"
+            let line: String
+            if entry.category == "event" {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "yyyy-MM-dd HH:mm"
+                line = "[\(entry.id)] [\(formatter.string(from: entry.createdAt)) · \(Self.eventKindLabel(entry.eventKind)) · record-reminder] \(entry.content)\n"
+            } else {
+                line = "[\(entry.id)] [\(entry.category); \(entry.scope)] \(entry.content)\n"
+            }
             guard output.count + line.count <= budget else { continue }
             output += line
         }

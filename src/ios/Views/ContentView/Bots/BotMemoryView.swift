@@ -47,8 +47,19 @@ struct BotMemoryView: View {
                         Button("开始编写") { editing = true }.frame(minHeight: 44).disabled(!available)
                     }
                 } else {
-                    highlighted(document).font(.body).lineSpacing(6).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(owned.filter { $0.category == "event" }, id: \.id) { entry in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(eventPresentation(entry)).font(.caption).foregroundStyle(.secondary)
+                                highlighted(entry.content).font(.body).lineSpacing(6).textSelection(.enabled)
+                            }
+                        }
+                        if owned.contains(where: { $0.category != "event" }) {
+                            highlighted(BotMemoryStore.documentText(owned.filter { $0.category != "event" }))
+                                .font(.body).lineSpacing(6).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 }
                 if !shared.isEmpty {
                     Divider()
@@ -106,6 +117,20 @@ struct BotMemoryView: View {
             start = range.upperBound
         }
         return result + Text(String(text[start...]))
+    }
+
+    private func eventPresentation(_ entry: BotMemoryEntry) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let kind: String
+        switch entry.eventKind {
+        case "decision": kind = "决定"
+        case "delivery": kind = "交付"
+        case "verification": kind = "验证"
+        default: kind = "事件"
+        }
+        return "记录时间 \(formatter.string(from: entry.createdAt)) · \(kind)"
     }
 
     private func sharedSourceName(_ owner: String) -> String {

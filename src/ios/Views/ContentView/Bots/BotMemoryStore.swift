@@ -21,6 +21,8 @@ struct BotMemoryEntry: Identifiable, Codable, Equatable {
     var fingerprint = ""
     var replaces: String?
     var documentOrder: Int? = nil
+    var eventKind: String? = nil
+    var sourceAssistantMessageID: String? = nil
 }
 
 enum BotMemoryError: LocalizedError {
@@ -128,21 +130,39 @@ enum BotMemoryError: LocalizedError {
         var entry = draft
         entry.content = entry.content.trimmingCharacters(in: .whitespacesAndNewlines)
         entry.scope = entry.scope.trimmingCharacters(in: .whitespacesAndNewlines)
+        let eventKinds: Set<String> = ["decision", "delivery", "verification"]
+        let isEvent = entry.category == "event"
+        guard (isEvent && entry.eventKind.map(eventKinds.contains) == true) ||
+              (!isEvent && entry.eventKind == nil) else {
+            throw BotMemoryError.invalid("Events require a valid event kind; other memories cannot include one.")
+        }
         guard !entry.owner.isEmpty, !entry.content.isEmpty, entry.content.count <= 2000,
               !entry.scope.isEmpty, entry.scope.count <= 160, entry.evidence.count <= 2000,
-              ["preference", "fact", "convention", "experience"].contains(entry.category),
+              ["preference", "fact", "convention", "experience", "event"].contains(entry.category),
               !Self.containsSecret(entry.content), !Self.containsSecret(entry.scope), !Self.containsSecret(entry.evidence)
         else { throw BotMemoryError.invalid("Use one concise memory without passwords, codes or secrets (up to 2000 characters; scope up to 160).") }
         entry.fingerprint = Self.fingerprint(entry.content)
         let all = try entries().filter { $0.owner == entry.owner }
-        if let duplicate = all.first(where: { $0.id != id && $0.status == "active" && $0.fingerprint == entry.fingerprint && $0.scope == entry.scope }) {
-            guard id == nil else { throw BotMemoryError.invalid("An identical memory already exists. Delete the obsolete entry instead of creating a duplicate correction.") }
-            return duplicate
+        if isEvent {
+            func sameTurnEvent(_ old: BotMemoryEntry) -> Bool {
+                old.category == "event" && old.eventKind == entry.eventKind &&
+                old.sourceSession == entry.sourceSession && old.sourceMessage == entry.sourceMessage &&
+                old.fingerprint == entry.fingerprint
+            }
+            if let duplicate = all.first(where: { $0.id != id && $0.status == "active" && sameTurnEvent($0) }) { return duplicate }
+            if !userInitiated, all.contains(where: { $0.status != "active" && sameTurnEvent($0) }) {
+                throw BotMemoryError.invalid("This source event was forgotten/replaced. Only an explicit user action can save it again.")
+            }
+        } else {
+            if let duplicate = all.first(where: { $0.id != id && $0.category != "event" && $0.status == "active" && $0.fingerprint == entry.fingerprint && $0.scope == entry.scope }) {
+                guard id == nil else { throw BotMemoryError.invalid("An identical memory already exists. Delete the obsolete entry instead of creating a duplicate correction.") }
+                return duplicate
+            }
+            if !userInitiated, all.contains(where: {
+                $0.category != "event" && $0.status != "active" && ($0.fingerprint == entry.fingerprint ||
+                    (entry.sourceMessage != nil && $0.sourceMessage == entry.sourceMessage && $0.sourceSession == entry.sourceSession))
+            }) { throw BotMemoryError.invalid("This memory or its source was forgotten/replaced. Only an explicit user action can save it again.") }
         }
-        if !userInitiated, all.contains(where: {
-            $0.status != "active" && ($0.fingerprint == entry.fingerprint ||
-                (entry.sourceMessage != nil && $0.sourceMessage == entry.sourceMessage && $0.sourceSession == entry.sourceSession))
-        }) { throw BotMemoryError.invalid("This memory or its source was forgotten/replaced. Only an explicit user action can save it again.") }
         var previous: BotMemoryEntry?
         if let id {
             guard userInitiated, let old = all.first(where: { $0.id == id && $0.status == "active" }) else {

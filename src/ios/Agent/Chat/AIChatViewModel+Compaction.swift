@@ -1821,13 +1821,15 @@ extension AIChatViewModel {
         - Important constraints, rules, or user preferences mentioned
         - Any tool calls and their results that affect current state
 
-        STRUCTURE:
-        1. Start with a one-line description of what the conversation was about (use past tense — \
-           "User asked X, agent did Y", NOT "Goal: X").
-        2. Then a concise narrative of what happened, preserving technical details.
-        3. End with a "What had been done so far" section listing completed work — NOT a "todo" \
-           or "pending" list. Do not invent ongoing objectives or carry-over tasks from old turns; \
-           if the user wants to continue, they will say so in their next message.
+        STRUCTURE (all sections must use the exact headings below):
+        1. "Checkpoint through: <last compacted message>" — describes the cutoff, not the future.
+        2. "Current work" — current task, scope, constraints, files/paths/URLs, and next step only \
+           if still explicitly open. Mark unknowns as unknown.
+        3. "Done" — completed work and verification evidence, recorded as past events.
+        4. "Open items" — only items explicitly left unfinished or blocked. Write "None" when empty.
+        5. "Decisions" — effective decisions and their rationale; mark replaced decisions as superseded.
+        Do not invent ongoing objectives or carry-over tasks from old turns; if the user wants to \
+        continue, they will say so in their next message.
 
         PRIORITIZE recent context over older history — recent decisions and recent file/path \
         references are most useful for continuity.

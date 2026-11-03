@@ -73,16 +73,24 @@ import Foundation
         oldPinned.createdAt = dates.date(byAdding: .day, value: -90, to: now)!
         oldPinned.pinned = true
         _ = try store.save(oldPinned)
-        let recent = try store.recentContext(owner: "bot:recent", now: now, dateCalendar: dates)
-        precondition(recent.contains("Pinned convention") && recent.contains("Project note day 4"))
-        precondition(!recent.contains("Project note day 6") && !recent.contains("Project note day 31"))
+        let recent = try store.longTermRuleContext(owner: "bot:recent")
+        precondition(recent.contains("Pinned convention"))
+        precondition(!recent.contains("Project note day 4") && !recent.contains("Project note day 6") && !recent.contains("Project note day 31"))
         precondition(!recent.contains("First fact"))
+        func makeDatedEvent(_ text: String, kind: String, daysAgo: Int) -> BotMemoryEntry {
+            var entry = makeEvent(text, kind: kind, source: "event-order-\(daysAgo)")
+            entry.createdAt = dates.date(byAdding: .day, value: -daysAgo, to: now)!
+            entry.updatedAt = entry.createdAt
+            return entry
+        }
+        _ = try store.save(makeDatedEvent("November 3 event", kind: "decision", daysAgo: 1))
+        _ = try store.save(makeDatedEvent("November 4 event", kind: "decision", daysAgo: 0))
         var longNote = make("bot:lines", (0..<250).map { "L\($0)" }.joined(separator: "\n"))
         longNote.createdAt = now
         // Store content limit remains enforced, so use short lines for the daily cap test.
         _ = try store.save(longNote)
-        let clipped = try store.recentContext(owner: "bot:lines", now: now, dateCalendar: dates)
-        precondition(clipped.contains("L199") && !clipped.contains("L200"))
+        let clipped = try store.longTermRuleContext(owner: "bot:lines")
+        precondition(clipped.isEmpty)
 
         // Event records are scoped milestones, not ordinary fingerprint-deduplicated notes.
         func makeEvent(_ text: String, kind: String?, source: String, assistant: String? = nil) -> BotMemoryEntry {
@@ -119,12 +127,21 @@ import Foundation
         injectedEvent.updatedAt = now
         injectedEvent.pinned = true
         _ = try store.save(injectedEvent)
-        let eventContext = try store.recentContext(owner: "bot:event", now: now, dateCalendar: dates)
-        precondition(eventContext.contains("Injected decision") && eventContext.contains("Pinned:"))
+        let eventContext = try store.longTermRuleContext(owner: "bot:event")
+        precondition(eventContext.contains("Injected decision") && eventContext.contains("Long-term rules:"))
         precondition(eventContext.components(separatedBy: "\n").filter { $0.contains("Injected decision") }.count == 1)
         precondition(!eventContext.contains("Events (recorded"))
+        precondition(!eventContext.contains("Project note day"))
+        precondition(!eventContext.contains("November 3 event") && !eventContext.contains("November 4 event"))
+        let rulesContext = try store.longTermRuleContext(owner: "bot:recent")
+        precondition(!rulesContext.contains("Project note day"), "Unpinned automatic notes must not be always-injected")
+        let eventRecallOrder = try store.recall(owner: "bot:event", query: "")
+        let newestRange = eventRecallOrder.range(of: "November 4 event")
+        let olderEventRange = eventRecallOrder.range(of: "November 3 event")
+        precondition(newestRange != nil && olderEventRange != nil && newestRange!.lowerBound < olderEventRange!.lowerBound,
+                      "Event memory must be retrieved newest first")
         let eventRecall = try store.recall(owner: "bot:event", query: "交付")
         precondition(eventRecall.contains("· delivery/交付 ·"))
-        print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, multiple same-scope notes, date-based injection, line limits and secret refusal")
+        print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, multiple same-scope notes, rule injection, on-demand history and secret refusal")
     }
 }

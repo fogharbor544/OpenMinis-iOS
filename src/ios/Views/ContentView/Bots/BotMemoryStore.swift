@@ -370,9 +370,10 @@ private extension BotMemoryStore {
         revision += 1
     }
 
-    /// Match the original daily-log injection without reopening shared Markdown storage.
-    /// Visibility is resolved first, so date grouping cannot leak private Bot memories.
-    func recentContext(owner: String, now: Date = Date(), dateCalendar: Calendar = .current) throws -> String {
+    /// Always-injected memory contains only explicit long-term rules. Facts and events
+    /// are retrieved on demand by `recall`. Visibility is resolved first, so grouping
+    /// cannot leak private Bot memories.
+    func longTermRuleContext(owner: String) throws -> String {
         let entries = try visible(to: owner).sorted {
             if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
             return $0.id < $1.id
@@ -380,34 +381,14 @@ private extension BotMemoryStore {
         func line(_ entry: BotMemoryEntry) -> String {
             "[\(entry.id)] [\(entry.category); \(entry.scope)] \(entry.content)"
         }
-        var sections: [String] = []
-        let pinned = entries.filter(\.pinned)
-        if !pinned.isEmpty { sections.append("Pinned:\n" + pinned.map(line).joined(separator: "\n")) }
-        let today = dateCalendar.startOfDay(for: now)
-        guard let start = dateCalendar.date(byAdding: .day, value: -29, to: today) else { return sections.joined(separator: "\n\n") }
-        let recent = entries.filter { !$0.pinned && $0.category != "event" && $0.createdAt >= start && $0.createdAt <= now }
-        let days = Dictionary(grouping: recent) { dateCalendar.startOfDay(for: $0.createdAt) }
-        let formatter = DateFormatter()
-        formatter.calendar = dateCalendar; formatter.timeZone = dateCalendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
-        for day in days.keys.sorted(by: >).prefix(3) {
-            let lines = (days[day] ?? []).map(line).joined(separator: "\n").components(separatedBy: .newlines)
-            sections.append("\(formatter.string(from: day)):\n" + lines.prefix(200).joined(separator: "\n"))
+        var ruleSection = "Long-term rules (explicit user preferences):\n"
+        for entry in entries.filter({ $0.pinned && !$0.automatic }).prefix(10) {
+            let ruleLine = line(entry)
+            if ruleSection.count + ruleLine.count > 1600 { break }
+            ruleSection += ruleLine + "\n"
         }
-        let events = entries.filter { $0.category == "event" && $0.pinned != true && $0.createdAt >= start && $0.createdAt <= now }.prefix(10)
-        if !events.isEmpty {
-            var eventSection = "Events (recorded time; background facts):\n"
-            for entry in events {
-                let formatter = DateFormatter()
-                formatter.calendar = dateCalendar; formatter.timeZone = dateCalendar.timeZone
-                formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd HH:mm"
-                let line = "[\(entry.id)] [\(formatter.string(from: entry.createdAt)) · \(Self.eventKindLabel(entry.eventKind))] \(entry.content)\n"
-                if eventSection.count + line.count > 2400 { continue }
-                eventSection += line
-            }
-            sections.append(eventSection)
-        }
-        return sections.joined(separator: "\n\n")
+        return ruleSection.count > "Long-term rules (explicit user preferences):\n".count
+            ? String(ruleSection.dropLast()) : ""
     }
 
     func recall(owner: String, query: String, limit: Int = 8, budget: Int = 4000) throws -> String {
@@ -428,6 +409,10 @@ private extension BotMemoryStore {
         }
         ranked.sort { left, right in
             if left.score != right.score { return left.score > right.score }
+            if left.entry.category == "event" && right.entry.category == "event",
+               left.entry.createdAt != right.entry.createdAt {
+                return left.entry.createdAt > right.entry.createdAt
+            }
             return left.entry.updatedAt > right.entry.updatedAt
         }
         var output = ""

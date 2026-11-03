@@ -33,9 +33,9 @@ enum BotMemoryError: LocalizedError {
 private extension BotMemoryStore {
     static func eventKindLabel(_ kind: String?) -> String {
         switch kind {
-        case "decision": return "decision"
-        case "delivery": return "delivery"
-        case "verification": return "verification"
+        case "decision": return "decision/决定"
+        case "delivery": return "delivery/交付"
+        case "verification": return "verification/验证"
         default: return "event"
         }
     }
@@ -160,7 +160,12 @@ private extension BotMemoryStore {
                 old.sourceSession == entry.sourceSession && old.sourceMessage == entry.sourceMessage &&
                 old.fingerprint == entry.fingerprint
             }
-            if let duplicate = all.first(where: { $0.id != id && $0.status == "active" && sameTurnEvent($0) }) { return duplicate }
+            if let duplicate = all.first(where: { $0.id != id && $0.status == "active" && sameTurnEvent($0) }) {
+                guard id == nil else { throw BotMemoryError.invalid("An identical event already exists. Delete the obsolete entry instead of creating a duplicate correction.") }
+                var updated = duplicate
+                if updated.sourceAssistantMessageID == nil { updated.sourceAssistantMessageID = entry.sourceAssistantMessageID; try write(updated) }
+                return updated
+            }
             if !userInitiated, all.contains(where: { $0.status != "active" && sameTurnEvent($0) }) {
                 throw BotMemoryError.invalid("This source event was forgotten/replaced. Only an explicit user action can save it again.")
             }
@@ -297,7 +302,19 @@ private extension BotMemoryStore {
                 let boundary = remaining.range(of: "\n\n")?.lowerBound ?? remaining.endIndex
                 let paragraph = String(remaining[..<boundary]).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard paragraph.count <= 2000 else { throw BotMemoryError.invalid("有一段内容超过2000字，请用空行分段后保存。") }
+                let eventMatch = current.first { entry in
+                    guard entry.category == "event", !entry.content.isEmpty else { return false }
+                    let old = Array(entry.content), next = Array(paragraph)
+                    let common = zip(old, next).prefix { $0 == $1 }.count
+                    return common >= 2 && abs(old.count - next.count) <= 2 &&
+                        min(old.count, next.count) - common <= 2
+                }
                 var entry = BotMemoryEntry(owner: owner, content: paragraph, category: "fact", scope: "general", evidence: "Edited by user")
+                if let old = eventMatch {
+                    entry = old
+                    entry.content = paragraph
+                    entry.fingerprint = Self.fingerprint(paragraph)
+                }
                 entry.fingerprint = Self.fingerprint(paragraph)
                 entry.documentOrder = result.count
                 result.append(entry)
@@ -365,12 +382,15 @@ private extension BotMemoryStore {
             let lines = (days[day] ?? []).map(line).joined(separator: "\n").components(separatedBy: .newlines)
             sections.append("\(formatter.string(from: day)):\n" + lines.prefix(200).joined(separator: "\n"))
         }
-        let events = entries.filter { $0.category == "event" && $0.createdAt >= start && $0.createdAt <= now }.prefix(10)
+        let events = entries.filter { $0.category == "event" && $0.pinned != true && $0.createdAt >= start && $0.createdAt <= now }.prefix(10)
         if !events.isEmpty {
             var eventSection = "Events (recorded time; background facts):\n"
             for entry in events {
-                let line = "[\(entry.id)] [\(Self.eventKindLabel(entry.eventKind))] \(entry.content)\n"
-                if eventSection.utf8.count + line.utf8.count > 2400 { continue }
+                let formatter = DateFormatter()
+                formatter.calendar = dateCalendar; formatter.timeZone = dateCalendar.timeZone
+                formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd HH:mm"
+                let line = "[\(entry.id)] [\(formatter.string(from: entry.createdAt)) · \(Self.eventKindLabel(entry.eventKind))] \(entry.content)\n"
+                if eventSection.count + line.count > 2400 { continue }
                 eventSection += line
             }
             sections.append(eventSection)
@@ -389,7 +409,7 @@ private extension BotMemoryStore {
         for entry in try visible(to: owner) {
             var haystack = entry.content + " " + entry.scope
             if entry.category == "event" { haystack += " " + (entry.eventKind ?? "") + " " + Self.eventKindLabel(entry.eventKind) }
-            let haystack = haystack.lowercased()
+            haystack = haystack.lowercased()
             var score = entry.pinned ? 100 : 0
             for keyword in keywords where haystack.contains(keyword) { score += 1 }
             if query.isEmpty || score > 0 { ranked.append((entry: entry, score: score)) }

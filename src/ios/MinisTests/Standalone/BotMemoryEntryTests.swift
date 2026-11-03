@@ -111,16 +111,18 @@ import Foundation
         } catch is BotMemoryError {}
         let eventReload = BotMemoryStore(fileURL: file)
         try check(try eventReload.visible(to: "bot:event").contains { $0.id == delivery.id && $0.eventKind == "delivery" })
-        let legacyJSON = Data(#"{"id":"legacy-1","owner":"legacy:old","content":"Old row","category":"fact","scope":"legacy","evidence":""}"#.utf8)
+        let legacyJSON = Data(#"{"id":"legacy-1","owner":"legacy:old","content":"Old row","category":"fact","scope":"legacy","evidence":"","createdAt":0,"updatedAt":0,"status":"active","automatic":false,"pinned":false,"grants":[],"fingerprint":"legacy"}"#.utf8)
         let legacyEntry = try JSONDecoder().decode(BotMemoryEntry.self, from: legacyJSON)
         precondition(legacyEntry.eventKind == nil && legacyEntry.sourceAssistantMessageID == nil)
         var injectedEvent = makeEvent("Injected decision", kind: "decision", source: "inject")
         injectedEvent.createdAt = now
         injectedEvent.updatedAt = now
+        injectedEvent.pinned = true
         _ = try store.save(injectedEvent)
         let eventContext = try store.recentContext(owner: "bot:event", now: now, dateCalendar: dates)
-        precondition(eventContext.contains("Events:") && eventContext.contains("Injected decision"))
-        precondition(eventContext.components(separatedBy: "Events:")[0].range(of: "Injected decision") == nil)
+        precondition(eventContext.contains("Injected decision") && eventContext.contains("Pinned:"))
+        precondition(eventContext.components(separatedBy: "\n").filter { $0.contains("Injected decision") }.count == 1)
+        precondition(!eventContext.contains("Events (recorded"))
         let eventRecall = try store.recall(owner: "bot:event", query: "交付")
         precondition(eventRecall.contains("· delivery ·"))
         print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, multiple same-scope notes, date-based injection, line limits and secret refusal")

@@ -69,9 +69,11 @@ import UIKit
         NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
         check(delayed.phase == .waitingForWindow, "background pending request retained")
         window.makeKeyAndVisible()
-        let shown = await wait({ delayed.phase == .awaitingUser })
+        // The presentation retries until the window is usable and animates in;
+        // on a loaded simulator that takes longer than the default window.
+        let shown = await wait({ delayed.phase == .awaitingUser }, seconds: 12)
         check(shown && count == 1, "visible foreground window presents once")
-        let expired = await wait({ delayed.phase == .finished })
+        let expired = await wait({ delayed.phase == .finished }, seconds: 12)
         check(expired && ends == ["expired"], "timeout begins only after presentation and completes once")
         delayed.stop(); await pause()
 

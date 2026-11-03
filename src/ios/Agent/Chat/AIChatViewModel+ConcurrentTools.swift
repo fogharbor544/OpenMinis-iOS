@@ -745,17 +745,13 @@ extension AIChatViewModel {
             }
 
             if browserTakeoverActive && !isSecureInput && !browserTabPool.hasSecureInput {
-                if let freshResult = await waitForMidActionTakeover() {
-                    let originalText = browserResult.text
-                    let takeoverNote = "\n[Browser takeover] User manually operated the browser. Screenshot updated."
-                    browserResult = BrowserActionResult(
-                        text: originalText + takeoverNote,
-                        success: browserResult.success,
-                        base64Image: freshResult.base64Image,
-                        imageFilePath: freshResult.imageFilePath,
-                        pageURL: freshResult.pageURL ?? browserResult.pageURL
-                    )
-                }
+                browserResult = BrowserActionResult(
+                    text: browserResult.text + "\n[Browser takeover] User manually operated the browser. Do not issue a new browser action until they end takeover.",
+                    success: browserResult.success,
+                    base64Image: browserResult.base64Image,
+                    imageFilePath: browserResult.imageFilePath,
+                    pageURL: browserResult.pageURL
+                )
             }
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
                 messages[msgIdx].blocks[blockIdx].content = browserResult.text

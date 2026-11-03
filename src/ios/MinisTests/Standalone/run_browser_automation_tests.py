@@ -29,6 +29,15 @@ def sources():
     admission = section(pool, "        guard !isUserTakeoverActive, generation == takeoverGeneration else {", "        executingActionCount += 1")
     control += "\n    func queuedAction(generation: UInt64) -> BrowserActionResult {\n" + admission + '\nreturn BrowserActionResult(text: "admitted")\n}\n'
     control += "\nfunc generationForTest() -> UInt64 { takeoverGeneration }\nfunc setExecutingForTest(_ count: Int) { executingActionCount = count }\n"
+    sheet = (ROOT / "Agent/BrowserUse/BrowserSheetView.swift").read_text(encoding="utf-8")
+    agent_loop = (ROOT / "Agent/Chat/AIChatViewModel+AgentLoop.swift").read_text(encoding="utf-8")
+    # Must be updated together: this harness has no SwiftUI/ViewModel runtime, but a missing
+    # persistent control or a resumed loop-wait would rebuild the audited deadlocks.
+    assert "TakeoverControlOutsideAction" in sheet
+    assert "await waitIfBrowserTakeover()" not in agent_loop
+    background_task = (ROOT / "Agent/Chat/AIChatViewModel+BackgroundTask.swift").read_text(encoding="utf-8")
+    # The VM must not park loops or tools on the takeover gate; execution admission is the only wait point.
+    assert "browserTabPool.waitForUserTakeover()" not in background_task
     members = section(manager, "    private var userTakeoverRequested = false", "    private var secureCleanupNavigation")
     members += section(manager, "    private static let visualChangeActions:", "    private func requestSecureInput")
     members += section(manager, "    private func waitForDomSettleAndSnapshot(", "    /// Enrich navigate result")

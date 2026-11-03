@@ -1078,7 +1078,7 @@ extension AIChatViewModel {
     /// user-role entries that have NO bubble: pure tool_result carriers, the
     /// resume() stop-continue `<system-reminder>` message (see resume()), and
     /// the browser-takeover note (text + screenshot, AIChatViewModel+
-    /// BackgroundTask.waitIfBrowserTakeover). Counting those against the UI
+    /// and browser-takeover notes). Counting those against the UI
     /// bubble ordinal made retry/edit truncation anchor one user message too
     /// early — silently dropping the retried message plus the whole last turn,
     /// so the model "re-answered" the previous instruction instead.

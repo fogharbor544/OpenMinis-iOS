@@ -1984,4 +1984,20 @@ final class BrowserTabPool: ObservableObject {
             logger.error("Failed to persist browser preview: \(error.localizedDescription)")
         }
     }
+
+    /// Capture the visible top of the current page at a wide aspect ratio for
+    /// the Bot profile card. The regular agent screenshot is 390×844; fitting
+    /// that into a card leaves it too narrow to read.
+    func refreshProfilePreview(sessionId: String) async {
+        guard let manager = activeManager, !manager.isSecureInputActive else { return }
+        let configuration = WKSnapshotConfiguration()
+        let width = CGFloat(manager.currentViewport.width)
+        let height = min(CGFloat(manager.currentViewport.height), max(1, width * 0.625))
+        configuration.rect = CGRect(x: 0, y: 0, width: width, height: height)
+        if !manager.isSecureInputActive,
+           let image = try? await manager.webView.takeSnapshot(configuration: configuration) {
+            manager.lastScreenshot = image
+            persistPreviewIfChanged(sessionId: sessionId)
+        }
+    }
 }

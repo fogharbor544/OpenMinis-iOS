@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +41,7 @@ def sources():
     assert "browserTabPool.waitForUserTakeover()" not in background_task
     members = section(manager, "    private var userTakeoverRequested = false", "    private var secureCleanupNavigation")
     members += section(manager, "    private static let visualChangeActions:", "    private func requestSecureInput")
+    members += '\nfunc navigationForTest() { noteBatchBoundary("navigation") }\n'
     members += section(manager, "    private func waitForDomSettleAndSnapshot(", "    /// Enrich navigate result")
     members += "\nstruct JSEvalTimeout: Error {}\n"
     members += section(manager, "    private func callAsyncJavaScriptBounded(", "    private func navigationMetadata()")
@@ -88,6 +90,57 @@ console.log('PASS: 11 production DOM-observer JS assertions');
         subprocess.run(["node", str(path)], check=True, timeout=20)
 
 
+def cli_envelope_tests(temp):
+    """Exercise the actual Objective-C failure envelope and exit status on macOS."""
+    offloads = ROOT / "NativeOffloads"
+    handler = (offloads / "BrowserUseOffload.m").read_text(encoding="utf-8")
+    utils = (offloads / "NativeOffloadUtils.m").read_text(encoding="utf-8")
+    emit_result = section(handler, "static int browser_use_emit_result(", "static int browser_use_handler(")
+    emit_utils = utils[utils.index("NSDictionary *noff_json_envelope("):]
+    # The generic emitter ends immediately before the next section.
+    emit_utils = re.search(r"(?s)^.*?void noff_emit_json\(.*?\n}\n", emit_utils).group()
+    program = r"""
+#import <Foundation/Foundation.h>
+#include <unistd.h>
+#include <string.h>
+#define TOOL_NAME @"minis-browser-use"
+#define NOFF_ERR_INTERNAL_ERROR @"internal_error"
+#define NOFF_EXIT_SUCCESS 0
+#define NOFF_EXIT_ERROR 1
+static NSString *noff_format_date(NSDate *date) { return @"fixture"; }
+""" + emit_utils + emit_result + r"""
+int main(int argc, char **argv) {
+    @autoreleasepool {
+        BOOL quiet = strcmp(argv[1], "quiet") == 0;
+        BOOL ordinary = strcmp(argv[1], "ordinary") == 0;
+        NSMutableDictionary *result = [@{@"success": @NO, @"text": @"stopped"} mutableCopy];
+        if (!ordinary) {
+            result[@"tab_id"] = @2;
+            result[@"batch"] = @{@"completedSteps": @[@0], @"failedStep": @1, @"stopReason": @"stale_ref"};
+        }
+        return browser_use_emit_result(STDOUT_FILENO, ordinary ? @"click" : @"run", result, YES, quiet);
+    }
+}
+"""
+    source = temp / "browser-cli-envelope.m"
+    source.write_text(program, encoding="utf-8")
+    binary = temp / "browser-cli-envelope"
+    subprocess.run(["clang", "-fobjc-arc", "-framework", "Foundation", str(source), "-o", str(binary)], check=True, timeout=45)
+    for mode in ("full", "quiet", "ordinary"):
+        process = subprocess.run([str(binary), mode], capture_output=True, text=True, timeout=10)
+        assert process.returncode == 1, process.stderr
+        payload = json.loads(process.stdout)
+        if mode == "ordinary":
+            assert payload["ok"] is False and "data" not in payload
+        else:
+            if mode == "full":
+                assert payload["ok"] is False and payload["error"]["message"] == "stopped"
+                payload = payload["data"]
+            assert payload["tab_id"] == 2 and payload["success"] is False
+            assert payload["batch"] == {"completedSteps": [0], "failedStep": 1, "stopReason": "stale_ref"}
+    print("PASS: CLI partial result survives failure and quiet envelopes with nonzero exit")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--emit-swift", type=Path)
@@ -95,6 +148,8 @@ def main():
     args = parser.parse_args()
     manager, fixture = sources()
     observer_tests(manager)
+    js = ROOT / "Agent/BrowserUse/BrowserUseJavaScript.swift"
+    subprocess.run(["node", str(HERE / "browser_batch_behavior.cjs"), str(js)], check=True, timeout=20)
     if args.emit_swift:
         args.emit_swift.parent.mkdir(parents=True, exist_ok=True)
         args.emit_swift.write_text(fixture, encoding="utf-8")
@@ -111,6 +166,14 @@ def main():
         binary = temp / "automation-tests"
         subprocess.run([swiftc, "-swift-version", "5", "-parse-as-library", str(source), "-o", str(binary)], check=True, timeout=120)
         subprocess.run([str(binary), str(temp)], check=True, timeout=40)
+
+        if sys.platform == "darwin":
+            wk_binary = temp / "webkit-batch-tests"
+            actions = ROOT / "Agent/BrowserUse/BrowserUseActions.swift"
+            subprocess.run([swiftc, "-swift-version", "5", "-parse-as-library", str(actions), str(js),
+                            str(HERE / "BrowserBatchWebKitTests.swift"), "-o", str(wk_binary)], check=True, timeout=120)
+            subprocess.run([str(wk_binary)], check=True, timeout=40)
+            cli_envelope_tests(temp)
 
 
 if __name__ == "__main__":

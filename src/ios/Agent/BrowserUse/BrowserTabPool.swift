@@ -666,6 +666,7 @@ final class BrowserTabPool: ObservableObject {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else {
             return .error("No tab with id \(id)")
         }
+        tabs[idx].manager.noteBatchBoundary("tab_closed")
         tabs[idx].manager.secureInputSession?.finish("cancelled")
         // Don't save URL on explicit close — user intentionally closed it
         savedURLs.removeValue(forKey: id)
@@ -867,7 +868,13 @@ final class BrowserTabPool: ObservableObject {
         let manualGeneration = takeoverGeneration
         do {
             var result = try await executeInner(action: input, singleTab: singleTab, owner: owner)
-            if manualGeneration != takeoverGeneration {
+            if manualGeneration != takeoverGeneration, var batch = result.batchReport {
+                batch.stopReason = "takeover"
+                batch.observation = nil
+                let tabId = result.tabId
+                result = batch.result()
+                if let tabId { result = Self.stampTabId(result, targetId: tabId) }
+            } else if manualGeneration != takeoverGeneration {
                 result = BrowserActionResult(
                     text: result.text + "\n[Browser takeover] The user took control during this action. Its result may describe the earlier page; observe the current page before continuing. Do not blindly replay it.",
                     success: result.success, fetchedFileData: result.fetchedFileData,
@@ -877,7 +884,15 @@ final class BrowserTabPool: ObservableObject {
             // An already-running read can finish after a native login starts.
             if input.action != .secureInput,
                secureGeneration != BrowserUseManager.secureInteractionGeneration {
-                result = .error("此操作与安全输入重叠，结果已丢弃，请在安全输入完成后重试。")
+                if var batch = result.batchReport {
+                    batch.stopReason = "secure_input"
+                    batch.observation = nil
+                    let tabId = result.tabId
+                    result = batch.result()
+                    if let tabId { result = Self.stampTabId(result, targetId: tabId) }
+                } else {
+                    result = .error("此操作与安全输入重叠，结果已丢弃，请在安全输入完成后重试。")
+                }
             }
             BrowserResourceMonitor.shared.actionDidFinish(
                 diagId,
@@ -971,6 +986,8 @@ final class BrowserTabPool: ObservableObject {
                 return notYourTabError(requestedId, owner: owner)
             }
             targetId = requestedId
+        } else if let requestedId = input.tabId, input.batchRequest != nil {
+            return .error("No browser tab with id \(requestedId). Use list_tabs and observe the intended tab.")
         } else if let owner, !isPrivileged(owner), !explicitTabId {
             // An agent's implicit target: its own last tab, else a free tab it
             // owns, else a fresh tab within its quota — NEVER the chat's
@@ -979,6 +996,8 @@ final class BrowserTabPool: ObservableObject {
                 targetId = own
             } else if let free = tabs.first(where: { !$0.inUse && tabOwner[$0.id] == owner }) {
                 targetId = free.id
+            } else if input.batchRequest != nil {
+                return .error("No existing browser tab to observe. Navigate to a page first.")
             } else {
                 let created = newTab(url: nil, owner: owner)
                 guard let id = created.tabId else { return created }
@@ -993,6 +1012,9 @@ final class BrowserTabPool: ObservableObject {
             let probe = input.tabId ?? implicitDefault
             if preemptedTabIds.remove(probe) != nil {
                 return .error("Browser tab \(probe) was reclaimed under memory pressure (another session needed the slot). Please retry — the page URL has been saved and will be restored.")
+            }
+            if input.batchRequest != nil, !tabs.contains(where: { $0.id == implicitDefault }) {
+                return .error("No existing browser tab to observe. Navigate to a page first.")
             }
             targetId = tabs.contains(where: { $0.id == implicitDefault })
                 ? implicitDefault
@@ -1113,6 +1135,7 @@ final class BrowserTabPool: ObservableObject {
         // in-flight op on this SAME tab. On timeout, tell the model to open a
         // fresh tab instead of contending. This wait is independent of the
         // per-action browser timeout below (manager.execute), which is unchanged.
+        let tabManagerAtAdmission = tabs[idx].manager
         let serialWaitStart = CFAbsoluteTimeGetCurrent()
         guard let releaseSerialSlot = await acquireSerialSlot(tabId: targetId) else {
             let serialWaitMs = Int((CFAbsoluteTimeGetCurrent() - serialWaitStart) * 1000)
@@ -1144,6 +1167,9 @@ final class BrowserTabPool: ObservableObject {
         // Capture the manager reference before await — the tabs array may mutate
         // (e.g. closeTab / idle reclaim / registry preempt) while we're suspended.
         let manager = tabs[liveIdx].manager
+        if input.batchRequest != nil, manager !== tabManagerAtAdmission {
+            return .error("The requested tab was replaced while queued. Observe the current page before continuing.")
+        }
         guard !hasSecureInput else { return .error("安全输入正在进行，请稍后重试。") }
         let hostName = sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "当前会话"
         manager.secureInputRequester = isPrivileged(owner) ? hostName : hostName + "（通用子代理）"
@@ -1172,12 +1198,19 @@ final class BrowserTabPool: ObservableObject {
             // (a new tab gets its own WebContent process, verified responsive in
             // ~3ms). So on timeout we do exactly that and hand the model the new
             // tab id plus the reason, letting it decide whether to retry there.
-            var r = try await withDeadOnTimeout(
-                targetId: targetId,
-                action: input.action.rawValue,
-                url: input.url ?? manager.currentURL
-            ) {
-                try await manager.execute(action: input)
+            var r: BrowserActionResult
+            if input.batchRequest != nil {
+                // Every batch bridge is already bounded. Let cancellation
+                // reach its runner so it can return any partial progress.
+                r = try await manager.execute(action: input)
+            } else {
+                r = try await withDeadOnTimeout(
+                    targetId: targetId,
+                    action: input.action.rawValue,
+                    url: input.url ?? manager.currentURL
+                ) {
+                    try await manager.execute(action: input)
+                }
             }
             let managerMs = Int((CFAbsoluteTimeGetCurrent() - managerStart) * 1000)
             logger.info("[PoolTiming] manager_execute_done elapsed=\(managerMs)ms tab=\(targetId) action=\(input.action.rawValue)")
@@ -1186,6 +1219,11 @@ final class BrowserTabPool: ObservableObject {
             // produced as the final state. Consume the flag so the agent's
             // retry sails through.
             if preemptedTabIds.remove(targetId) != nil {
+                if var batch = r.batchReport {
+                    batch.stopReason = "tab_reclaimed"
+                    batch.observation = nil
+                    return Self.stampTabId(batch.result(), targetId: targetId)
+                }
                 return .error("Browser tab \(targetId) was reclaimed under memory pressure (another session needed the slot). Please retry — the page URL has been saved and will be restored.")
             }
             let pageURL = manager.webView.url?.absoluteString ?? manager.currentURL
@@ -1216,7 +1254,7 @@ final class BrowserTabPool: ObservableObject {
             if let dialogReport = manager.drainInterceptedDialogReport() {
                 r.text = dialogReport + r.text
             }
-            result = Self.stampTabId(r, targetId: targetId)
+            result = Self.stampTabId(r, targetId: targetId, forceText: input.batchRequest != nil)
         } catch let dead as ActionDeadTimeout {
             // [T-browser-bg-stuck-diag] The action blew past actionDeadTimeout
             // — or [T-browser-cli-timeout-reclaim] its caller gave up on it
@@ -1455,10 +1493,10 @@ final class BrowserTabPool: ObservableObject {
     /// style as the existing `Title:` / `Viewport:` lines. Idempotent — if
     /// the text already mentions `tab_id:` (e.g. `newTab` already embeds it
     /// in its narrative), skip the append. [T-ios-browser-result-tab-id]
-    private static func stampTabId(_ result: BrowserActionResult, targetId: Int) -> BrowserActionResult {
+    private static func stampTabId(_ result: BrowserActionResult, targetId: Int, forceText: Bool = false) -> BrowserActionResult {
         var r = result
         r.tabId = targetId
-        if !r.text.contains("tab_id:") {
+        if forceText || !r.text.contains("tab_id:") {
             // Append on its own indented line, matching the existing key:value
             // style. Adds a leading newline iff the text isn't empty and
             // doesn't already end with one.
@@ -1573,6 +1611,7 @@ final class BrowserTabPool: ObservableObject {
         if !url.isEmpty {
             savedURLs[id] = url
         }
+        tab.manager.noteBatchBoundary("tab_reclaimed")
         tab.manager.stopLoading()
         tabs.remove(at: idx)
         preemptedTabIds.insert(id)

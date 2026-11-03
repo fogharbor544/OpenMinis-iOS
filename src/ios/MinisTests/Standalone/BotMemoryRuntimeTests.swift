@@ -49,6 +49,27 @@ final class MemoryReviewProvider: AgentProvider {
     }
 }
 
+final class EventMemoryReviewProvider: AgentProvider {
+    let defaultMaxTokens = 2048
+    var calls = 0
+    func streamAgentMessage(messages: [AgentMessage], systemPrompt: String?, tools: [AgentToolDefinition],
+                            maxTokens: Int, thinkingLevel: ThinkingLevel) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        calls += 1
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.toolCallComplete(id: "event-1", name: "memory_write", args: [
+                "content": "决策：保持事件记忆作用域", "category": "event", "event_kind": "decision", "intent": "automatic", "scope": "memory-design"
+            ], metadata: nil))
+            continuation.yield(.toolCallComplete(id: "event-2", name: "memory_write", args: [
+                "content": "交付：事件记忆方案已接入", "category": "event", "event_kind": "delivery", "intent": "automatic", "scope": "memory-design"
+            ], metadata: nil))
+            continuation.yield(.toolCallComplete(id: "normal", name: "memory_write", args: [
+                "content": "偏好：事件摘要要短", "category": "preference", "intent": "automatic", "scope": "writing"
+            ], metadata: nil))
+            continuation.finish()
+        }
+    }
+}
+
 @MainActor final class AIChatViewModel {
     struct FileToolResult { let output: String; let success: Bool }
     struct Message {
@@ -77,6 +98,7 @@ final class MemoryReviewProvider: AgentProvider {
     var canResume = false
     var botMemoryReviewTask: Task<Void, Never>?
     var botMemoryReviewedSourceID: String?
+    var botMemoryEventReviewedSourceID: String?
     var transientNotice: String?
     var sessionInputTokens = 0, sessionOutputTokens = 0, sessionCacheReadTokens = 0, sessionCacheWriteTokens = 0
     func makeAgentTools() -> [AgentToolDefinition] {
@@ -199,6 +221,7 @@ actor ChatStore {
         precondition(!BotMemoryStore.shared.hasPendingReviews)
         vm.scheduleBotMemoryReview(provider: reviewer)
         precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 1, "One review per persisted user source")
+        precondition(vm.botMemoryEventReviewedSourceID == "review-source")
         vm.loadUser("The actual password is sensitive", rowID: "secret-source")
         vm.scheduleBotMemoryReview(provider: reviewer)
         precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 1)
@@ -211,6 +234,17 @@ actor ChatStore {
         let staleUsage = await ChatStore.shared.storedUsage("safe-review-source-assistant")
         precondition(staleUsage?.auxiliaryInputTokens == 10, "Already reported usage survives a stale source guard")
         reviewer.beforeResponse = nil
+        // Ordinary tool-written preferences must not make the final review skip an event.
+        vm.loadUser("Remember that summaries should stay short for event reviews", rowID: "event-review-source")
+        precondition(vm.executeBotMemoryWrite("{\"action\":\"save\",\"content\":\"偏好：事件摘要要短\",\"category\":\"preference\",\"intent\":\"explicit\",\"scope\":\"writing\"}").success)
+        let eventReviewer = EventMemoryReviewProvider()
+        vm.scheduleBotMemoryReview(provider: eventReviewer)
+        await vm.botMemoryReviewTask?.value
+        precondition(eventReviewer.calls == 1)
+        let eventRows = try BotMemoryStore.shared.visible(to: "bot:\(a.id)").filter { $0.category == "event" }
+        precondition(eventRows.filter { $0.sourceMessage == "event-review-source" }.count == 1)
+        precondition(try BotMemoryStore.shared.visible(to: "bot:\(a.id)").contains { $0.content == "偏好：事件摘要要短" && $0.sourceMessage == "event-review-source" })
+        precondition(vm.botMemoryEventReviewedSourceID == "event-review-source")
         vm.helperConfig = "specialist"
         vm.scheduleBotMemoryReview(provider: reviewer)
         precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 2)

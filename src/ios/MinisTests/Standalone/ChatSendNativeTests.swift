@@ -68,7 +68,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     var rejectedReentry=0
     var forceReentry=false
     var coalescedScrollWork: DispatchWorkItem?
-    var contentSizeObservation: NSKeyValueObservation?
+    var lastPinnedHeight: CGFloat = 0
     var layout:MessageListLayout? { collectionView?.collectionViewLayout as? MessageListLayout }
     init(collectionView:UICollectionView,vm:VM) {
         self.collectionView=collectionView;self.viewModel=vm;self.viewController=FixtureSurface(collectionView)
@@ -89,19 +89,6 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             return cell
         }
         vm.onResume={ [weak self] in self?.scheduleSnapshotFlush(caller:"resume") }
-        // The shipping coordinator observes the collection view's content size
-        // and re-pins while the list auto-scrolls, so a tail cell that learns
-        // its height after the apply still ends at the bottom. Mirror that
-        // here — without it the fixture settles above the tail and the
-        // "at the bottom" assertion races the cold cell measurement.
-        contentSizeObservation = collectionView.observe(\.contentSize, options: [.new, .old]) { [weak self] cv, change in
-            guard let self, !self.isFlushing, self.scrollMode == .autoScrolling else { return }
-            let newH = change.newValue?.height ?? 0
-            let oldH = change.oldValue?.height ?? 0
-            guard newH != oldH else { return }
-            let maxOff = max(0, newH - cv.bounds.height + cv.adjustedContentInset.bottom)
-            if maxOff > 0 { cv.contentOffset.y = max(cv.contentOffset.y, maxOff) }
-        }
     }
     func absorbPendingComposerShrink(caller:String) {}
     func applySubViewportCompensation(caller:String)->Bool { false }
@@ -157,15 +144,26 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         isFlushing=false
         if scrollMode == .autoScrolling {
             scrollToBottomNow(animated:false)
-            coalescedScrollWork?.cancel()
-            let work=DispatchWorkItem { [weak self] in
-                guard let self, self.scrollMode == .autoScrolling else { return }
-                self.scrollToBottomNow(animated:false)
-            }
-            coalescedScrollWork=work
-            DispatchQueue.main.asyncAfter(deadline: .now()+0.08, execute: work)
+            scheduleCoalescedPin()
         }
         applied+=1;vm.events.append("layout:"+caller)
+    }
+    // The shipping coordinator re-pins whenever the content size changes, so
+    // a tail cell that learns its height after the apply still ends at the
+    // bottom. The fixture cannot observe that signal directly, so it re-pins
+    // while the content keeps growing and stops once the height is stable.
+    func scheduleCoalescedPin() {
+        coalescedScrollWork?.cancel()
+        let work=DispatchWorkItem { [weak self] in
+            guard let self, self.scrollMode == .autoScrolling else { return }
+            let height=self.collectionView?.contentSize.height ?? 0
+            guard height != self.lastPinnedHeight else { return }
+            self.lastPinnedHeight=height
+            self.scrollToBottomNow(animated:false)
+            self.scheduleCoalescedPin()
+        }
+        coalescedScrollWork=work
+        DispatchQueue.main.asyncAfter(deadline: .now()+0.06, execute: work)
     }
     // SHIPPING_SCROLL_METHODS
 }
@@ -180,6 +178,16 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     }
     func check(_ value:Bool,_ name:String) { cases.append(name);if !value { failures.append(name) } }
     func pause() async { try? await Task.sleep(nanoseconds:250_000_000) }
+    /// The hosted tail cell can learn its height after the send, so the list
+    /// settles onto the bottom a moment later. Wait for that settle instead
+    /// of sampling the offset at one fixed moment.
+    func waitForBottom(_ cv:UICollectionView) async {
+        for _ in 0..<24 {
+            await pause()
+            let bottom=max(0,cv.contentSize.height-cv.bounds.height+cv.adjustedContentInset.bottom)
+            if abs(cv.contentOffset.y-bottom)<3 { return }
+        }
+    }
     func validate(host:UIViewController,window:UIWindow) async {
         let layout=MessageListLayout();layout.estimatedItemHeight=200
         let cv=UICollectionView(frame:host.view.bounds.insetBy(dx:0,dy:90),collectionViewLayout:layout)
@@ -196,7 +204,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
             if name=="middle" { coordinator.forceReentry=true }
             let appliedBefore=coordinator.applied
             vm.events.append("send-request-"+name)
-            coordinator.requestLatestPosition();coordinator.requestLatestPosition();await pause()
+            coordinator.requestLatestPosition();coordinator.requestLatestPosition();await waitForBottom(cv)
             let bottom=max(0,cv.contentSize.height-cv.bounds.height+cv.adjustedContentInset.bottom)
             vm.events.append("tail-"+name+": offset="+String(describing:cv.contentOffset.y)+" bottom="+String(describing:bottom))
             check(abs(cv.contentOffset.y-bottom)<3,"latest-"+name)

@@ -1315,6 +1315,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var botCreationMessages: [String: ChatMessage] = [:]
     var botMemoryReviewTask: Task<Void, Never>?
     var botMemoryReviewedSourceID: String?
+    var botMemoryEventReviewedSourceID: String?
 
     let botUnreadMessage = ChatMessage(role: .systemInfo, content: "")
     var unreadBoundaryMessageID: String?

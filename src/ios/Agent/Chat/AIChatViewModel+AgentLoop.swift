@@ -2315,7 +2315,14 @@ extension AIChatViewModel {
                 cacheAttributedString(for: messages[msgIdx].blocks[i])
             }
         }
-        if messages[msgIdx].error == nil { scheduleBotMemoryReview(provider: provider) }
+        if messages[msgIdx].error == nil {
+            let assistantText = messages[msgIdx].blocks.compactMap {
+                if case .text = $0.kind { return $0.content } else { return nil }
+            }.joined(separator: "\n")
+            let assistantID = agentHistory.last(where: { $0.role == .assistant })?.dbMessageId
+            scheduleBotMemoryReview(provider: provider,
+                                    assistantSnapshot: assistantID.map { (id: $0, text: assistantText) })
+        }
 
     }
 }

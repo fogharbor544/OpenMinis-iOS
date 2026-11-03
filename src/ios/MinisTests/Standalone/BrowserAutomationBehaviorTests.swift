@@ -163,7 +163,7 @@ final class UIImage { func jpegData(compressionQuality: Double) -> Data? { Data(
         let batchJSON = #"""
         {"action":"run","tab_id":0,"document_version":"d","frame_id":"main","steps":[{"action":"click","ref":"e1"},{"action":"click","ref":"e2"}]}
         """#
-        check(BrowserActionInput.parse(from: batchJSON)?.preview == .none, "run accepts a pinned scope and defaults to no preview")
+        check(BrowserActionInput.parse(from: batchJSON)?.preview == BrowserActionInput.Preview.none, "run accepts a pinned scope and defaults to no preview")
         for invalid in [
             batchJSON.replacingOccurrences(of: "\"tab_id\":0,", with: ""),
             batchJSON.replacingOccurrences(of: "\"tab_id\":0", with: "\"tab_id\":true"),

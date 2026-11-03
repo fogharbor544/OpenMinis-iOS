@@ -116,6 +116,12 @@ private struct AnimatedAvatarLayoutFixture: View {
                 check(image.contentMode == .scaleAspectFit, "swiftui-animation-aspect-fit-" + String(Int(expected)))
             }
             if !UIAccessibility.isReduceMotionEnabled && !ProcessInfo.processInfo.isLowPowerModeEnabled {
+                // The playback can start a moment after the mount, and this
+                // job runs on a loaded simulator. Wait for the animation
+                // instead of sampling it once.
+                for _ in 0..<20 where !animatedViews.allSatisfy(\.isAnimating) {
+                    await pause(0.1)
+                }
                 check(animatedViews.count == 2 && animatedViews.allSatisfy(\.isAnimating), "swiftui-avatars-actively-playing")
             }
             try snapshot(window, name: "avatar-motion-early")

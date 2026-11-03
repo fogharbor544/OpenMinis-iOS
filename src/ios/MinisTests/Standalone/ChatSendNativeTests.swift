@@ -69,6 +69,7 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
     var forceReentry=false
     var coalescedScrollWork: DispatchWorkItem?
     var lastPinnedHeight: CGFloat = 0
+    var pinDeadline: CFTimeInterval = 0
     var layout:MessageListLayout? { collectionView?.collectionViewLayout as? MessageListLayout }
     init(collectionView:UICollectionView,vm:VM) {
         self.collectionView=collectionView;self.viewModel=vm;self.viewController=FixtureSurface(collectionView)
@@ -144,26 +145,31 @@ enum ToggleAnchorMath { static func skipsVisibleCompensation(index:Int,anchored:
         isFlushing=false
         if scrollMode == .autoScrolling {
             scrollToBottomNow(animated:false)
+            lastPinnedHeight=collectionView?.contentSize.height ?? 0
+            pinDeadline=CFAbsoluteTimeGetCurrent()+2.0
             scheduleCoalescedPin()
         }
         applied+=1;vm.events.append("layout:"+caller)
     }
     // The shipping coordinator re-pins whenever the content size changes, so
     // a tail cell that learns its height after the apply still ends at the
-    // bottom. The fixture cannot observe that signal directly, so it re-pins
-    // while the content keeps growing and stops once the height is stable.
+    // bottom. The fixture cannot observe that signal directly, so it polls
+    // the content size for a short window after every apply and re-pins
+    // whenever the height moved.
     func scheduleCoalescedPin() {
         coalescedScrollWork?.cancel()
         let work=DispatchWorkItem { [weak self] in
-            guard let self, self.scrollMode == .autoScrolling else { return }
+            guard let self else { return }
+            guard self.scrollMode == .autoScrolling, CFAbsoluteTimeGetCurrent() < self.pinDeadline else { return }
             let height=self.collectionView?.contentSize.height ?? 0
-            guard height != self.lastPinnedHeight else { return }
-            self.lastPinnedHeight=height
-            self.scrollToBottomNow(animated:false)
+            if height != self.lastPinnedHeight {
+                self.lastPinnedHeight=height
+                self.scrollToBottomNow(animated:false)
+            }
             self.scheduleCoalescedPin()
         }
         coalescedScrollWork=work
-        DispatchQueue.main.asyncAfter(deadline: .now()+0.06, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now()+0.05, execute: work)
     }
     // SHIPPING_SCROLL_METHODS
 }

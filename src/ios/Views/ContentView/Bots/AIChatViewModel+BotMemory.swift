@@ -213,37 +213,19 @@ extension AIChatViewModel {
                     var note: [String: Any] = ["action": "save", "intent": "automatic", "content": content,
                         "category": args["category"] as? String ?? "fact", "scope": args["scope"] as? String ?? "general"]
                     if let eventKind = args["event_kind"] as? String { note["event_kind"] = eventKind }
-                    if let eventID = assistantSnapshotID, (args["category"] as? String) == "event" {
-                        note["assistant_source_id"] = eventID
+                    if (args["category"] as? String) == "event" {
+                        if let eventID = assistantSnapshotID { note["assistant_source_id"] = eventID }
                         let kind = args["event_kind"] as? String
-                        let eventContent = note["content"] as? String ?? content
                         if kind == "delivery" || kind == "verification" {
-                            let qualifier = kind == "verification" ? "verified" : "delivered"
-                            let hasVerifierEvent = eventContent.localizedCaseInsensitiveContains("verified") ||
-                                eventContent.localizedCaseInsensitiveContains("已核验")
-                            if !eventContent.localizedCaseInsensitiveContains("Bot report") &&
-                               !eventContent.localizedCaseInsensitiveContains("User confirmed") &&
-                               !hasVerifierEvent &&
-                               !eventContent.localizedCaseInsensitiveContains("用户确认") &&
-                               !eventContent.localizedCaseInsensitiveContains("Bot 报告") {
-                                note["content"] = "Bot report \(qualifier): " + eventContent
-                            }
-                            if kind == "verification" {
-                                let evidence = args["evidence"] as? String ?? assistantSnapshot?.text ?? ""
-                                guard eventContent.localizedCaseInsensitiveContains("verified") ||
-                                      eventContent.localizedCaseInsensitiveContains("已核验"),
-                                      evidence.localizedCaseInsensitiveContains("user confirmed") ||
-                                      evidence.localizedCaseInsensitiveContains("用户确认") ||
-                                      evidence.localizedCaseInsensitiveContains("tool output") ||
-                                      evidence.localizedCaseInsensitiveContains("工具输出") else {
-                                    throw BotMemoryError.invalid("Verification events require explicit verified wording from the current turn.")
-                                }
-                            }
+                            // This review sees text, not independently validated tool results.
+                            // Neither generated evidence nor words like "verified" establish truth.
+                            note["content"] = "Bot report (not independently verified): " + content
+                            note["evidence"] = "Assistant final reply; not independently verified"
                         }
                     }
                     let json = String(decoding: try JSONSerialization.data(withJSONObject: note), as: UTF8.self)
                     let result = self.executeBotMemoryWrite(json)
-                    if result.success { saved.append(content) }
+                    if result.success { saved.append(note["content"] as? String ?? content) }
                     else { BotMemoryStore.shared.errorMessage = result.output }
                 }
                 if !saved.isEmpty { self.transientNotice = "已记住：" + saved.joined(separator: "；") }

@@ -151,30 +151,51 @@ private struct BotMemoryDocumentEditor: View {
     let owner: String
     @State private var baseline: [BotMemoryEntry]
     @State private var draft: String
+    @State private var eventDrafts: [String: String]
     @State private var error: String?
     @State private var discarding = false
     @Environment(\.dismiss) private var dismiss
-    private var changed: Bool { draft != BotMemoryStore.documentText(baseline) }
+    private var changed: Bool {
+        draft != BotMemoryStore.documentText(baseline.filter { $0.category != "event" }) ||
+        baseline.filter { $0.category == "event" }.contains { eventDrafts[$0.id] != $0.content }
+    }
+    private var draftDocument: String {
+        ([draft] + baseline.filter { $0.category == "event" }.map { eventDrafts[$0.id] ?? "" })
+            .filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
 
     init(owner: String, baseline: [BotMemoryEntry]) {
         self.owner = owner
         _baseline = State(initialValue: baseline)
-        _draft = State(initialValue: BotMemoryStore.documentText(baseline))
+        _draft = State(initialValue: BotMemoryStore.documentText(baseline.filter { $0.category != "event" }))
+        _eventDrafts = State(initialValue: Dictionary(uniqueKeysWithValues: baseline.filter { $0.category == "event" }.map { ($0.id, $0.content) }))
     }
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text("在一篇文档里补充、整理或删除记忆，空行分段。未修改内容的来源与共享范围会保留，新内容默认私有。")
+                Text("普通记忆用空行分段，新内容默认私有。事件单独编辑，保留来源与共享范围；清空事件内容即可删除。")
                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
                 if let error {
                     VStack(alignment: .leading) {
                         Text(error).font(.callout).foregroundStyle(.red)
-                        Button("复制草稿") { UIPasteboard.general.string = draft }.frame(minHeight: 44)
+                        Button("复制草稿") { UIPasteboard.general.string = draftDocument }.frame(minHeight: 44)
                     }.padding(.horizontal, 16)
                 }
-                TextEditor(text: $draft).font(.body).lineSpacing(6).padding(.horizontal, 12)
-                    .accessibilityLabel("长期记忆文档内容")
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("普通记忆").font(.headline)
+                        TextEditor(text: $draft).font(.body).lineSpacing(6).frame(minHeight: 240)
+                            .accessibilityLabel("长期记忆文档内容")
+                        ForEach(baseline.filter { $0.category == "event" }) { entry in
+                            Text("事件 · \(entry.createdAt.formatted(date: .abbreviated, time: .shortened))").font(.headline)
+                            TextEditor(text: Binding(get: { eventDrafts[entry.id] ?? "" },
+                                                     set: { eventDrafts[entry.id] = $0 }))
+                                .font(.body).lineSpacing(6).frame(minHeight: 140)
+                                .accessibilityLabel("事件内容")
+                        }
+                    }.padding(.horizontal, 16)
+                }
             }.padding(.top, 12)
                 .navigationTitle("编辑记忆文档").navigationBarTitleDisplayMode(.inline)
                 .interactiveDismissDisabled(changed)
@@ -183,7 +204,7 @@ private struct BotMemoryDocumentEditor: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("保存") {
                             guard memoryOwnerExists(owner) else { error = "此 Bot 或群组已不存在。"; return }
-                            do { try BotMemoryStore.shared.saveDocument(owner: owner, text: draft, baseline: baseline); dismiss() }
+                            do { try BotMemoryStore.shared.saveDocument(owner: owner, text: draft, baseline: baseline, eventEdits: eventDrafts); dismiss() }
                             catch { self.error = error.localizedDescription }
                         }.disabled(!changed)
                     }

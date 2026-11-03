@@ -124,7 +124,7 @@ import Foundation
         precondition(eventContext.components(separatedBy: "\n").filter { $0.contains("Injected decision") }.count == 1)
         precondition(!eventContext.contains("Events (recorded"))
         let eventRecall = try store.recall(owner: "bot:event", query: "交付")
-        precondition(eventRecall.contains("· delivery ·"))
+        precondition(eventRecall.contains("· delivery/交付 ·"))
         print("PASS: SQLite owner isolation, persistence, sharing/revocation, replacement, forgotten-source suppression, bounded retrieval, multiple same-scope notes, date-based injection, line limits and secret refusal")
     }
 }

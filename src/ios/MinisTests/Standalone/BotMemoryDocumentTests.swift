@@ -17,7 +17,7 @@ import Foundation
         let savedEvent = try store.save(event)
         let baseline = try store.documentEntries(owner: "bot:a")
         let original = BotMemoryStore.documentText(baseline)
-        precondition(original == "Prefer concise replies\n\nProject alpha\n\nUses SwiftUI")
+        precondition(original == "Prefer concise replies\n\nBot report: memory event integration delivered\n\nProject alpha\n\nUses SwiftUI")
         try store.saveDocument(owner: "bot:a", text: "Research context\n\n" + original, baseline: baseline)
         var document = try store.documentEntries(owner: "bot:a")
         precondition(document.first?.content == "Research context")
@@ -27,6 +27,12 @@ import Foundation
         precondition(retainedEvent.eventKind == "delivery" && retainedEvent.sourceAssistantMessageID == "assistant-source")
         precondition(document.first?.grants.isEmpty == true, "New paragraphs stay private")
         precondition(document.contains { $0.content == "Project alpha\n\nUses SwiftUI" }, "Unchanged multiline notes retain their identity")
+        let changedEventText = original.replacingOccurrences(of: "memory event integration delivered", with: "memory event integration hardened")
+        try store.saveDocument(owner: "bot:a", text: changedEventText, baseline: document)
+        document = try store.documentEntries(owner: "bot:a")
+        let changedEvent = document.first { $0.id == savedEvent.id }
+        precondition(changedEvent?.content == "Bot report: memory event integration hardened")
+        precondition(changedEvent?.eventKind == "delivery" && changedEvent?.sourceAssistantMessageID == "assistant-source")
         let stale = document
         _ = try store.save(BotMemoryEntry(owner: "bot:a", content: "New automatic note", category: "fact", scope: "general", evidence: "", automatic: true))
         do { try store.saveDocument(owner: "bot:a", text: "stale draft", baseline: stale); fatalError("Overwrote concurrent memory") }

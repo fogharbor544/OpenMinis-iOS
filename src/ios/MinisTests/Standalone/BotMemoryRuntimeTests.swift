@@ -70,6 +70,21 @@ final class EventMemoryReviewProvider: AgentProvider {
     }
 }
 
+final class VerificationEventReviewProvider: AgentProvider {
+    let defaultMaxTokens = 2048
+    var calls = 0
+    func streamAgentMessage(messages: [AgentMessage], systemPrompt: String?, tools: [AgentToolDefinition],
+                            maxTokens: Int, thinkingLevel: ThinkingLevel) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        calls += 1
+        AsyncThrowingStream { continuation in
+            continuation.yield(.toolCallComplete(id: "verification", name: "memory_write", args: [
+                "content": "已核验：事件记忆硬约束", "category": "event", "event_kind": "verification", "intent": "automatic", "scope": "memory-design"
+            ], metadata: nil))
+            continuation.finish()
+        }
+    }
+}
+
 @MainActor final class AIChatViewModel {
     struct FileToolResult { let output: String; let success: Bool }
     struct Message {
@@ -238,13 +253,35 @@ actor ChatStore {
         vm.loadUser("Remember that summaries should stay short for event reviews", rowID: "event-review-source")
         precondition(vm.executeBotMemoryWrite("{\"action\":\"save\",\"content\":\"偏好：事件摘要要短\",\"category\":\"preference\",\"intent\":\"explicit\",\"scope\":\"writing\"}").success)
         let eventReviewer = EventMemoryReviewProvider()
-        vm.scheduleBotMemoryReview(provider: eventReviewer)
+        vm.scheduleBotMemoryReview(provider: eventReviewer,
+                                  assistantSnapshot: (id: "event-review-source-assistant",
+                                                      text: "Bot report: event memory integration delivered"))
         await vm.botMemoryReviewTask?.value
         precondition(eventReviewer.calls == 1)
         let eventRows = try BotMemoryStore.shared.visible(to: "bot:\(a.id)").filter { $0.category == "event" }
         precondition(eventRows.filter { $0.sourceMessage == "event-review-source" }.count == 1)
-        precondition(try BotMemoryStore.shared.visible(to: "bot:\(a.id)").contains { $0.content == "偏好：事件摘要要短" && $0.sourceMessage == "event-review-source" })
+        try check(BotMemoryStore.shared.visible(to: "bot:\(a.id)").contains { $0.content == "偏好：事件摘要要短" && $0.sourceMessage == "event-review-source" })
         precondition(vm.botMemoryEventReviewedSourceID == "event-review-source")
+        try check(BotMemoryStore.shared.visible(to: "bot:\(a.id)").contains {
+            $0.sourceMessage == "event-review-source" && $0.sourceAssistantMessageID == "event-review-source-assistant"
+        })
+        // Assistant-supplied credentials never reach the review request.
+        vm.loadUser("Review this assistant result", rowID: "secret-assistant-source")
+        vm.scheduleBotMemoryReview(provider: reviewer,
+                                  assistantSnapshot: (id: "secret-assistant-source-assistant",
+                                                      text: "password=tiny-secret-value"))
+        precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 2)
+        // Verification must come from explicit confirmed/tool evidence, not mere assistant wording.
+        vm.loadUser("User confirmed the verification result", rowID: "verification-source")
+        let verificationReviewer = VerificationEventReviewProvider()
+        vm.scheduleBotMemoryReview(provider: verificationReviewer,
+                                  assistantSnapshot: (id: "verification-source-assistant",
+                                                      text: "No evidence of verification"))
+        await vm.botMemoryReviewTask?.value
+        precondition(verificationReviewer.calls == 1)
+        try check(!BotMemoryStore.shared.visible(to: "bot:\(a.id)").contains {
+            $0.sourceMessage == "verification-source" && $0.eventKind == "verification"
+        })
         vm.helperConfig = "specialist"
         vm.scheduleBotMemoryReview(provider: reviewer)
         precondition(vm.botMemoryReviewTask == nil && reviewer.calls == 2)

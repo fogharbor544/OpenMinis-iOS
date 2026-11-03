@@ -2316,9 +2316,8 @@ extension AIChatViewModel {
             }
         }
         if messages[msgIdx].error == nil {
-            let assistantText = messages[msgIdx].blocks.compactMap {
-                if case .text = $0.kind { return $0.content } else { return nil }
-            }.joined(separator: "\n")
+            // Use the final text block: review needs the conclusion, not the whole tool transcript.
+            let assistantText = messages[msgIdx].blocks.last { if case .text = $0.kind { return true } else { return false } }?.content ?? ""
             let assistantID = agentHistory.last(where: { $0.role == .assistant })?.dbMessageId
             scheduleBotMemoryReview(provider: provider,
                                     assistantSnapshot: assistantID.map { (id: $0, text: assistantText) })

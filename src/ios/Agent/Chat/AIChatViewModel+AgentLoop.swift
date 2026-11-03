@@ -442,7 +442,6 @@ extension AIChatViewModel {
         // [T-p1-delegate-task] Helpers get a much tighter ceiling (design §4.3).
         let turnCap = helperConfig?.maxTurns ?? Self.maxAgentTurns
         loopLabel: while turnCount < turnCap {
-            await waitIfBrowserTakeover()
             try Task.checkCancellation()
             defer { turnCount += 1 }
             // [T-ios-switch-model-next-request] The user picked another model
@@ -2234,9 +2233,6 @@ extension AIChatViewModel {
             // If the background task expired while executing tools, pause here
             // until the app returns to the foreground before making the next API call.
             await waitIfBackgroundSuspended()
-
-            // If the user activated browser takeover, pause until they're done.
-            await waitIfBrowserTakeover()
 
             // If stop reason was end_turn (not tool_use), break
             if stopReason != .toolUse {

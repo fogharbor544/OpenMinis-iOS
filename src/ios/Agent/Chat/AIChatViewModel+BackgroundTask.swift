@@ -691,35 +691,6 @@ extension AIChatViewModel {
         logger.info("[ContinuationDiag] resumed backgroundSuspended after \(Int(Date().timeIntervalSince(diagStart) * 1000))ms appState=\(Self.diagAppStateName())")
     }
 
-    /// All VMs sharing a browser pool pause on the same manual-control gate.
-    func waitIfBrowserTakeover() async {
-        guard browserTakeoverActive else { return }
-        guard let result = await browserTakeoverScreenshot(),
-              let b64 = result.base64Image, let data = Data(base64Encoded: b64) else { return }
-        let msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId,
-                                                timestamp: Int(Date().timeIntervalSince1970))
-        let idx = agentHistory.count
-        agentHistory.append(msg)
-        if let pid = await persistAgentMessage(msg), idx < agentHistory.count {
-            agentHistory[idx].dbMessageId = pid
-        }
-    }
-
-    func waitForMidActionTakeover() async -> BrowserActionResult? {
-        await browserTakeoverScreenshot()
-    }
-
-    private func browserTakeoverScreenshot() async -> BrowserActionResult? {
-        await browserTabPool.waitForUserTakeover()
-        guard !Task.isCancelled, !browserTabPool.hasSecureInput else { return nil }
-        let input = BrowserActionInput(
-            action: .screenshot, url: nil, selector: nil, text: nil,
-            coordinateX: nil, coordinateY: nil, direction: nil, amount: nil,
-            script: nil, userAgent: nil, maxDepth: nil, tabId: browserTabPool.selectedTabId
-        )
-        return try? await browserTabPool.execute(action: input, owner: sessionId)
-    }
-
     func resumeFromBrowserTakeover() {
         browserTabPool.endUserTakeover()
     }

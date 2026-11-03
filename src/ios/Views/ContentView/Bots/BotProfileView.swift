@@ -1,6 +1,7 @@
 import PhotosUI
 import SwiftUI
 import UIKit
+import WebKit
 
 /// Chat-page actions the profile's "会话" section hands back to the open chat.
 /// They depend on the chat's own state (share picker, search bar, alerts), so
@@ -399,16 +400,33 @@ struct BotProfileView: View {
     }
 
     private func refreshBrowser() {
-        guard let sid = browserSessionID, let manager = ViewModelCache.shared.get(for: sid)?.browserTabPool.activeManager else {
+        guard let sid = browserSessionID,
+              let pool = ViewModelCache.shared.get(for: sid)?.browserTabPool,
+              let manager = pool.activeManager else {
             loadPreview()
             return
         }
         manager.reload()
         Task { @MainActor in
-            if let pool = ViewModelCache.shared.get(for: sid)?.browserTabPool {
-                await pool.refreshProfilePreview(sessionId: sid)
-            }
+            await refreshProfilePreview(manager: manager, pool: pool, sessionId: sid)
             loadPreview()
+        }
+    }
+
+    private func refreshProfilePreview(
+        manager: BrowserUseManager,
+        pool: BrowserTabPool,
+        sessionId: String
+    ) async {
+        guard !manager.isSecureInputActive else { return }
+        let configuration = WKSnapshotConfiguration()
+        let width = CGFloat(manager.currentViewport.width)
+        let height = min(CGFloat(manager.currentViewport.height), max(1, width * 0.625))
+        configuration.rect = CGRect(x: 0, y: 0, width: width, height: height)
+        if !manager.isSecureInputActive,
+           let image = try? await manager.webView.takeSnapshot(configuration: configuration) {
+            manager.lastScreenshot = image
+            pool.persistPreviewIfChanged(sessionId: sessionId)
         }
     }
 

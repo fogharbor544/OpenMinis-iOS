@@ -219,7 +219,6 @@ extension AIChatViewModel {
                + "Run `minis-browser-use` with no arguments (or --help) for the full action list. "
                + "Example: `minis-browser-use navigate --url https://example.com`. "
                + "Run it inside a shell script (via shell_execute) for multi-step or batch flows — e.g. a bash script that chains multiple minis-browser-use invocations (scrape N pages in a loop, click-through forms, navigate→extract→navigate pipelines); for a single action, call the browser_use tool directly. "
-               + "For data-only intermediate steps use --preview none to omit the chat preview image while keeping DOM observation. For scroll_and_collect, --result-mode collected --preview none returns the collected items without the final observation/preview; it does not guarantee the final page is stable. Request a screenshot separately when needed. "
                + "Output is JSON, same shape as the tool call result.\n")
             + "Interactive terminal: minis://open_terminal opens a terminal for tasks that require interactive stdin (passwords, ssh, TUI apps like htop/vi). "
             + "Write it as a Markdown link in your response — the app opens it when tapped. "

@@ -1,54 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-  "You control the browser": {
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "You control the browser"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "正在由你控制浏览器"
-        }
-      }
-    }
-  },
-  "End takeover": {
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "End takeover"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "结束接管"
-        }
-      }
-    }
-  },
-  "Taking over… Waiting for the current browser action.": {
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Taking over… Waiting for the current browser action."
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "正在接管，等待当前页面操作结束…"
-        }
-      }
-    }
-  },
   "No additional source information": {
     "localizations": {
       "en": {

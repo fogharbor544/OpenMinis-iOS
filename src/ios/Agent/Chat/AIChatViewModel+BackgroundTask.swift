@@ -691,8 +691,90 @@ extension AIChatViewModel {
         logger.info("[ContinuationDiag] resumed backgroundSuspended after \(Int(Date().timeIntervalSince(diagStart) * 1000))ms appState=\(Self.diagAppStateName())")
     }
 
+    /// Pauses the agent loop when the user activates browser takeover.
+    /// The loop suspends here until the user dismisses the browser sheet.
+    func waitIfBrowserTakeover() async {
+        guard browserTakeoverActive else { return }
+        logger.info("[Takeover] Agent loop pausing for browser takeover")
+        let diagStart = Date()
+        logger.info("[ContinuationDiag] entering wait for browserTakeover at \(Self.diagTimestamp(diagStart)) session=\(self.sessionId ?? "nil")")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            self.takeoverContinuation = continuation
+        }
+        logger.info("[ContinuationDiag] resumed browserTakeover after \(Int(Date().timeIntervalSince(diagStart) * 1000))ms")
+
+        let screenshotInput = BrowserActionInput(
+            action: .screenshot, url: nil, selector: nil, text: nil,
+            coordinateX: nil, coordinateY: nil, direction: nil, amount: nil,
+            script: nil, userAgent: nil, maxDepth: nil, tabId: nil
+        )
+        if let result = try? await browserTabPool.execute(action: screenshotInput, owner: sessionId),
+           let b64 = result.base64Image,
+           let data = Data(base64Encoded: b64) {
+            let timestamp = Int(Date().timeIntervalSince1970)
+            let msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId, timestamp: timestamp)
+            let idx = agentHistory.count
+            agentHistory.append(msg)
+            if let pid = await persistAgentMessage(msg), idx < agentHistory.count {
+                agentHistory[idx].dbMessageId = pid
+            }
+        }
+    }
+
+    func waitForMidActionTakeover() async -> BrowserActionResult? {
+        logger.info("[Takeover] Mid-action: pausing browser action for user takeover")
+        let timeoutTask = Task {
+            try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                logger.info("[Takeover] Mid-action takeover timed out after 5 minutes")
+                self.browserTakeoverActive = false
+                if let c = self.midActionTakeoverContinuation {
+                    self.midActionTakeoverContinuation = nil
+                    c.resume()
+                }
+            }
+        }
+        self.takeoverTimeoutTask = timeoutTask
+
+        let diagStart = Date()
+        logger.info("[ContinuationDiag] entering wait for midActionTakeover at \(Self.diagTimestamp(diagStart)) session=\(self.sessionId ?? "nil")")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            self.midActionTakeoverContinuation = continuation
+        }
+        logger.info("[ContinuationDiag] resumed midActionTakeover after \(Int(Date().timeIntervalSince(diagStart) * 1000))ms")
+
+        let timedOut = timeoutTask.isCancelled == false
+        timeoutTask.cancel()
+        self.takeoverTimeoutTask = nil
+        logger.info("[Takeover] Mid-action: resumed (timedOut=\(timedOut))")
+
+        let screenshotInput = BrowserActionInput(
+            action: .screenshot, url: nil, selector: nil, text: nil,
+            coordinateX: nil, coordinateY: nil, direction: nil, amount: nil,
+            script: nil, userAgent: nil, maxDepth: nil, tabId: nil
+        )
+        if let result = try? await browserTabPool.execute(action: screenshotInput, owner: sessionId) {
+            return result
+        }
+        return nil
+    }
+
     func resumeFromBrowserTakeover() {
-        browserTabPool.endUserTakeover()
+        browserTakeoverActive = false
+        // Cancel mid-action timeout
+        takeoverTimeoutTask?.cancel()
+        takeoverTimeoutTask = nil
+        // Resume mid-action continuation if active
+        if let c = midActionTakeoverContinuation {
+            midActionTakeoverContinuation = nil
+            c.resume()
+        }
+        // Resume between-turn continuation if active
+        if let c = takeoverContinuation {
+            takeoverContinuation = nil
+            c.resume()
+        }
     }
 
     func stopCurrentCommand() {

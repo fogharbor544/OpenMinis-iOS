@@ -1,7 +1,6 @@
 import PhotosUI
 import SwiftUI
 import UIKit
-import WebKit
 
 /// Chat-page actions the profile's "会话" section hands back to the open chat.
 /// They depend on the chat's own state (share picker, search bar, alerts), so
@@ -32,9 +31,9 @@ struct BotChatControls {
     var iCloudActionsDisabled: Bool
 }
 
-/// Bot profile page: avatar header, browser preview card, capability entries,
-/// and the chat's former "..." actions. Opened from the home list's long-press,
-/// the chat header name, and the chat's top-right profile button.
+/// Bot profile page: avatar header, capability entries, and the chat's former
+/// "..." actions. Opened from the home list's long-press, the chat header name,
+/// and the chat's top-right profile button.
 struct BotProfileView: View {
     let botID: String
     /// Non-nil when opened from a chat; enables the "会话" section.
@@ -59,7 +58,6 @@ struct BotProfileView: View {
     @State private var deleting = false
     @State private var browserTarget: BotBrowserTarget?
     @State private var showTerminal = false
-    @State private var preview: (image: UIImage, pageURL: String?, capturedAt: Date)?
     @State private var openingSession = false
     @State private var resolvedSessionID: String?
     /// Values just switched in the 会话 controls, shown until the sheet closes.
@@ -71,9 +69,6 @@ struct BotProfileView: View {
     /// A group round running anywhere locks Bot edits, as on the home list.
     private var locked: Bool { !runner.activeRooms.isEmpty }
     private var browserSessionID: String? { sessionID ?? bot?.sessionId }
-    private var liveBrowsing: Bool {
-        browserSessionID.flatMap { ViewModelCache.shared.get(for: $0)?.browserTabPool.isAgentBrowsing } ?? false
-    }
 
     var body: some View {
         Group {
@@ -87,7 +82,6 @@ struct BotProfileView: View {
                 if let bot { profileMenu(bot) }
             }
         }
-        .task(id: browserSessionID) { loadPreview() }
     }
 
     // MARK: - Sections
@@ -115,20 +109,15 @@ struct BotProfileView: View {
                 .listRowSeparator(.hidden)
             }
 
-            Section { browserCard(bot) } header: {
-                BotBrowserSectionHeader(
-                    title: String(localized: "\(bot.name)的浏览器"),
-                    status: liveBrowsing ? String(localized: "运行中")
-                        : preview?.capturedAt.formatted(.relative(presentation: .named)),
-                    isRunning: liveBrowsing
-                ) {
-                    Button { openSessionThen { showTerminal = true } } label: { Label("打开终端", systemImage: "terminal") }
-                    Button { refreshBrowser() } label: { Label("刷新", systemImage: "arrow.clockwise") }
-                        .disabled(browserSessionID == nil)
-                }
-            }
-
             Section {
+                Button { openBrowser() } label: {
+                    SettingsRowLabel(title: "打开浏览器", systemImage: "globe", color: .blue)
+                }
+                .foregroundStyle(.primary)
+                Button { openSessionThen { showTerminal = true } } label: {
+                    SettingsRowLabel(title: "打开终端", systemImage: "terminal", color: .gray)
+                }
+                .foregroundStyle(.primary)
                 NavigationLink { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) } label: {
                     SettingsRowLabel(title: "长期记忆", systemImage: "brain", color: .pink)
                 }
@@ -196,7 +185,7 @@ struct BotProfileView: View {
             }
         }
         .sheet(isPresented: $editingInstructions) { BotInstructionsEditor(botID: bot.id) }
-        .sheet(item: $browserTarget, onDismiss: loadPreview) { target in
+        .sheet(item: $browserTarget) { target in
             BotBrowserHost(vm: target.vm)
         }
         .fullScreenCover(isPresented: $showTerminal) {
@@ -221,66 +210,6 @@ struct BotProfileView: View {
                             isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { deleteBot(bot) }
         }
-    }
-
-    @ViewBuilder
-    private func browserCard(_ bot: BotProfile) -> some View {
-        Button { openSessionThen {
-            guard let sid = resolvedSessionID else { return }
-            let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
-            vm.browserTabPool.sessionId = sid
-            browserTarget = BotBrowserTarget(id: sid, vm: vm)
-        } } label: {
-            ZStack(alignment: .bottom) {
-                Group {
-                    if let preview {
-                        GeometryReader { geometry in
-                            let displayedHeight = preview.image.size.height * geometry.size.width / preview.image.size.width
-                            Image(uiImage: preview.image).resizable().scaledToFill()
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                                .position(
-                                    x: geometry.size.width / 2,
-                                    y: min(geometry.size.height / 2, displayedHeight / 2)
-                                )
-                                .background(Color(UIColor.tertiarySystemFill))
-                        }
-                    } else {
-                        VStack(spacing: 8) {
-                            Image(systemName: "globe").font(.largeTitle).foregroundStyle(.secondary)
-                            Text("还没有打开过网页").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(UIColor.tertiarySystemFill))
-                    }
-                }
-                .frame(height: 260)
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .overlay(alignment: .top) {
-                    if let url = preview?.pageURL {
-                        Text(url).font(.caption2.monospaced()).lineLimit(1)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.ultraThinMaterial)
-                    }
-                }
-                HStack(spacing: 4) {
-                    if openingSession { ProgressView().controlSize(.mini) }
-                    Text("进入浏览器")
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                }
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 16).padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .padding(.bottom, 12)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(openingSession)
-        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
-        .accessibilityLabel("进入浏览器")
-        .accessibilityValue(preview?.pageURL ?? "还没有打开过网页")
     }
 
     private func profileMenu(_ bot: BotProfile) -> some View {
@@ -380,12 +309,6 @@ struct BotProfileView: View {
         dismiss()
     }
 
-    private func loadPreview() {
-        guard let sid = browserSessionID else { preview = nil; return }
-        if let pool = ViewModelCache.shared.get(for: sid)?.browserTabPool { pool.persistPreviewIfChanged(sessionId: sid) }
-        preview = BrowserTabPool.loadPreview(for: sid)
-    }
-
     /// Uses this Bot's own conversation so its browser and shell stay its own.
     private func openSessionThen(_ show: @escaping () -> Void) {
         if let sid = browserSessionID { resolvedSessionID = sid; show(); return }
@@ -399,34 +322,12 @@ struct BotProfileView: View {
         }
     }
 
-    private func refreshBrowser() {
-        guard let sid = browserSessionID,
-              let pool = ViewModelCache.shared.get(for: sid)?.browserTabPool,
-              let manager = pool.activeManager else {
-            loadPreview()
-            return
-        }
-        manager.reload()
-        Task { @MainActor in
-            await refreshProfilePreview(manager: manager, pool: pool, sessionId: sid)
-            loadPreview()
-        }
-    }
-
-    private func refreshProfilePreview(
-        manager: BrowserUseManager,
-        pool: BrowserTabPool,
-        sessionId: String
-    ) async {
-        guard !manager.isSecureInputActive else { return }
-        let configuration = WKSnapshotConfiguration()
-        let width = CGFloat(manager.currentViewport.width)
-        let height = min(CGFloat(manager.currentViewport.height), max(1, width * 0.625))
-        configuration.rect = CGRect(x: 0, y: 0, width: width, height: height)
-        if !manager.isSecureInputActive,
-           let image = try? await manager.webView.takeSnapshot(configuration: configuration) {
-            manager.lastScreenshot = image
-            pool.persistPreviewIfChanged(sessionId: sessionId)
+    private func openBrowser() {
+        openSessionThen {
+            guard let sid = resolvedSessionID else { return }
+            let vm = ViewModelCache.shared.getOrCreate(for: sid).vm
+            vm.browserTabPool.sessionId = sid
+            browserTarget = BotBrowserTarget(id: sid, vm: vm)
         }
     }
 
@@ -654,6 +555,7 @@ private struct BotBrowserHost: View {
     @ObservedObject var vm: AIChatViewModel
     var body: some View {
         BrowserSheetView(pool: vm.browserTabPool,
-                         onTakeover: { vm.browserTakeoverActive = true })
+                         onTakeover: { vm.browserTakeoverActive = true },
+                         isUserTakeoverActive: vm.browserTakeoverActive)
     }
 }

@@ -304,7 +304,7 @@ final class MountedFoldersManager {
             throw AddError.bookmarkFailed(error.localizedDescription)
         }
         let writable = Self.probeWritable(at: pickedURL)
-        return finishAdd(pending: pending, bookmark: bookmark, writable: writable)
+        return try finishAdd(pending: pending, bookmark: bookmark, writable: writable)
     }
 
     /// Add a picked folder, doing bookmark creation and the writability probe
@@ -331,7 +331,7 @@ final class MountedFoldersManager {
             throw AddError.bookmarkFailed(error.localizedDescription)
         }
         let writable = await Self.probeWritableInBackground(at: url)
-        return finishAdd(pending: pending, bookmark: bookmark, writable: writable)
+        return try finishAdd(pending: pending, bookmark: bookmark, writable: writable)
     }
 
     private nonisolated static func createBookmark(at url: URL) throws -> Data {

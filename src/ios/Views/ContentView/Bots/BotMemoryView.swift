@@ -48,7 +48,7 @@ struct BotMemoryView: View {
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        ForEach(owned.filter { $0.category == "event" }, id: \.id) { entry in
+                        ForEach(owned.filter { $0.category == "event" }.sorted { $0.createdAt > $1.createdAt }, id: \.id) { entry in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(eventPresentation(entry)).font(.caption).foregroundStyle(.secondary)
                                 highlighted(entry.content).font(.body).lineSpacing(6).textSelection(.enabled)

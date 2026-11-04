@@ -111,6 +111,8 @@ final class VerificationEventReviewProvider: AgentProvider {
         enum Role { case user, assistant }
         var anchorId: UUID; var dbMessageId: String?; var role = Role.user
     }
+    struct Checkpoint { let summary: String }
+    var cachedLatestMarker: Checkpoint?
     var agentHistory: [History] = []
     func loadUser(_ text: String, rowID: String = UUID().uuidString) {
         let anchor = UUID()
@@ -210,8 +212,31 @@ actor ChatStore {
         let note = "{\"content\":\"Project migration ready for review\"}"
         precondition(vm.executeBotMemoryWrite(note).success)
         precondition(vm.botMemoryFragment()?.contains("Project migration ready for review") == true)
+        let memoryOwner = "bot:\(a.id)"
+        let ruleNames = (1...5).map { "Fixed style rule \($0)" }
+        for rule in ruleNames {
+            try BotMemoryStore.shared.saveFixedMemory(owner: memoryOwner, content: rule)
+        }
+        var deliveryEvent = BotMemoryEntry(owner: memoryOwner, content: "Cutover delivery verified", category: "event",
+                                           scope: "release", evidence: "Recorded delivery")
+        deliveryEvent.eventKind = "delivery"
+        let savedDelivery = try BotMemoryStore.shared.save(deliveryEvent)
+        vm.loadUser("Find the cutover delivery evidence")
+        let fragment = vm.botMemoryFragment() ?? ""
+        precondition(fragment.contains("Cutover delivery verified"), "Relevant events need a history slot even with five fixed rules")
+        for rule in ruleNames {
+            precondition(fragment.components(separatedBy: rule).count == 2, "Each fixed rule must appear once")
+        }
         vm.loadUser("Unrelated new question")
+        precondition(vm.botMemoryFragment()?.contains("Project migration ready for review") == false)
+        vm.cachedLatestMarker = .init(summary: "Project migration ready for review")
+        vm.loadUser("继续")
         precondition(vm.botMemoryFragment()?.contains("Project migration ready for review") == true)
+        vm.cachedLatestMarker = nil
+        try BotMemoryStore.shared.forget(id: savedDelivery.id, owner: memoryOwner)
+        for rule in try BotMemoryStore.shared.documentEntries(owner: memoryOwner) where rule.isFixedMemory {
+            try BotMemoryStore.shared.forget(id: rule.id, owner: memoryOwner)
+        }
         precondition(!vm.executeBotMemoryWrite("{\"action\":\"replace\",\"entry_id\":\"missing\",\"content\":\"changed\"}").success)
         precondition(!vm.executeBotMemoryWrite("{\"action\":\"forget\",\"entry_id\":\"missing\"}").success)
         precondition(!vm.executeBotMemoryWrite("{\"content\":\"password is secret\"}").success)

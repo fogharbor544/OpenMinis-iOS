@@ -533,15 +533,9 @@ extension AIChatViewModel {
         case .info: toolName = "info"
         }
 
-        // [T-ios-tool-title-lost-in-status] Prefer the model-supplied
-        // `tool_title` (persisted as `toolSummary`) over the derived
-        // `toolDescription`, matching every other display site
-        // (AssistantBlockView.displayText, SessionsOffloadBridge,
-        // GetSessionStatusIntent, ToolLiveSheet). This site read
-        // `toolDescription` alone, so a tool call WITH a title still surfaced
-        // the generic derivation — e.g. a `read_image` whose title was
-        // "查看页面截图" reported the bare filename / "Read image" instead.
-        let desc = toolBlock.toolSummary ?? toolBlock.toolDescription
+        // Use the same title as the chat capsule, including the browser's
+        // localized fallback when the model supplied an English label.
+        let desc = toolBlock.toolDisplayTitle
         let elapsed: String
         if let start = toolBlock.toolStartTime {
             elapsed = String(format: "%.1fs", Date().timeIntervalSince(start))
@@ -599,7 +593,7 @@ extension AIChatViewModel {
         if let sid = self.sessionId {
             // [T-ios-tool-title-lost-in-status] `toolStatus` is the USER-FACING
             // string (the SSE path at AIChatViewModel+SSEStream.swift ~830
-            // passes `toolSummary ?? toolDescription` here, and the Live
+            // passes `toolDisplayTitle` here, and the Live
             // Activity renders it as the tool's subtitle). This site passed the
             // internal lifecycle token instead — "running" / "streaming(512B)" —
             // so whenever the background path won the race the descriptive

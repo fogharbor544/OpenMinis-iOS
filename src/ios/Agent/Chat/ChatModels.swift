@@ -642,6 +642,13 @@ final class AssistantBlock: Identifiable, ObservableObject {
         self.toolUseId = toolUseId
     }
 
+    var toolDisplayTitle: String {
+        if case .browserTool(let action) = kind {
+            return BrowserAction.stepTitle(for: action, summary: toolSummary)
+        }
+        return (toolSummary?.isEmpty == false ? toolSummary : nil) ?? toolDescription
+    }
+
     /// Concise one-line description for compact tool card display.
     var toolDescription: String {
         switch kind {

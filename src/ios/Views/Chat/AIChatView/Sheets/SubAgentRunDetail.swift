@@ -195,8 +195,7 @@ extension SubAgentRunDigest {
                 case .failed: state = .failed
                 case .cancelled: state = .cancelled
                 }
-                let summary = (block.toolSummary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let title = summary.isEmpty ? block.toolDescription : summary
+                let title = block.toolDisplayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                 digest.calls.append(Call(
                     id: block.id.uuidString,
                     tool: AIChatViewModel.toolWireName(block.kind),

@@ -107,7 +107,7 @@ enum ChatExportContent {
 
     /// The one-line title a tool capsule shows.
     static func toolTitle(_ block: AssistantBlock) -> String {
-        (block.toolSummary?.isEmpty == false ? block.toolSummary : nil) ?? block.toolDescription
+        block.toolDisplayTitle
     }
 
     /// The picker's cells for a chat, from its messages as they are now.

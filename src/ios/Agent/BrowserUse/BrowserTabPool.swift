@@ -1241,7 +1241,7 @@ final class BrowserTabPool: ObservableObject {
         // (e.g. closeTab / idle reclaim / registry preempt) while we're suspended.
         let manager = tabs[liveIdx].manager
         guard !hasSecureInput else { return .error("安全输入正在进行，请稍后重试。") }
-        agentStepsByTab[targetId] = input.action.displayTitle
+        agentStepsByTab[targetId] = BrowserAction.stepTitle(for: input.action.rawValue, summary: input.toolTitle)
         defer { agentStepsByTab.removeValue(forKey: targetId) }
         let hostName = sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "当前会话"
         manager.secureInputRequester = isPrivileged(owner) ? hostName : hostName + "（通用子代理）"

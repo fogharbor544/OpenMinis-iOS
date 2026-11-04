@@ -8,6 +8,8 @@ final class BrowserTakeoverTests: XCTestCase {
         let input = try XCTUnwrap(BrowserActionInput.parse(from: #"{"action":"list_tabs"}"#))
         XCTAssertTrue(pool.beginTakeover())
         XCTAssertTrue(pool.isTakeoverActive)
+        XCTAssertTrue(pool.isAwaitingUserInteraction)
+        XCTAssertFalse(BrowserTabPool().isAwaitingUserInteraction)
         XCTAssertFalse(pool.beginTakeover())
 
         let started = expectation(description: "automation requested")
@@ -26,6 +28,7 @@ final class BrowserTakeoverTests: XCTestCase {
         XCTAssertFalse(finished, "Automation must wait while the browser is under manual control")
 
         pool.endTakeover()
+        XCTAssertFalse(pool.isAwaitingUserInteraction)
         await fulfillment(of: [completed], timeout: 1)
         guard finished else { return }
         let result = try await command.value

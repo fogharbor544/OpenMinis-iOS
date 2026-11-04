@@ -734,6 +734,7 @@ extension AIChatViewModel {
                 break
             }
             let browserInput = BrowserActionInput.parse(from: argsJson)
+            let isSecureInput = browserInput?.action == .secureInput
             var browserResult: BrowserActionResult
             if let input = browserInput {
                 do {
@@ -747,7 +748,7 @@ extension AIChatViewModel {
                 browserResult = .error("Invalid browser_use input. Required: 'action' parameter.")
             }
 
-            if browserTabPool.isTakeoverRequested && browserInput?.action != .secureInput {
+            if browserTabPool.isTakeoverRequested && !isSecureInput {
                 browserResult.text += "\n[Browser takeover] The user took control of the browser. Inspect the current page before continuing."
             }
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {

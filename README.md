@@ -120,8 +120,8 @@ than committed as binaries.
 The short version:
 
 ```sh
-git clone --recurse-submodules https://github.com/OpenMinis/OpenMinis.git
-cd OpenMinis
+git clone https://github.com/fogharbor544/OpenMinis-iOS.git
+cd OpenMinis-iOS
 
 # iOS  — needs Go 1.25+ and Xcode's Metal Toolchain
 #        (xcodebuild -downloadComponent MetalToolchain)

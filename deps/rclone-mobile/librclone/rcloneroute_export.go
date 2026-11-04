@@ -12,8 +12,8 @@ import "C"
 import (
 	"strconv"
 
-	"github.com/OpenMinis/minis-rclone/rcloneroute"
-	"github.com/OpenMinis/minis-rclone/tsnet"
+	"github.com/fogharbor544/minis-rclone/rcloneroute"
+	"github.com/fogharbor544/minis-rclone/tsnet"
 )
 
 // MinisRcloneSetSocks sets socks_proxy ("user:pass@host:port") for every

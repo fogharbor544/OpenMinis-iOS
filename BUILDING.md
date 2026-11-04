@@ -14,20 +14,23 @@ ordered by dependency, and skipping one produces confusing link errors later.
 
 ## Common setup
 
-Clone with submodules — the iSH fork is a submodule, and a clone without it
-will fail at the native build step:
+Clone the repository. There are **no submodules**: the native sources the
+build needs are vendored in `deps/`, so a plain clone is enough:
 
 ```sh
-git clone --recurse-submodules https://github.com/OpenMinis/OpenMinis.git
-cd OpenMinis
-
-# Already cloned without --recurse-submodules?
-git submodule update --init --recursive
+git clone https://github.com/fogharbor544/OpenMinis-iOS.git
+cd OpenMinis-iOS
 ```
 
-| Submodule | Repository | Used by |
+| Vendored dependency | Source | Used by |
 |---|---|---|
-| `deps/ish` | [OpenMinis/ish-arm64](https://github.com/OpenMinis/ish-arm64) | iOS sandbox kernel |
+| `deps/ish` | [OpenMinis/ish-arm64](https://github.com/OpenMinis/ish-arm64) @ `0fd17a13` | iOS sandbox kernel |
+| `deps/rclone-mobile` | this repository (Go module `github.com/fogharbor544/minis-rclone`) | backup remote destinations |
+
+The upstream fork's own submodules (`ish-app/libapps`, `libarchive/libarchive`,
+`ish-app/linux`) are **not** vendored: they only matter for the "linux" kernel
+and for the iSH app build, while this build uses `-Dkernel=ish` with the ARM64
+kernel sources in `deps/ish/linux/`.
 
 ### Build-time customization
 
@@ -105,8 +108,8 @@ What each produces:
 - **`build_ffmpeg.sh`** — FFmpeg 6.1.2 as per-library `.framework` bundles plus
   an umbrella `FFmpeg.framework`. Configured **LGPL**: do not add
   `--enable-gpl` or `--enable-nonfree` — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
-- **`build_ish.sh`** — `libish`, `libish_emu`, `libfakefs` from the `deps/ish`
-  submodule, plus headers and the VDSO.
+- **`build_ish.sh`** — `libish`, `libish_emu`, `libfakefs` from the vendored
+  `deps/ish` tree, plus headers and the VDSO.
 - **`prepare_alpine_rootfs.sh`** — downloads Alpine aarch64 minirootfs and
   converts it to iSH's fakefs format.
 - **`build_rclone_ios.sh`** — rclone as a static-library XCFramework (device
@@ -153,8 +156,9 @@ xcodebuild -project src/ios/Minis.xcodeproj -scheme Minis \
 
 ## Troubleshooting
 
-**`deps/ish` is empty** — the submodule was not initialised:
-`git submodule update --init --recursive`.
+**`deps/ish` is missing or incomplete** — the vendored iSH tree is not in the
+clone; re-fetch it from [OpenMinis/ish-arm64](https://github.com/OpenMinis/ish-arm64)
+at `0fd17a13` into `deps/ish`.
 
 **iOS: `Undefined symbols … _vstats_version` / `symbol(s) not found`** — FFmpeg
 was not built, or was built for a different architecture than the one you are

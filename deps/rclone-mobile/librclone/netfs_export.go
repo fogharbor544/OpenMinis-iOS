@@ -38,7 +38,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/OpenMinis/minis-rclone/netfs"
+	"github.com/fogharbor544/minis-rclone/netfs"
 )
 
 // MARK: - Mount registry

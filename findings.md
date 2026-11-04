@@ -284,3 +284,17 @@ User explicitly requests combined document memory reading/editing, and direct ta
 - Affected source is 660fa38; the main checkout is an older branch. Preserve pre-existing browser optimization edits in this worktree.
 - requestLatestPosition had three synchronous layout triggers: applySnapshot itself calls collectionView.layoutIfNeeded, followed by two more forced layouts/tail pins. Cold-tail hosted-cell updates can therefore re-enter UIKit/SwiftUI in the same main-thread callback.
 - The repair retains the normal snapshot apply and initial pin, deferring cold-tail correction to the next runloop turn. Native validation compiles the extracted shipping methods; Windows cannot execute UIKit/Xcode.
+
+### Browser takeover review
+- 6f95f94 matches the reviewed head; 5d5f29c calls a sheet initializer argument its snapshot does not define.
+- Model and CLI share BrowserTabPool.execute; the pool serializes WebKit actions per tab, while inUse also includes reuse grace.
+
+### Browser takeover follow-up
+- A tool batch can arrive after takeover has already ended; capture the browser generation at model-context creation, not only when a tool enters the pool.
+- Group fallback and auto-retry both send requests after awaited work. In-loop compaction restarts the outer iteration, but model switching, prompt persistence and routing/retry also suspend.
+- Protect selected and previously visited tabs during takeover; leave unrelated tabs eligible for reclaim.
+
+### Browser takeover shell and handoff follow-up
+- iSH stamps fs_context on the guest task group and browser offloads read it on that guest thread. The scoped token keeps the same filesystem route and stores the original browser pool, issuer and generation separately.
+- Handoff records the selected tab and its manager identity, keeps snapshot routing separate from selection, and falls back to a text reminder if a safe snapshot is unavailable.
+- Child cleanup transfers takeover tabs to the chat and releases untouched child tabs normally.

@@ -436,3 +436,19 @@ Do not use the quota-blocked private remote for this task.
 - Public full run41393013773 SUCCESS: source-checks, ui-layout and device-build all passed;18 native send cases passed at max snapshot depth1.
 - Verified final unsigned iOS arm64 IPA at original project build/ipa/OpenMinis-660fa38-unsigned.ipa; artifact/run/commit, ZIP CRC, SHA256 and Mach-O iOS device platform verified. Physical-device acceptance remains for the user.
 - Existing browser local modifications preserved exactly and excluded from these commits/build.
+
+### Browser takeover review
+- Target: the existing `codex/fix-historical-send-freeze` worktree at 6f95f94.
+- [x] Trace browser execution and sheet lifecycle; verify reviewed commit boundaries.
+- [x] Gate automation in the shared pool, bind ownership to the browser sheet, and fix Bot profile rows.
+- [x] Run portable regressions and identify native validation limits.
+
+### Browser takeover follow-up
+- [x] Reproduce stale writes, late provider dispatch, and reclaim gaps in the current worktree.
+- [x] Bind browser tool writes to the originating request generation; guard actual provider attempts and all automatic tab reclaim paths.
+- [x] Verify portable contracts and native test source.
+
+### Browser takeover shell and handoff follow-up
+- [x] Confirm the delayed guest CLI path, missed handoff, wrong tab snapshot, and child cleanup cases.
+- [x] Preserve shell provenance across iSH, observe completed handoffs once per VM, and transfer manual tabs when their helper finishes.
+- [x] Run regression checks and inspect native test source.

@@ -18,7 +18,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/OpenMinis/minis-rclone/tsnet"
+	"github.com/fogharbor544/minis-rclone/tsnet"
 )
 
 var (

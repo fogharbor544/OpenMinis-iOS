@@ -25,7 +25,7 @@ import "C"
 import (
 	"unsafe"
 
-	_ "github.com/OpenMinis/minis-rclone/backends"
+	_ "github.com/fogharbor544/minis-rclone/backends"
 	"github.com/rclone/rclone/librclone/librclone"
 )
 

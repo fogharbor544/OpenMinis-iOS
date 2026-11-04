@@ -8,7 +8,13 @@ set -e
 # for iOS (arm64) integration, using the ish-arm64 fork which emulates an
 # ARM64 Linux guest on iOS.
 #
-# Repository: https://github.com/OpenMinis/ish-arm64 (branch: feature-arm64)
+# Source: https://github.com/OpenMinis/ish-arm64 (branch: master), vendored into
+# deps/ish at 0fd17a135e78b7a0cf08a4f5831217bbb76ed22f (v2.0.0-196-g0fd17a13).
+# The tree is checked in, so there is no submodule to clone and no network
+# access is needed to build. The upstream fork's own submodules
+# (ish-app/libapps, libarchive/libarchive, ish-app/linux) are NOT vendored:
+# they are only used by the "linux" kernel and by the iSH app build, while
+# this build uses -Dkernel=ish with the ARM64 kernel sources in linux/.
 #
 # Prerequisites:
 #   - Xcode with iOS SDK
@@ -127,21 +133,29 @@ check_prerequisites() {
 }
 
 # ============================================================================
-# Initialize Submodules
+# Verify the Vendored Tree
 # ============================================================================
-init_submodules() {
-    log_info "Initializing iSH submodules..."
+verify_vendored_tree() {
+    log_info "Verifying the vendored iSH tree..."
 
-    cd "$ISH_DIR"
+    local missing=0
+    for path in \
+        "meson.build" \
+        "linux/main.c" \
+        "kernel/arch/arm64" \
+        "vdso/arm64" \
+        "tools/meson.build"; do
+        if [ ! -e "$ISH_DIR/$path" ]; then
+            log_error "Vendored iSH tree is incomplete: missing $path"
+            missing=1
+        fi
+    done
 
-    if [ ! -d "deps/libapps/.git" ] && [ ! -f "deps/libapps/.git" ]; then
-        git submodule update --init --recursive
-        log_success "Submodules initialized"
-    else
-        log_info "Submodules already initialized"
+    if [ "$missing" -ne 0 ]; then
+        log_error "deps/ish is incomplete - re-fetch the vendored tree"
     fi
 
-    cd "$SCRIPT_DIR"
+    log_success "Vendored iSH tree is complete"
 }
 
 # ============================================================================
@@ -490,7 +504,7 @@ main() {
     fi
 
     check_prerequisites
-    init_submodules
+    verify_vendored_tree
     for platform in $PLATFORMS; do
         select_platform "$platform"
         setup_cross_compile

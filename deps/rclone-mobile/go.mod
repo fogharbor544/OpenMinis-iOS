@@ -1,4 +1,4 @@
-module github.com/OpenMinis/minis-rclone
+module github.com/fogharbor544/minis-rclone
 
 go 1.25.5
 

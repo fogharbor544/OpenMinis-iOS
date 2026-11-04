@@ -21,8 +21,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OpenMinis/minis-rclone/nethub"
-	"github.com/OpenMinis/minis-rclone/tsnet"
+	"github.com/fogharbor544/minis-rclone/nethub"
+	"github.com/fogharbor544/minis-rclone/tsnet"
 )
 
 var (

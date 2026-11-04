@@ -7,14 +7,14 @@
                                           [START, END], exit 1 on any finding
 
 What is recorded:
-  * the App Group container group.com.openminis.app - every file: size, mtime, sha256;
+  * the App Group container group.com.fogharbor544.minis - every file: size, mtime, sha256;
   * each real app container (MINIS_REAL_CONTAINERS, default the one on this Mac):
     the directory, its metadata plist and Data/ (stat). Its contents are hashed
     too when this process may read them; macOS privacy protection (TCC) usually
     blocks listing another app's Data/, which is recorded as such - the
     containermanagerd audit below is the independent check for that case;
   * the top level of ~/Library/Containers (new containers appear there);
-  * ~/Library/Preferences/com.fogharbor544.minis*.plist and group.com.openminis.app*.plist.
+  * ~/Library/Preferences/com.fogharbor544.minis*.plist and group.com.fogharbor544.minis*.plist.
 
 The containermanagerd audit fails on any line in the window that names the real
 app (com.fogharbor544.minis, its extensions) or a real container UUID, and on any
@@ -23,7 +23,7 @@ App Group request that was APPROVED for the test host.
 import glob, hashlib, json, os, re, subprocess, sys, time
 
 HOME = os.path.expanduser('~')
-GROUP = os.path.join(HOME, 'Library', 'Group Containers', 'group.com.openminis.app')
+GROUP = os.path.join(HOME, 'Library', 'Group Containers', 'group.com.fogharbor544.minis')
 CONTAINERS = os.path.join(HOME, 'Library', 'Containers')
 REAL = [c for c in os.environ.get('MINIS_REAL_CONTAINERS', '07EF1093-F27E-4130-9741-9766B14510AA').split(',') if c]
 HOST_ID = 'com.fogharbor544.minis.MinisTestHost'
@@ -90,7 +90,7 @@ def snapshot(out):
     for name in sorted(os.listdir(CONTAINERS)):
         snap['containers_top'][name] = stat_entry(os.path.join(CONTAINERS, name))
     for p in sorted(glob.glob(os.path.join(HOME, 'Library', 'Preferences', 'com.fogharbor544.minis*.plist')) +
-                    glob.glob(os.path.join(HOME, 'Library', 'Preferences', 'group.com.openminis.app*.plist'))):
+                    glob.glob(os.path.join(HOME, 'Library', 'Preferences', 'group.com.fogharbor544.minis*.plist'))):
         e = stat_entry(p)
         e['sha256'] = sha256(p)
         snap['prefs'][os.path.basename(p)] = e
@@ -126,7 +126,7 @@ def audit_log(start, end):
     bad, host = [], []
     for l in lines:
         names_real = re.search(r'\[com\.openminis\.app[\].]', l) or any(c in l for c in REAL)
-        approved_for_host = HOST_ID in l and 'group.com.openminis.app' in l and 'APPROVED' in l
+        approved_for_host = HOST_ID in l and 'group.com.fogharbor544.minis' in l and 'APPROVED' in l
         if names_real or approved_for_host:
             bad.append(l)
         else:
@@ -139,7 +139,7 @@ def diff(before_p, after_p, start, end):
     findings = []
     print(f'== data guard: {a["taken_at"]} -> {b["taken_at"]}')
     g = compare(a['group'], b['group'])
-    print(f'App Group container group.com.openminis.app: {len(b["group"]) if isinstance(b["group"], dict) else b["group"]} '
+    print(f'App Group container group.com.fogharbor544.minis: {len(b["group"]) if isinstance(b["group"], dict) else b["group"]} '
           f'entries, {len(g)} differences')
     for kind, k, x, y in g:
         findings.append(f'group {kind}: {k}')
@@ -157,7 +157,7 @@ def diff(before_p, after_p, start, end):
     print(f'~/Library/Containers: {len(new)} new ({", ".join(new) or "none"}), real container entry changed: {bool(changed_real)}')
     findings += [f'real container entry changed in ~/Library/Containers: {k}' for k in changed_real]
     p = compare(a['prefs'], b['prefs'])
-    print(f'preferences com.fogharbor544.minis*/group.com.openminis.app*: {len(b["prefs"])} files, {len(p)} differences')
+    print(f'preferences com.fogharbor544.minis*/group.com.fogharbor544.minis*: {len(b["prefs"])} files, {len(p)} differences')
     findings += [f'prefs {kind}: {k}' for kind, k, x, y in p]
     lines, bad, host = audit_log(start, end)
     print(f'containermanagerd log {start} .. {end}: {len(lines)} lines naming openminis, '

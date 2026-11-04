@@ -665,7 +665,7 @@ struct MinisApp: App {
     // MARK: - FileProvider
 
     private static let fileProviderDomain = NSFileProviderDomain(
-        identifier: NSFileProviderDomainIdentifier("com.openminis.app.files"),
+        identifier: NSFileProviderDomainIdentifier("com.fogharbor544.minis.files"),
         displayName: "Minis"
     )
 
@@ -913,7 +913,7 @@ struct MinisApp: App {
             }
 
             // Remove any stale domains with different identifiers, then add ours.
-            let stale = domains.filter { $0.identifier.rawValue.contains("com.openminis") }
+            let stale = domains.filter { $0.identifier.rawValue.contains("com.fogharbor544.minis") }
             let group = DispatchGroup()
             for d in stale {
                 group.enter()

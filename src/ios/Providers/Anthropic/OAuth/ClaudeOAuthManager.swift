@@ -262,7 +262,7 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
     }
 
 
-    static let legacyKeychainService = "com.openminis.app.claude-oauth"
+    static let legacyKeychainService = "com.fogharbor544.minis.claude-oauth"
     static let legacyKeychainAccount = "token"
 
 

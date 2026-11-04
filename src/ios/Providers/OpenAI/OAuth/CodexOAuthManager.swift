@@ -188,7 +188,7 @@ final class CodexOAuthManager: NSObject, ObservableObject {
     }
 
 
-    static let legacyKeychainService = "com.openminis.app.openai-oauth"
+    static let legacyKeychainService = "com.fogharbor544.minis.openai-oauth"
     static let legacyKeychainAccount = "token"
 
 

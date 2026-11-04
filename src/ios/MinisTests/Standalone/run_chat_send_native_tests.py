@@ -88,7 +88,7 @@ def main():
     if not phones: raise RuntimeError("No iOS simulator installed")
     device=next((d for d in phones if d["state"]=="Booted"),phones[0]);udid=device["udid"]
     booted_here=device["state"]!="Booted"
-    bundle="com.openminis.chat-send-validation"
+    bundle="com.fogharbor544.minis.chat-send-validation"
     try:
         if booted_here: run("xcrun","simctl","boot",udid)
         run_retry("xcrun","simctl","bootstatus",udid,"-b",timeout=300)

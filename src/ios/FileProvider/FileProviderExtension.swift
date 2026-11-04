@@ -9,7 +9,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
     let domain: NSFileProviderDomain
 
-    private static let log = OSLog(subsystem: "com.openminis.app.FileProvider", category: "Extension")
+    private static let log = OSLog(subsystem: "com.fogharbor544.minis.FileProvider", category: "Extension")
 
     /// Root directory for all FileProvider-visible files in the App Group container.
     static var providerRoot: URL {

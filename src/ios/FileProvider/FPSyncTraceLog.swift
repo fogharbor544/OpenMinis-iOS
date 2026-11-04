@@ -17,8 +17,8 @@ import os.log
 enum FPSyncTraceLog {
     private static let logFileName = "fp-sync-trace.log"
     private static let maxBytes: Int = 256 * 1024
-    private static let queue = DispatchQueue(label: "com.openminis.app.FileProvider.fpSyncTrace")
-    private static let osLog = OSLog(subsystem: "com.openminis.app.FileProvider", category: "FPSyncTrace")
+    private static let queue = DispatchQueue(label: "com.fogharbor544.minis.FileProvider.fpSyncTrace")
+    private static let osLog = OSLog(subsystem: "com.fogharbor544.minis.FileProvider", category: "FPSyncTrace")
 
     private static var fileURL: URL? {
         guard let container = FileManager.default.containerURL(

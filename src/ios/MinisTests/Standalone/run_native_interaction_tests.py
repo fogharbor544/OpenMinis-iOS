@@ -10,7 +10,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT.parents[1] / "build/validation/native-interactions"
-BUNDLE = "com.openminis.native-interactions"
+BUNDLE = "com.fogharbor544.minis.native-interactions"
 
 
 def run(*args, **kwargs):

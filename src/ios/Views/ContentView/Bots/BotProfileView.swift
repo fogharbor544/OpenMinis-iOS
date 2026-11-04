@@ -111,13 +111,19 @@ struct BotProfileView: View {
 
             Section {
                 Button { openBrowser() } label: {
-                    SettingsRowLabel(title: "打开浏览器", systemImage: "globe", color: .blue)
+                    SettingsRowLabel(title: "Open Browser", systemImage: "globe", color: .blue)
                 }
                 .foregroundStyle(.primary)
+                .disabled(openingSession)
                 Button { openSessionThen { showTerminal = true } } label: {
-                    SettingsRowLabel(title: "打开终端", systemImage: "terminal", color: .gray)
+                    SettingsRowLabel(title: "Open Terminal", systemImage: "terminal", color: .gray)
                 }
                 .foregroundStyle(.primary)
+                .disabled(openingSession)
+                if openingSession {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                }
                 NavigationLink { BotMemoryView(owner: "bot:\(bot.id)", title: bot.name) } label: {
                     SettingsRowLabel(title: "长期记忆", systemImage: "brain", color: .pink)
                 }
@@ -186,7 +192,7 @@ struct BotProfileView: View {
         }
         .sheet(isPresented: $editingInstructions) { BotInstructionsEditor(botID: bot.id) }
         .sheet(item: $browserTarget) { target in
-            BotBrowserHost(vm: target.vm)
+            BrowserSheetView(pool: target.vm.browserTabPool)
         }
         .fullScreenCover(isPresented: $showTerminal) {
             NavigationStack {
@@ -311,6 +317,7 @@ struct BotProfileView: View {
 
     /// Uses this Bot's own conversation so its browser and shell stay its own.
     private func openSessionThen(_ show: @escaping () -> Void) {
+        guard !openingSession else { return }
         if let sid = browserSessionID { resolvedSessionID = sid; show(); return }
         openingSession = true
         Task { @MainActor in
@@ -549,13 +556,4 @@ private struct BotInstructionsEditor: View {
 private struct BotBrowserTarget: Identifiable {
     let id: String
     let vm: AIChatViewModel
-}
-
-private struct BotBrowserHost: View {
-    @ObservedObject var vm: AIChatViewModel
-    var body: some View {
-        BrowserSheetView(pool: vm.browserTabPool,
-                         onTakeover: { vm.browserTakeoverActive = true },
-                         isUserTakeoverActive: vm.browserTakeoverActive)
-    }
 }

@@ -66,7 +66,7 @@ let config = source("Shared/Config/ConfigRegistry+Builtins.swift")
 
 let liftedFromPool = [
     "    func acquireTab() -> Int {",
-    "    func newTab(url: String? = nil, owner: String? = nil) -> BrowserActionResult {",
+    "    func newTab(url: String? = nil, owner: String? = nil, inUse: Bool = false) -> BrowserActionResult {",
     "    func openWithConfiguration(_ configuration: WKWebViewConfiguration, url: URL?) -> WKWebView? {",
     "    private func rebuildDeadTab(oldId: Int) -> (newId: Int, deadURL: String) {",
     "    private func makeManager() -> BrowserUseManager {",
@@ -402,7 +402,7 @@ check("the popup re-reads them before building its manager",
       index(popup, "syncGlobalDefaultsFromStore()") > 0 && index(popup, "syncGlobalDefaultsFromStore()") < index(popup, "BrowserUseManager(profile:"))
 check("acquireTab, the UI prefetch, new_tab and the implicit fan-out all go through makeManager",
       poolCode.components(separatedBy: "let manager = makeManager()").count - 1 == 4)
-check("a dead tab is replaced through newTab", block(pool, "    private func rebuildDeadTab(oldId: Int) -> (newId: Int, deadURL: String) {").contains("let r = newTab(url: nil)"))
+check("a dead tab is replaced through newTab", block(pool, "    private func rebuildDeadTab(oldId: Int) -> (newId: Int, deadURL: String) {").contains("let r = newTab(inUse: true)"))
 check("init reads the defaults through the same function", block(pool, "    init() {").contains("syncGlobalDefaultsFromStore()"))
 check("the sync never walks the tabs", !block(pool, "    func syncGlobalDefaultsFromStore() {").contains("tabs"))
 

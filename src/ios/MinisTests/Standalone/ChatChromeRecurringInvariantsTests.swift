@@ -14,9 +14,9 @@
 //      `collapsedBar(now:)` still subscripts `toolBlocks[idx]` unchecked; that
 //      is only safe because the bar is never built for an empty list. Pin both.
 //   C. Transcript sheet over the tool sheet — 6ab57bec5
-//      (T-agent-transcript-halfsheet): closing the transcript must NOT fire
-//      `onTakeoverDone` (it would resume a browser-takeover continuation that
-//      was never paused); closing the takeover browser still must.
+//      (T-agent-transcript-halfsheet): closing a transcript or URL preview
+//      must not end takeover. The browser sheet owns and releases its lease.
+//
 //   D. FileProvider boot breaker — 0c9875798 (T-ios-fp-mac-bootcrash): the
 //      appex stamps its OWN executable's mtime, which is not the main app's
 //      generation. Pin that a successful boot still un-trips the app's breaker
@@ -162,18 +162,13 @@ for (name, start) in [("runningAgentIdx", "private var runningAgentIdx: Int? {")
 // MARK: - C. transcript sheet dismissal
 
 print("\n▶️  C. transcript sheet dismissal (6ab57bec5)")
-enum Sheet { case takeoverBrowser, linkPreview, agentTranscript }
-func onDismissFiresTakeoverDone(_ closed: Sheet?) -> Bool {
-    if case .agentTranscript = closed { return false }
-    return true
-}
-check("closing the transcript does not resume a takeover", !onDismissFiresTakeoverDone(.agentTranscript))
-check("closing the takeover browser still resumes it", onDismissFiresTakeoverDone(.takeoverBrowser))
-let dismissSrc = slice(toolSheet, from: ".sheet(item: $activeSheet, onDismiss: {", maxLen: 500)
-check("shipped onDismiss returns early for .agentTranscript before onTakeoverDone",
-      dismissSrc.range(of: "if case .agentTranscript = closed { return }").map { g in
-          dismissSrc.range(of: "onTakeoverDone?()").map { g.lowerBound < $0.lowerBound } ?? false
-      } ?? false)
+let takeoverSheet = (try? String(contentsOfFile: "src/ios/Agent/BrowserUse/BrowserSheetView.swift", encoding: .utf8)) ?? ""
+check("the browser sheet alone releases the takeover it acquired",
+      takeoverSheet.contains(".onDisappear {\n            endTakeover()") &&
+      takeoverSheet.contains("guard ownsTakeover else { return }"))
+check("the transcript and link preview cannot release a browser takeover",
+      toolSheet.contains(".sheet(item: $activeSheet) { sheet in") &&
+      !toolSheet.contains("endTakeover()"))
 check("the transcript is stacked on the tool sheet, not via dismiss + notification",
       toolSheet.contains("activeSheet = .agentTranscript(HelperSheetTarget(id: childId, title: title))"))
 

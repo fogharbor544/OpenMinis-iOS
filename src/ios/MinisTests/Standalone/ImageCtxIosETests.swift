@@ -176,7 +176,7 @@ check("edit mirror: editMessage restores attachments from uploads; send() cuts a
 check("tool mirror: browser_use / read_image snapshots store the model image (Session.browserScreenshot / readImage)",
       source(TOOLS).components(separatedBy: "let imageData = toolImageData ?? (try? Data(contentsOf: URL(fileURLWithPath: imagePath))),").count - 1 == 2)
 check("takeover mirror: the takeover message is stored (Session.takeover)",
-      source(BG).contains("let msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId, timestamp: timestamp)")
+      source(BG).contains("msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId, timestamp: timestamp, tabId: tabId)")
       && source(BG).contains("if let pid = await persistAgentMessage(msg), idx < agentHistory.count {"))
 check("fork mirror: duplicateSession copies parts verbatim", source("Agent/Session/SessionForkManager.swift").contains("parts: msg.parts,"))
 check("RequestContextBuilder reads no globals (ChatStore.shared, UserDefaults, Date(), UUID(), UIApplication)",

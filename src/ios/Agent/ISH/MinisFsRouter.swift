@@ -13,6 +13,13 @@
 
 import Foundation
 
+/// Host-supplied provenance for browser calls from a model-generated shell.
+struct BrowserShellContext: Hashable, Sendable {
+    let sessionId: String
+    let poolID: UUID
+    let takeoverGeneration: UInt64
+}
+
 final class MinisFsRouter: @unchecked Sendable {
     static let shared = MinisFsRouter()
 
@@ -31,6 +38,8 @@ final class MinisFsRouter: @unchecked Sendable {
     private var nextContext: UInt64 = 1
     private var contextToSid: [UInt64: String] = [:]
     private var sidToContext: [String: UInt64] = [:]
+    private var browserContextTokens: [String: [BrowserShellContext: UInt64]] = [:]
+    private var browserContexts: [UInt64: BrowserShellContext] = [:]
 
     /// Host base URL (~/Library/MinisChat/minis). Captured once at install time.
     private let minisBaseURL: URL
@@ -39,18 +48,37 @@ final class MinisFsRouter: @unchecked Sendable {
         self.minisBaseURL = AIChatViewModel.minisPersistentBase
     }
 
-    /// Allocate a stable fs_context token for `sid`. Repeated calls with the
-    /// same sid return the same token, so workers can be respawned without
-    /// invalidating prior routing.
-    func context(for sid: String) -> UInt64 {
+    /// Commands for the same workspace share path routing. Model commands also
+    /// carry their browser provenance in the inherited host token so parallel
+    /// scripts cannot overwrite it and a forked child keeps its original stamp.
+    func context(for sid: String, browserContext: BrowserShellContext? = nil) -> UInt64 {
         lock.lock(); defer { lock.unlock() }
-        if let existing = sidToContext[sid] { return existing }
-        let ctx = nextContext
+        let base: UInt64
+        if let existing = sidToContext[sid] {
+            base = existing
+        } else {
+            base = allocateContext(for: sid)
+            sidToContext[sid] = base
+        }
+        guard let browserContext else { return base }
+        if let existing = browserContextTokens[sid]?[browserContext] { return existing }
+        let token = allocateContext(for: sid)
+        browserContextTokens[sid, default: [:]][browserContext] = token
+        browserContexts[token] = browserContext
+        return token
+    }
+
+    private func allocateContext(for sid: String) -> UInt64 {
+        let token = nextContext
         nextContext &+= 1
-        if nextContext == 0 { nextContext = 1 }   // never hand out 0 (= "no override")
-        contextToSid[ctx] = sid
-        sidToContext[sid] = ctx
-        return ctx
+        if nextContext == 0 { nextContext = 1 }
+        contextToSid[token] = sid
+        return token
+    }
+
+    func browserContext(for token: UInt64) -> BrowserShellContext? {
+        lock.lock(); defer { lock.unlock() }
+        return browserContexts[token]
     }
 
     /// Reverse lookup. Returns nil if the token was never issued or has been

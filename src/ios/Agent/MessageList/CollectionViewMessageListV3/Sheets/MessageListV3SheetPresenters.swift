@@ -32,8 +32,6 @@ final class ToolSheetPresenter: ObservableObject {
 
     @Published var sheetData: SheetData?
     var onDismiss: (() -> Void)?
-    var onBrowserTakeover: (() -> Void)?
-    var onTakeoverDone: (() -> Void)?
 }
 
 // MARK: - Compact Summary Sheet Presenter
@@ -78,9 +76,7 @@ struct SheetOverlayView: View {
                     toolBlocks: data.toolBlocks,
                     initialIdx: data.toolBlocks.firstIndex(where: { $0.id == data.block.id }) ?? 0,
                     toolSnapshots: data.toolSnapshots,
-                    browserPool: data.browserPool,
-                    onBrowserTakeover: toolPresenter.onBrowserTakeover,
-                    onTakeoverDone: toolPresenter.onTakeoverDone
+                    browserPool: data.browserPool
                 )
             }
             .onChange(of: toolPresenter.sheetData?.id) { newVal in

@@ -39,6 +39,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
     private(set) var webView: WKWebView
     private var navigationContinuation: CheckedContinuation<Void, Error>?
+    private var agentNavigation: WKNavigation?
+    private var stoppedAgentNavigation: WKNavigation?
     @Published private(set) var currentProfile: UserAgentProfile = .mobileSafari
 
     /// Called when a page requests a new window (target="_blank" / window.open).
@@ -874,7 +876,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
         lastRequestedURL = url          // [T-ios-webview-error-ui]
         loadError = nil                 // clear any prior failure overlay
-        webView.load(request)
+        let navigation = webView.load(request)
+        agentNavigation = navigation
         isLoading = true
 
         // Wait for navigation to complete
@@ -896,27 +899,33 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let navTimer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         navTimer.schedule(deadline: .now() + Self.navigationTimeout)
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.navigationContinuation = continuation
+        do {
+            defer {
+                navTimer.cancel()
+                agentNavigation = nil
+            }
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                self.navigationContinuation = continuation
 
-            navTimer.setEventHandler {
-                Task { @MainActor in
-                    if let cont = self.navigationContinuation {
-                        self.navigationContinuation = nil
-                        self.isLoading = false
-                        timedOut = true
-                        cont.resume()  // Don't fail on timeout, page may be partially loaded
-                        // [T-browser-bg-stuck-diag] Distinguish the two ways navigate
-                        // leaves the wait: this WARN = timed out (didFinish/didFail
-                        // never came — network stall or the load never completed);
-                        // absence of it = the delegate fired normally.
-                        logger.warning("[NavTiming] navigate_TIMEOUT after \(Int(Self.navigationTimeout))s — no didFinish/didFail; url=\(url.absoluteString.prefix(80))")
+                navTimer.setEventHandler {
+                    Task { @MainActor in
+                        guard self.agentNavigation === navigation else { return }
+                        if let cont = self.navigationContinuation {
+                            self.navigationContinuation = nil
+                            self.isLoading = false
+                            timedOut = true
+                            cont.resume()  // Don't fail on timeout, page may be partially loaded
+                            // [T-browser-bg-stuck-diag] Distinguish the two ways navigate
+                            // leaves the wait: this WARN = timed out (didFinish/didFail
+                            // never came — network stall or the load never completed);
+                            // absence of it = the delegate fired normally.
+                            logger.warning("[NavTiming] navigate_TIMEOUT after \(Int(Self.navigationTimeout))s — no didFinish/didFail; url=\(url.absoluteString.prefix(80))")
+                        }
                     }
                 }
+                navTimer.resume()
             }
-            navTimer.resume()
         }
-        navTimer.cancel()
 
         let navDoneMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
         logger.info("[NavTiming] wait_returned elapsed=\(navDoneMs)ms url=\(url.absoluteString.prefix(100))")
@@ -2068,6 +2077,17 @@ final class BrowserUseManager: NSObject, ObservableObject {
         webView.reload()
     }
 
+    func stopLoadingForTakeover() {
+        // stopLoading does not guarantee a delegate callback. Settle the
+        // suspended agent action now and ignore a late callback for its load.
+        if let continuation = navigationContinuation {
+            stoppedAgentNavigation = agentNavigation
+            navigationContinuation = nil
+            continuation.resume(throwing: URLError(.cancelled))
+        }
+        stopLoading()
+    }
+
     func stopLoading() {
         manualNavigationTimeout?.cancel()
         webView.stopLoading()
@@ -2448,6 +2468,7 @@ extension BrowserUseManager: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
+            if let stopped = self.stoppedAgentNavigation, stopped === navigation { return }
             self.manualNavigationTimeout?.cancel()
             if self.secureInputProtected && self.secureInputSession == nil {
                 guard navigation === self.secureCleanupNavigation else { return }
@@ -2485,6 +2506,7 @@ extension BrowserUseManager: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            if let stopped = self.stoppedAgentNavigation, stopped === navigation { return }
             self.manualNavigationTimeout?.cancel()
             self.isLoading = false
             // [T-ios-webview-error-ui] Show a Safari-style overlay in the
@@ -2501,6 +2523,7 @@ extension BrowserUseManager: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
+            if let stopped = self.stoppedAgentNavigation, stopped === navigation { return }
             self.manualNavigationTimeout?.cancel()
             self.isLoading = false
             // [T-ios-webview-error-ui] see didFail above.

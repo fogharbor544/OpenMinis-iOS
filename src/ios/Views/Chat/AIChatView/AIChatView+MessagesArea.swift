@@ -43,8 +43,6 @@ extension AIChatView {
                 onWithdraw: { vm.withdrawQueuedMessage($0) },
                 onResume: { vm.resume(); vm.forceScrollToBottom.send() },
                 onStop: { vm.stopCurrentCommand() },
-                onBrowserTakeover: { vm.browserTakeoverActive = true },
-                onTakeoverDone: { vm.resumeFromBrowserTakeover() },
                 onCompact: { msgId in compactConfirmMessageId = msgId },
                 onRevertCompact: { Task { await vm.revertCompact() } },
                 onForceSync: { [self] in
@@ -188,11 +186,7 @@ extension AIChatView {
             // captured AIChatView copy crashed in `destroy for FloatingToolBar`
             // (build 25, iOS 16.6).
             let vm = self.vm
-            FloatingToolBar(toolBlocks: allToolBlocks, toolSnapshots: vm.toolSnapshots, browserPool: vm.browserTabPool, onBrowserTakeover: { [vm] in
-                vm.browserTakeoverActive = true
-            }, onTakeoverDone: { [vm] in
-                vm.resumeFromBrowserTakeover()
-            })
+            FloatingToolBar(toolBlocks: allToolBlocks, toolSnapshots: vm.toolSnapshots, browserPool: vm.browserTabPool)
                 .frame(maxWidth: maxContentWidth)
                 .padding(.horizontal, 12)
                 // [T-ios-geometry-observer-crash] onGeometryChange replaces the

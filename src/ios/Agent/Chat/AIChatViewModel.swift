@@ -1448,9 +1448,12 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// `var`, not `let`: a helper (child) vm adopts its PARENT's pool so both
     /// agents browse in one tab set (T-p2-shared-workspace). Per-agent default
     /// tabs keep them from stepping on each other — see BrowserTabPool.owner.
-    var browserTabPool = BrowserTabPool()
-    /// When true, the agent loop pauses at the next checkpoint to let the user operate the browser.
-    @Published var browserTakeoverActive = false
+    var browserTabPool = BrowserTabPool() {
+        didSet {
+            if oldValue !== browserTabPool { observedBrowserTakeoverGeneration = 0 }
+        }
+    }
+    var observedBrowserTakeoverGeneration: UInt64 = 0
 
     // MARK: - Prompt Queue
     /// Prompts queued by the user while the agent loop is running.
@@ -1831,12 +1834,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var backgroundSuspended = false
     /// Continuation used to pause the agent loop while suspended in background.
     var foregroundContinuation: CheckedContinuation<Void, Never>?
-    /// Continuation used to pause the agent loop during browser takeover (between turns).
-    var takeoverContinuation: CheckedContinuation<Void, Never>?
-    /// Continuation used to pause mid-action when the user takes over during a browser action.
-    var midActionTakeoverContinuation: CheckedContinuation<Void, Never>?
-    /// Timeout task for mid-action takeover (5 minutes).
-    var takeoverTimeoutTask: Task<Void, Never>?
     var foregroundObserver: NSObjectProtocol?
     /// Timer that logs tool execution status while the app is backgrounded.
     var backgroundStatusTimer: Timer?

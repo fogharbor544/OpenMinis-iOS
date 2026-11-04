@@ -105,11 +105,6 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
     var onWithdraw: ((UUID) -> Void)?
     var onResume: (() -> Void)?
     var onStop: (() -> Void)?
-    /// [T-p2-shared-workspace] Human takeover of a browser tab from a tool
-    /// sheet opened in THIS list (parent or helper mirror). Pauses that vm's
-    /// loop; `onTakeoverDone` resumes it.
-    var onBrowserTakeover: (() -> Void)?
-    var onTakeoverDone: (() -> Void)?
     var onCompact: ((UUID) -> Void)?
     var onRevertCompact: (() -> Void)?
     var onForceSync: (() -> Void)?
@@ -161,8 +156,6 @@ struct CollectionViewMessageListV3: UIViewControllerRepresentable {
         coord.onWithdraw = onWithdraw
         coord.onResume = onResume
         coord.onStop = onStop
-        coord.sheetPresenter.onBrowserTakeover = onBrowserTakeover
-        coord.sheetPresenter.onTakeoverDone = onTakeoverDone
         coord.onCompact = onCompact
         coord.onRevertCompact = onRevertCompact
         coord.onForceSync = onForceSync

@@ -16,7 +16,8 @@ extension AIChatViewModel {
 
     /// Execute a command via ISHExecutionCoordinator (serialized, mount-safe).
     /// Returns clean stdout+stderr output without any TTY artifacts, plus the exit code.
-    func executeCommand(_ command: String, timeout: TimeInterval? = nil, lineCallback: @escaping (String) -> Void) async throws -> CommandResult {
+    func executeCommand(_ command: String, timeout: TimeInterval? = nil, takeoverGeneration: UInt64,
+                        lineCallback: @escaping (String) -> Void) async throws -> CommandResult {
         let effectiveTimeout = timeout ?? defaultCommandTimeout
         logger.info("Executing command via coordinator (timeout: \(Int(effectiveTimeout))s): \(command)")
 
@@ -24,6 +25,11 @@ extension AIChatViewModel {
         guard let sid = fsSessionId else {
             return CommandResult(output: "Error: no session", exitCode: -1)
         }
+
+        let browserContext = BrowserShellContext(
+            sessionId: sessionId ?? sid, poolID: browserTabPool.automationID,
+            takeoverGeneration: takeoverGeneration
+        )
 
         // [T-bash-on-demand] Detect busybox-ash-incompatible bash syntax and, if
         // found, transparently install + switch to bash. Install time is NOT
@@ -40,7 +46,7 @@ extension AIChatViewModel {
                     // §3.2 M3: run the script via bash by self-writing it in the
                     // guest (base64, single line, no host→fakefs write, self-cleaning).
                     return try await runViaBash(command, sessionId: sid, timeout: effectiveTimeout,
-                                                lineCallback: lineCallback)
+                                                browserContext: browserContext, lineCallback: lineCallback)
                 }
                 // T1 only (script already invokes bash itself) — run as-is under sh.
             case .unavailable(let reason):
@@ -51,6 +57,7 @@ extension AIChatViewModel {
             }
         }
         return try await runWithReminder(command, sessionId: sid, timeout: effectiveTimeout,
+                                         browserContext: browserContext,
                                          reminder: bashReminder, silentClass: bashism.hasSilent,
                                          lineCallback: lineCallback)
     }
@@ -77,7 +84,7 @@ extension AIChatViewModel {
     /// between our cache check and now (user `apk del bash`) is detected
     /// precisely (M5) and self-healed inline rather than failing the command.
     private func runViaBash(_ script: String, sessionId sid: String,
-                            timeout: TimeInterval,
+                            timeout: TimeInterval, browserContext: BrowserShellContext,
                             lineCallback: @escaping (String) -> Void,
                             allowReinstall: Bool = true) async throws -> CommandResult {
         // [T-heredoc-trailing-newline] Same heredoc-terminator rule applies to
@@ -88,7 +95,8 @@ extension AIChatViewModel {
         let f = "/tmp/.minis-exec-$$.sh"
         let wrapped = "command -v bash >/dev/null 2>&1 || exit \(Self.bashMissingSentinel); "
             + "printf %s '\(b64)' | base64 -d > \(f) && bash \(f); rc=$?; rm -f \(f); exit $rc"
-        let result = try await runRaw(wrapped, sessionId: sid, timeout: timeout, lineCallback: lineCallback)
+        let result = try await runRaw(wrapped, sessionId: sid, timeout: timeout,
+                                     browserContext: browserContext, lineCallback: lineCallback)
 
         // M5 self-heal: bash disappeared after we cached it available. Re-probe
         // and, once only, try to reinstall + rerun under bash inline so THIS
@@ -102,11 +110,12 @@ extension AIChatViewModel {
                 let outcome = await OnDemandBash.shared.ensureBash(executor: ishExecutor(sessionId: sid))
                 if case .available = outcome {
                     return try await runViaBash(script, sessionId: sid, timeout: timeout,
-                                                lineCallback: lineCallback, allowReinstall: false)
+                                                browserContext: browserContext, lineCallback: lineCallback, allowReinstall: false)
                 }
             }
             // Reinstall unavailable → degrade to sh so the script at least runs.
-            return try await runRaw(script, sessionId: sid, timeout: timeout, lineCallback: lineCallback)
+            return try await runRaw(script, sessionId: sid, timeout: timeout,
+                                      browserContext: browserContext, lineCallback: lineCallback)
         }
         return result
     }
@@ -114,9 +123,11 @@ extension AIChatViewModel {
     /// Run `command` and, when a bash reminder applies, append it to the output
     /// per the §4.2 trigger rules (non-zero exit, OR any silent-class hit).
     private func runWithReminder(_ command: String, sessionId sid: String,
-                                 timeout: TimeInterval, reminder: String?, silentClass: Bool,
+                                 timeout: TimeInterval, browserContext: BrowserShellContext,
+                                 reminder: String?, silentClass: Bool,
                                  lineCallback: @escaping (String) -> Void) async throws -> CommandResult {
-        let result = try await runRaw(command, sessionId: sid, timeout: timeout, lineCallback: lineCallback)
+        let result = try await runRaw(command, sessionId: sid, timeout: timeout,
+                                      browserContext: browserContext, lineCallback: lineCallback)
         guard let reminder else { return result }
         let shouldAppend = result.exitCode != 0 || silentClass
         guard shouldAppend else { return result }
@@ -126,6 +137,7 @@ extension AIChatViewModel {
     /// The original coordinator call + output sanitation/truncation, factored
     /// out so the bash/sh/reminder wrappers share one implementation.
     private func runRaw(_ command: String, sessionId sid: String, timeout: TimeInterval,
+                        browserContext: BrowserShellContext,
                         lineCallback: @escaping (String) -> Void) async throws -> CommandResult {
         let effectiveTimeout = timeout
 
@@ -152,6 +164,7 @@ extension AIChatViewModel {
                 // [T-shell-stop-owner] Filed under the shared workspace (`sid`)
                 // but owned by THIS session, so its Stop kills only its own.
                 ownerId: sessionId,
+                browserContext: browserContext,
                 // ISHShellExecutor dispatches every line on the main queue
                 // already (ISHShellExecutor.m:780/812), so we're guaranteed to
                 // run on the main thread here. Calling the MainActor-isolated

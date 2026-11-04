@@ -197,18 +197,6 @@ extension AIChatViewModel {
             foregroundContinuation = nil
             c.resume()
         }
-        // If the loop is suspended for browser takeover, resume it.
-        browserTakeoverActive = false
-        takeoverTimeoutTask?.cancel()
-        takeoverTimeoutTask = nil
-        if let c = takeoverContinuation {
-            takeoverContinuation = nil
-            c.resume()
-        }
-        if let c = midActionTakeoverContinuation {
-            midActionTakeoverContinuation = nil
-            c.resume()
-        }
         if let obs = foregroundObserver {
             NotificationCenter.default.removeObserver(obs)
             foregroundObserver = nil

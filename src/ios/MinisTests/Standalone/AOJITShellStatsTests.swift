@@ -158,7 +158,7 @@ check("overlap = others running at start + started during",
       src.contains("return token.othersAtStart + (starts - token.startsAtStart)"))
 check("shell_execute: snapshot before the command, log after it (errors too)",
       (tools.range(of: "let aojitToken = await AOJITShellStats.begin()")?.lowerBound ?? tools.endIndex)
-        < (tools.range(of: "result = try await executeCommand(command, timeout: timeout)")?.lowerBound ?? tools.startIndex)
+        < (tools.range(of: "result = try await executeCommand(command, timeout: timeout, takeoverGeneration: takeoverGeneration)")?.lowerBound ?? tools.startIndex)
       && (tools.range(of: "result = CommandResult(output: \"Error: \\(error.localizedDescription)\", exitCode: -1)")?.upperBound ?? tools.endIndex)
         < (tools.range(of: "await AOJITShellStats.end(aojitToken, command: command, exitCode: result.exitCode)")?.lowerBound ?? tools.startIndex))
 check("in the app target", pbx.contains("E5AJS0001 /* AOJITShellStats.swift in Sources */,"))

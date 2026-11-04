@@ -81,7 +81,7 @@ final class BrowserTabPoolRegistry {
         for (id, weak) in pools where id != requesterId {
             guard let pool = weak.pool else { continue }
             for tab in pool.tabs {
-                guard !tab.manager.isSecureInputActive else { continue }
+                guard !pool.isTabProtectedFromEviction(tab) else { continue }
                 let idle = now.timeIntervalSince(tab.lastActivityDate)
                 if !tab.inUse {
                     if idleVictim == nil || idle > idleVictim!.idle {
@@ -324,12 +324,22 @@ final class BrowserTabPool: ObservableObject {
         return .error("Tab \(tabId) belongs to another agent or to the main chat and cannot be used from here — \(hint). list_tabs shows only your tabs.")
     }
 
-    /// Close every tab an agent owns and forget its bookkeeping. Called when
-    /// the agent's job ends so the slots go back to the chat and to other
-    /// agents. Idempotent.
+    /// Release an agent's tabs when its job ends. A page the user took
+    /// over becomes a regular chat tab so their work stays open.
     func releaseTabs(owner: String) {
         let mine = tabIds(ownedBy: owner)
-        for id in mine { _ = closeTab(id: id) }
+        for id in mine {
+            if takeoverTabIds.contains(id) {
+                tabOwner.removeValue(forKey: id)
+                if tabSerialChains[id] == nil, let index = tabs.firstIndex(where: { $0.id == id }) {
+                    tabs[index].graceExpiryTask?.cancel()
+                    tabs[index].graceExpiryTask = nil
+                    tabs[index].inUse = false
+                }
+            } else {
+                _ = closeTab(id: id)
+            }
+        }
         lastTabByOwner.removeValue(forKey: owner)
         if !mine.isEmpty { logger.info("[agent] released \(mine.count) tab(s) of owner \(owner.prefix(8))") }
     }
@@ -345,7 +355,10 @@ final class BrowserTabPool: ObservableObject {
     }
 
     @Published var selectedTabId: Int = 0 {
-        didSet { rebindLoadingObservation() }
+        didSet {
+            if isTakeoverRequested { takeoverTabIds.insert(selectedTabId) }
+            rebindLoadingObservation()
+        }
     }
     /// The GLOBAL default profile (Browser Settings / minis-config), as this
     /// pool last read it from UserDefaults. It decides what a tab is CREATED
@@ -399,8 +412,88 @@ final class BrowserTabPool: ObservableObject {
         tabs.contains { $0.inUse }
     }
 
-    /// The most recent browser action, shown by the live browser sheet.
-    @Published private(set) var currentAgentStep: String = ""
+    @Published private var agentStepsByTab: [Int: String] = [:]
+    var currentAgentStep: String { agentStepsByTab[selectedTabId] ?? "" }
+
+    let automationID = UUID()
+    @Published private(set) var isTakeoverRequested = false
+    private(set) var takeoverGeneration: UInt64 = 0
+    private var takeoverTabIds: Set<Int> = []
+
+    private struct TakeoverHandoff {
+        let generation: UInt64
+        let tabId: Int
+        let managerID: ObjectIdentifier
+    }
+    private var takeoverHandoff: TakeoverHandoff?
+    @Published private var executingActionCount = 0
+    var isTakeoverActive: Bool { isTakeoverRequested && executingActionCount == 0 && !hasSecureInput }
+
+    /// Block new automation immediately. WebKit work that cannot be stopped
+    /// safely must settle before the sheet unlocks its controls.
+    func beginTakeover() -> Bool {
+        guard !isTakeoverRequested, !hasSecureInput else { return false }
+        takeoverGeneration &+= 1
+        takeoverHandoff = nil
+        takeoverTabIds = [selectedTabId]
+        isTakeoverRequested = true
+        stopLoadsForTakeover()
+        return true
+    }
+
+    private func stopLoadsForTakeover() {
+        for tab in tabs where tab.manager.isLoading || tab.manager.webView.isLoading {
+            tab.manager.stopLoadingForTakeover()
+        }
+    }
+
+    func endTakeover() {
+        guard isTakeoverRequested else { return }
+        takeoverHandoff = activeManager.map {
+            TakeoverHandoff(generation: takeoverGeneration, tabId: selectedTabId,
+                            managerID: ObjectIdentifier($0))
+        }
+        let now = Date()
+        for index in tabs.indices where takeoverTabIds.contains(tabs[index].id) {
+            tabs[index].lastActivityDate = now
+        }
+        takeoverTabIds.removeAll()
+        isTakeoverRequested = false
+    }
+
+    /// Observe the page handed back by the user, without selecting it or
+    /// changing the caller's implicit tab. Do not substitute another page.
+    func captureTakeoverScreenshot(owner: String?, generation: UInt64) async -> (tabId: Int, data: Data)? {
+        guard let handoff = takeoverHandoff, handoff.generation == generation,
+              canObserveHandoff(handoff, owner: owner) else { return nil }
+        let input = BrowserActionInput(
+            action: .screenshot, url: nil, selector: nil, text: nil,
+            coordinateX: nil, coordinateY: nil, direction: nil, amount: nil,
+            script: nil, userAgent: nil, maxDepth: nil, tabId: handoff.tabId
+        )
+        guard let result = try? await executeAction(
+            action: input, singleTab: false, owner: owner, takeoverGeneration: generation, handoff: handoff
+        ), canObserveHandoff(handoff, owner: owner),
+              let base64 = result.base64Image, let data = Data(base64Encoded: base64) else { return nil }
+        return (handoff.tabId, data)
+    }
+
+    private func canObserveHandoff(_ handoff: TakeoverHandoff, owner: String?) -> Bool {
+        !isTakeoverRequested && handoff.generation == takeoverGeneration && !hasSecureInput &&
+            mayUse(tabId: handoff.tabId, owner: owner) &&
+            tabs.contains { $0.id == handoff.tabId && ObjectIdentifier($0.manager) == handoff.managerID }
+    }
+
+    fileprivate func isTabProtectedFromEviction(_ tab: Tab) -> Bool {
+        takeoverTabIds.contains(tab.id) || tab.manager.isSecureInputActive
+    }
+
+    func waitForTakeoverToEnd() async throws {
+        while isTakeoverRequested {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try Task.checkCancellation()
+    }
 
     /// The manager for the currently selected UI tab.
     var activeManager: BrowserUseManager? {
@@ -517,8 +610,9 @@ final class BrowserTabPool: ObservableObject {
         }
     }
 
-    /// Create a new tab (up to maxTabs). Returns a result with the new tab ID or an error.
-    func newTab(url: String? = nil, owner: String? = nil) -> BrowserActionResult {
+    /// Create a tab. Automation reserves its tab explicitly; a tab opened
+    /// by the user does not keep the browser in the agent-busy state.
+    func newTab(url: String? = nil, owner: String? = nil, inUse: Bool = false) -> BrowserActionResult {
         if let owner, !isPrivileged(owner) {
             let mine = tabIds(ownedBy: owner)
             if mine.count >= Self.agentTabQuota {
@@ -539,7 +633,7 @@ final class BrowserTabPool: ObservableObject {
         }
         let nextId = (tabs.map(\.id).max() ?? -1) + 1
         let manager = makeManager()
-        let tab = Tab(id: nextId, manager: manager, inUse: true)
+        let tab = Tab(id: nextId, manager: manager, inUse: inUse)
         tabs.append(tab)
         selectedTabId = nextId
         if let owner { tabOwner[nextId] = owner; lastTabByOwner[owner] = nextId }
@@ -808,8 +902,34 @@ final class BrowserTabPool: ObservableObject {
     func execute(
         action input: BrowserActionInput,
         singleTab: Bool = false,
-        owner: String? = nil
+        owner: String? = nil,
+        takeoverGeneration: UInt64? = nil
     ) async throws -> BrowserActionResult {
+        try await executeAction(action: input, singleTab: singleTab, owner: owner,
+                                takeoverGeneration: takeoverGeneration, handoff: nil)
+    }
+
+    private func executeAction(
+        action input: BrowserActionInput,
+        singleTab: Bool,
+        owner: String?,
+        takeoverGeneration: UInt64?,
+        handoff: TakeoverHandoff?
+    ) async throws -> BrowserActionResult {
+        // Model tools carry the generation of the request that produced them.
+        // Other callers use the generation at admission, or nil if a human
+        // already controls the page. An old mutation must never be replayed.
+        let generation: UInt64? = isTakeoverRequested ? nil : (takeoverGeneration ?? self.takeoverGeneration)
+        while isTakeoverRequested {
+            try await waitForTakeoverToEnd()
+        }
+        try Task.checkCancellation()
+        if let handoff, !canObserveHandoff(handoff, owner: owner) {
+            return .error("The browser tab handed back by the user is no longer available.")
+        }
+        if let rejection = takeoverRejection(for: input.action, generation: generation) {
+            return rejection
+        }
         guard !hasSecureInput else {
             return .error("安全输入或页面清理正在进行，请在原生界面完成或重试后再使用浏览器。")
         }
@@ -818,10 +938,19 @@ final class BrowserTabPool: ObservableObject {
             url: input.url,
             tabId: input.tabId
         )
-        currentAgentStep = input.action.displayTitle
+        executingActionCount += 1
+        defer {
+            // A click already running when takeover began can start navigation
+            // as it finishes. Stop that load before unlocking manual controls.
+            if isTakeoverRequested && executingActionCount == 1 && !hasSecureInput {
+                stopLoadsForTakeover()
+            }
+            executingActionCount -= 1
+        }
         let secureGeneration = BrowserUseManager.secureInteractionGeneration
         do {
-            var result = try await executeInner(action: input, singleTab: singleTab, owner: owner)
+            var result = try await executeInner(action: input, singleTab: singleTab, owner: owner,
+                                                generation: generation, handoff: handoff)
             // An already-running read can finish after a native login starts.
             if input.action != .secureInput,
                secureGeneration != BrowserUseManager.secureInteractionGeneration {
@@ -850,10 +979,26 @@ final class BrowserTabPool: ObservableObject {
         }
     }
 
+    private func takeoverRejection(for action: BrowserAction, generation: UInt64?) -> BrowserActionResult? {
+        if !isTakeoverRequested {
+            if generation == takeoverGeneration { return nil }
+            switch action {
+            case .listTabs, .screenshot, .getText, .getPageInfo, .findElements, .getReadable,
+                 .getBackbone, .getCookies, .waitForDomStable:
+                return nil
+            default:
+                break
+            }
+        }
+        return .error("Browser action skipped for user takeover. Inspect the current page before retrying.")
+    }
+
     private func executeInner(
         action input: BrowserActionInput,
         singleTab: Bool,
-        owner: String?
+        owner: String?,
+        generation: UInt64?,
+        handoff: TakeoverHandoff?
     ) async throws -> BrowserActionResult {
         let poolStart = CFAbsoluteTimeGetCurrent()
         // The tab an implicit (no tab_id) action from this agent falls back to.
@@ -866,7 +1011,7 @@ final class BrowserTabPool: ObservableObject {
             // Pass input.url through so the new tab actually loads it — Android
             // already does this (BrowserTabPool.kt NEW_TAB branch).
             // [T-ios-new-tab-url-dropped]
-            return newTab(url: input.url, owner: owner)
+            return newTab(url: input.url, owner: owner, inUse: true)
         case .closeTab:
             let tabId = input.tabId ?? implicitDefault
             if let owner, !mayUse(tabId: tabId, owner: owner) { return notYourTabError(tabId, owner: owner) }
@@ -927,7 +1072,7 @@ final class BrowserTabPool: ObservableObject {
             } else if let free = tabs.first(where: { !$0.inUse && tabOwner[$0.id] == owner }) {
                 targetId = free.id
             } else {
-                let created = newTab(url: nil, owner: owner)
+                let created = newTab(owner: owner, inUse: true)
                 guard let id = created.tabId else { return created }
                 targetId = id
             }
@@ -1024,8 +1169,8 @@ final class BrowserTabPool: ObservableObject {
         tabs[idx].graceExpiryTask?.cancel()
         tabs[idx].graceExpiryTask = nil
         tabs[idx].lastActivityDate = Date()
-        if isPrivileged(owner) { selectedTabId = targetId }
-        if let owner {
+        if handoff == nil && isPrivileged(owner) { selectedTabId = targetId }
+        if handoff == nil, let owner {
             lastTabByOwner[owner] = targetId
             if tabOwner[targetId] == nil { tabOwner[targetId] = owner }
         }
@@ -1071,6 +1216,12 @@ final class BrowserTabPool: ObservableObject {
             logger.info("[PoolTiming] serial_slot_waited elapsed=\(serialAcquiredMs)ms tab=\(targetId)")
         }
         defer { releaseSerialSlot() }
+        if let handoff, !canObserveHandoff(handoff, owner: owner) {
+            return .error("The browser tab handed back by the user is no longer available.")
+        }
+        if let rejection = takeoverRejection(for: input.action, generation: generation) {
+            return rejection
+        }
 
         // Re-resolve the tab by id — `idx` was computed before the serial-slot
         // await, during which the tabs array may have changed (idle reclaim,
@@ -1084,6 +1235,8 @@ final class BrowserTabPool: ObservableObject {
         // (e.g. closeTab / idle reclaim / registry preempt) while we're suspended.
         let manager = tabs[liveIdx].manager
         guard !hasSecureInput else { return .error("安全输入正在进行，请稍后重试。") }
+        agentStepsByTab[targetId] = input.action.displayTitle
+        defer { agentStepsByTab.removeValue(forKey: targetId) }
         let hostName = sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "当前会话"
         manager.secureInputRequester = isPrivileged(owner) ? hostName : hostName + "（通用子代理）"
         if input.action == .secureInput {
@@ -1116,7 +1269,13 @@ final class BrowserTabPool: ObservableObject {
                 action: input.action.rawValue,
                 url: input.url ?? manager.currentURL
             ) {
-                try await manager.execute(action: input)
+                if let handoff, !self.canObserveHandoff(handoff, owner: owner) {
+                    return .error("The browser tab handed back by the user is no longer available.")
+                }
+                if let rejection = self.takeoverRejection(for: input.action, generation: generation) {
+                    return rejection
+                }
+                return try await manager.execute(action: input)
             }
             let managerMs = Int((CFAbsoluteTimeGetCurrent() - managerStart) * 1000)
             logger.info("[PoolTiming] manager_execute_done elapsed=\(managerMs)ms tab=\(targetId) action=\(input.action.rawValue)")
@@ -1157,6 +1316,8 @@ final class BrowserTabPool: ObservableObject {
             }
             result = Self.stampTabId(r, targetId: targetId)
         } catch let dead as ActionDeadTimeout {
+            // An optional handoff screenshot must not tear down the user's page.
+            if handoff != nil { return .error("Unable to capture the browser tab handed back by the user.") }
             // [T-browser-bg-stuck-diag] The action blew past actionDeadTimeout
             // — or [T-browser-cli-timeout-reclaim] its caller gave up on it
             // first (`abortedByCaller`) and asked for the tab back.
@@ -1367,7 +1528,7 @@ final class BrowserTabPool: ObservableObject {
         if selectedTabId == oldId { selectedTabId = tabs.first?.id ?? 0 }
 
         // Open a fresh tab (its own WebContent process). newTab selects it.
-        let r = newTab(url: nil)
+        let r = newTab(inUse: true)
         let newId = r.tabId ?? selectedTabId
         logger.warning("[PoolTiming] tab_rebuilt oldTab=\(oldId) newTab=\(newId) deadURL=\(deadURL.prefix(60)) — dead tab dropped, fresh WebContent opened")
         return (newId, deadURL)
@@ -1451,7 +1612,7 @@ final class BrowserTabPool: ObservableObject {
         let now = Date()
         var evicted = 0
         tabs.removeAll { tab in
-            guard !tab.inUse, !tab.manager.isSecureInputActive else { return false }
+            guard !tab.inUse, !isTabProtectedFromEviction(tab) else { return false }
             let idle = now.timeIntervalSince(tab.lastActivityDate)
             if idle >= Self.idleTimeout {
                 // Save URL for restoration
@@ -1483,7 +1644,7 @@ final class BrowserTabPool: ObservableObject {
     func evictTabForRegistry(id: Int) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[idx]
-        guard !tab.inUse, !tab.manager.isSecureInputActive else { return } // safety net
+        guard !tab.inUse, !isTabProtectedFromEviction(tab) else { return } // safety net
         let url = tab.manager.currentURL
         if !url.isEmpty {
             savedURLs[id] = url
@@ -1506,7 +1667,7 @@ final class BrowserTabPool: ObservableObject {
     func preemptTabForRegistry(id: Int) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[idx]
-        guard !tab.manager.isSecureInputActive else { return }
+        guard !isTabProtectedFromEviction(tab) else { return }
         let url = tab.manager.currentURL
         if !url.isEmpty {
             savedURLs[id] = url
@@ -1526,7 +1687,7 @@ final class BrowserTabPool: ObservableObject {
     func evictAllIdleForMemoryWarning() -> Int {
         var evicted = 0
         tabs.removeAll { tab in
-            guard !tab.inUse, !tab.manager.isSecureInputActive else { return false }
+            guard !tab.inUse, !isTabProtectedFromEviction(tab) else { return false }
             let url = tab.manager.currentURL
             if !url.isEmpty {
                 savedURLs[tab.id] = url

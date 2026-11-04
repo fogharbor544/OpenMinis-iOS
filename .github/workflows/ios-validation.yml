@@ -22,6 +22,7 @@ jobs:
           python3 src/ios/MinisTests/Standalone/check_chat_settings_contracts.py
           python3 src/ios/MinisTests/Standalone/check_auxiliary_usage_sql.py
           python3 src/ios/MinisTests/Standalone/run_secure_input_tests.py
+          python3 src/ios/MinisTests/Standalone/run_browser_takeover_tests.py
       - name: Fresh product initialization and Swift syntax
         if: ${{ !cancelled() }}
         run: |

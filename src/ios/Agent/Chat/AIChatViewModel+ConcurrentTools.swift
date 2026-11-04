@@ -141,7 +141,8 @@ extension AIChatViewModel {
         tu: StreamResult.ToolEntry,
         msgIdx: Int,
         tools: [AgentToolDefinition],
-        batchBudget: BatchImageBudget
+        batchBudget: BatchImageBudget,
+        takeoverGeneration: UInt64
     ) async -> ToolExecOutcome {
         let blockIdx = tu.blockIdx
 
@@ -572,7 +573,7 @@ extension AIChatViewModel {
                     "[ToolExec] STARTING shell_execute id=\(tu.id.prefix(20)) sid=\(sessionId?.prefix(8) ?? "nil") timeout=\(timeout)s command=\"\(command.prefix(500))\""
                 )
                 #endif
-                result = try await executeCommand(command, timeout: timeout) { [weak self] line in
+                result = try await executeCommand(command, timeout: timeout, takeoverGeneration: takeoverGeneration) { [weak self] line in
                     guard let self else { return }
                     let (cleanedLine, capturedURLs) = MinisURLMarker.extract(from: line)
                     if !capturedURLs.isEmpty {
@@ -733,11 +734,12 @@ extension AIChatViewModel {
                 break
             }
             let browserInput = BrowserActionInput.parse(from: argsJson)
-            let isSecureInput = browserInput?.action == .secureInput
             var browserResult: BrowserActionResult
             if let input = browserInput {
                 do {
-                    browserResult = try await browserTabPool.execute(action: input, owner: sessionId)
+                    browserResult = try await browserTabPool.execute(
+                        action: input, owner: sessionId, takeoverGeneration: takeoverGeneration
+                    )
                 } catch {
                     browserResult = .error(error.localizedDescription)
                 }
@@ -745,15 +747,8 @@ extension AIChatViewModel {
                 browserResult = .error("Invalid browser_use input. Required: 'action' parameter.")
             }
 
-            if browserTakeoverActive && !isSecureInput && !browserTabPool.hasSecureInput {
-                browserResult = BrowserActionResult(
-                    text: browserResult.text + "\n[Browser takeover] User manually operated the browser. Do not issue a new browser action until they end takeover.",
-                    success: browserResult.success,
-                    base64Image: browserResult.base64Image,
-                    imageFilePath: browserResult.imageFilePath,
-                    pageURL: browserResult.pageURL,
-                    tabId: browserResult.tabId
-                )
+            if browserTabPool.isTakeoverRequested && browserInput?.action != .secureInput {
+                browserResult.text += "\n[Browser takeover] The user took control of the browser. Inspect the current page before continuing."
             }
             if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
                 messages[msgIdx].blocks[blockIdx].content = browserResult.text

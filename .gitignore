@@ -93,6 +93,9 @@ __pycache__/
 # Build-time generated Swift (from ProviderCustomization.xcconfig); regenerated each build
 src/ios/Generated/
 
+# Local provider customization (may hold OAuth client ids and secrets)
+src/ios/Configs/ProviderCustomization.xcconfig
+
 # ── Build artifacts produced by deps/ scripts — never commit binaries ──
 # These are generated, not authored: rebuild them from source instead of
 # tracking them (tracked binaries also leak the build machine's paths via

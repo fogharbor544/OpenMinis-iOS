@@ -15,7 +15,17 @@ final class CodexOAuthManager: NSObject, ObservableObject {
 
     private let authURL = "https://auth.openai.com/oauth/authorize"
     private let tokenURL = "https://auth.openai.com/oauth/token"
-    private let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+    /// OAuth client id.
+    ///
+    /// Override with the `OpenAIOAuthClientID` Info.plist key — set
+    /// `INFOPLIST_KEY_OpenAIOAuthClientID` in
+    /// `Configs/ProviderCustomization.xcconfig` — to sign in with an OAuth app
+    /// of your own. Unset or blank keeps the built-in client.
+    private let clientID: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "OpenAIOAuthClientID") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "app_EMoamEEZ73f0CkXaXp7hrann" : trimmed
+    }()
     private let callbackPort: UInt16 = 1455
     private var redirectURI: String { "http://localhost:\(callbackPort)/auth/callback" }
     private let scopes = "openid profile email offline_access"

@@ -102,7 +102,15 @@ enum CopilotConstants {
     /// Neither is issued to Minis — they belong to editor integrations — which
     /// is the crux of why this is unofficial. If sign-in starts failing with
     /// `unauthorized_client`, this is the first value to re-check.
-    static let clientId = "Iv1.b507a08c87ecfe98"
+    /// Override with the `CopilotOAuthClientID` Info.plist key — set
+    /// `INFOPLIST_KEY_CopilotOAuthClientID` in
+    /// `Configs/ProviderCustomization.xcconfig` — to sign in with an OAuth app
+    /// of your own. Unset or blank keeps the built-in client.
+    static let clientId: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "CopilotOAuthClientID") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Iv1.b507a08c87ecfe98" : trimmed
+    }()
 
     /// `read:user` is the minimum that yields a token the Copilot token
     /// endpoint accepts; nothing here needs repo or org access.

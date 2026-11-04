@@ -16,11 +16,32 @@ final class AntigravityOAuthManager: NSObject, ObservableObject {
     private let authURL = "https://accounts.google.com/o/oauth2/v2/auth"
     private let tokenURL = "https://oauth2.googleapis.com/token"
     private let userInfoURL = "https://www.googleapis.com/oauth2/v1/userinfo"
-    private let clientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-    // Placeholder. Google OAuth requires a client secret alongside the
-    // client id; supply your own from Google Cloud Console to use this
-    // sign-in. API-key providers are unaffected.
-    private let clientSecret = "GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    /// OAuth client id.
+    ///
+    /// Override with the `AntigravityOAuthClientID` Info.plist key — set
+    /// `INFOPLIST_KEY_AntigravityOAuthClientID` in
+    /// `Configs/ProviderCustomization.xcconfig` — to sign in with an OAuth app
+    /// of your own. Unset or blank keeps the built-in client.
+    private let clientID: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "AntigravityOAuthClientID") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com" : trimmed
+    }()
+    /// OAuth client secret.
+    ///
+    /// Placeholder. Google OAuth requires a client secret alongside the
+    /// client id; supply your own from Google Cloud Console to use this
+    /// sign-in. API-key providers are unaffected.
+    ///
+    /// Override with the `AntigravityOAuthClientSecret` Info.plist key — set
+    /// `INFOPLIST_KEY_AntigravityOAuthClientSecret` in
+    /// `Configs/ProviderCustomization.xcconfig`. Unset or blank keeps the
+    /// built-in value.
+    private let clientSecret: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "AntigravityOAuthClientSecret") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxxxxx" : trimmed
+    }()
     private let callbackPort: UInt16 = 8086
     private var redirectURI: String { "http://localhost:\(callbackPort)/oauth2callback" }
     private let scopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs"

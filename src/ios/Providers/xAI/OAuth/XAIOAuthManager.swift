@@ -14,7 +14,17 @@ final class XAIOAuthManager: NSObject, ObservableObject {
 
     private let issuer = "https://auth.x.ai"
     private let discoveryURL = "https://auth.x.ai/.well-known/openid-configuration"
-    private let clientID = "b1a00492-073a-47ea-816f-4c329264a828"
+    /// OAuth client id.
+    ///
+    /// Override with the `XAIOAuthClientID` Info.plist key — set
+    /// `INFOPLIST_KEY_XAIOAuthClientID` in
+    /// `Configs/ProviderCustomization.xcconfig` — to sign in with an OAuth app
+    /// of your own. Unset or blank keeps the built-in client.
+    private let clientID: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "XAIOAuthClientID") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "b1a00492-073a-47ea-816f-4c329264a828" : trimmed
+    }()
     /// xAI redirect_uri allow-list pins port 56121 — must not change.
     private let callbackPort: UInt16 = 56121
     private var redirectURI: String { "http://127.0.0.1:\(callbackPort)/callback" }

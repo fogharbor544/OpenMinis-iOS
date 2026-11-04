@@ -6,8 +6,15 @@ final class BrowserTakeoverTests: XCTestCase {
         let input = try XCTUnwrap(BrowserActionInput.parse(from: #"{"action":"navigate","tool_title":"打开 Outlook 收件箱"}"#))
         XCTAssertEqual(BrowserAction.stepTitle(for: input.action.rawValue, summary: input.toolTitle, language: "zh-Hans"),
                        "打开 Outlook 收件箱")
-        XCTAssertEqual(BrowserAction.stepTitle(for: "get_text", summary: "Read full text of '重点' tab", language: "zh-Hans"),
-                       BrowserAction.getText.displayTitle)
+        for title in ["Outlook 收件箱：读取未读邮件", "Outlook 收件箱：打开 PDF", "OpenAI 文档：查找 API",
+                      "Outlook：查看收件箱", "3 个标签页中查找邮件"] {
+            XCTAssertEqual(BrowserAction.stepTitle(for: "get_text", summary: title, language: "zh-Hans"), title)
+        }
+        for title in ["Read full text of '重点' tab", "Read full text of 重点", "Click 重点 tab",
+                      "Click 重点", "Click Outlook 收件箱", "Open 设置"] {
+            XCTAssertEqual(BrowserAction.stepTitle(for: "get_text", summary: title, language: "zh-Hans"),
+                           BrowserAction.getText.displayTitle)
+        }
         XCTAssertEqual(BrowserAction.stepTitle(for: "click", summary: "Open inbox", language: "en"), "Open inbox")
         XCTAssertEqual(BrowserAction.stepTitle(for: "execute_js", summary: nil, language: "zh-Hans"),
                        AppLocalized("Interacting with page"))

@@ -68,14 +68,21 @@ extension BrowserAction {
             : selected
     }
 
+    // A site-first title can end in a product or file type like PDF.
+    // Exclude common English browser commands from the site prefix instead.
+    private static let chineseStepTitlePattern =
+        #"(?i)^[^\p{L}\p{N}]*(?:\p{Han}|\p{N}+(?:[.,]\p{N}+)?\s*\p{Han}|"#
+        + #"(?!(?:click|open|read|view|check|find|search|wait|type|enter|fill|scroll|switch|select|"#
+        + #"press|close|load|reload|refresh|take|run|execute|go|navigate|visit|download|hover|expand|submit|list|inspect|please)"#
+        + #"(?:s|ed|ing)?(?![\p{Latin}\p{N}_]))"#
+        + #"[\p{Latin}\p{N}][\p{Latin}\p{N} ._&+/-]*[:：]?\s*\p{Han}{2})"#
+
     /// Titles from the model are optional, including on existing chat history.
-    /// In Chinese, keep contextual titles such as “打开 Outlook 收件箱”, but
-    /// fall back to the localized action when a model returns an English sentence.
     static func stepTitle(for rawValue: String, summary: String?, language: String = BrowserAction.stepLanguage) -> String {
         let title = String((summary ?? "").prefix(96)).split(whereSeparator: \.isWhitespace).joined(separator: " ")
         if !title.isEmpty,
            !language.lowercased().hasPrefix("zh") ||
-            title.range(of: #"^[^\p{L}\p{N}]*\p{Han}"#, options: .regularExpression) != nil {
+            title.range(of: chineseStepTitlePattern, options: .regularExpression) != nil {
             return title
         }
         if rawValue == BrowserAction.executeJS.rawValue { return AppLocalized("Interacting with page") }

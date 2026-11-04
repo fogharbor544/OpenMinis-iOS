@@ -456,3 +456,15 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 ## Historical Bot send hang follow-up
 - User reports 660fa38 still hangs permanently when sending while browsing history. Existing uncommitted browser optimization remains excluded.
 - The historical-send transaction synchronously applied a full snapshot, forced layout again, and pinned twice in one main-thread callback. Keep its normal snapshot apply/initial pin; correct cold-tail measurements in the next main runloop turn. Native UIKit/cloud verification pending.
+
+### Browser takeover review
+- Confirmed the reviewed root causes and scoped edits to the existing target worktree.
+- Browser takeover and Bot row source checks passed, along with current Bot, chat settings, and secure-input JavaScript contracts. Swift tree-sitter reported no new parse errors in touched sources.
+- Added native coverage for waiting/resuming and cancellation in BrowserTakeoverTests.swift. Native browser storage, settings layout, and form runners cannot start on this Windows host without swiftc/xcrun.
+
+### Browser takeover follow-up
+- The updated portable regression suite reproduced the missing wiring before the patch and now passes all six checks. Existing Bot, chat settings and secure input checks passed; the Swift parser found no new syntax errors. Added three XCTest cases; this Windows host has no Swift/Xcode simulator toolchain.
+
+### Browser takeover shell and handoff follow-up
+- Three added portable contracts failed before the changes and all nine now pass. Existing Bot, chat settings, and 55 secure-input JS assertions also pass. Swift source parsing found no new syntax errors; whitespace check passed.
+- Added four native XCTest cases for old shell stamps, completed handoff reminder, closed snapshot target, and helper tab transfer. The Swift runner and XCTest cannot start on Windows because swiftc/Xcode are unavailable.

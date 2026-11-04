@@ -23,6 +23,8 @@ struct BotMemoryEntry: Identifiable, Codable, Equatable {
     var documentOrder: Int? = nil
     var eventKind: String? = nil
     var sourceAssistantMessageID: String? = nil
+
+    var isFixedMemory: Bool { pinned && !automatic }
 }
 
 enum BotMemoryError: LocalizedError {
@@ -236,6 +238,38 @@ private extension BotMemoryStore {
         revision += 1
     }
 
+    static let fixedMemoryLimit = 1_200
+
+    func saveFixedMemory(owner: String, content: String) throws {
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count <= Self.fixedMemoryLimit else {
+            throw BotMemoryError.invalid("固定记忆不能超过1200字。")
+        }
+        var draft = BotMemoryEntry(owner: owner, content: text, category: "preference",
+                                   scope: "general", evidence: "Edited by user")
+        draft.pinned = true
+        let entry = try save(draft, userInitiated: true)
+        if !entry.isFixedMemory { try setFixedMemory(id: entry.id, owner: owner, fixed: true) }
+    }
+
+    func setFixedMemory(id: String, owner: String, fixed: Bool) throws {
+        guard var entry = try entries().first(where: { $0.id == id && $0.owner == owner && $0.status == "active" }) else {
+            throw BotMemoryError.invalid("Memory entry not found.")
+        }
+        guard entry.pinned != fixed || (fixed && entry.automatic) else { return }
+        if fixed {
+            guard entry.category != "event", entry.content.count <= Self.fixedMemoryLimit else {
+                throw BotMemoryError.invalid("仅可固定不超过1200字的非事件记忆。")
+            }
+            // Pinning is the user's explicit confirmation of this content.
+            entry.automatic = false
+        }
+        entry.pinned = fixed
+        entry.updatedAt = Date()
+        try write(entry)
+        revision += 1
+    }
+
     func setGrants(id: String, owner: String, grants: [String]) throws {
         guard var entry = try entries().first(where: { $0.id == id && $0.owner == owner && $0.status == "active" }) else {
             throw BotMemoryError.invalid("Memory entry not found.")
@@ -275,16 +309,17 @@ private extension BotMemoryStore {
         entries.map(\.content).joined(separator: "\n\n")
     }
 
-    /// `text` excludes records supplied in `eventEdits`; those edits use stable IDs
-    /// and retain event provenance and grants. Empty event values delete the record.
-    func saveDocument(owner: String, text: String, baseline: [BotMemoryEntry], eventEdits: [String: String] = [:]) throws {
+    /// The individual edits preserve record IDs. Events retain provenance and grants;
+    /// changed fixed text is private until the user explicitly shares it again.
+    func saveDocument(owner: String, text: String, baseline: [BotMemoryEntry], eventEdits: [String: String] = [:],
+                      fixedEdits: [String: String] = [:]) throws {
         let current = try documentEntries(owner: owner)
         guard current == baseline else {
             throw BotMemoryError.invalid("记忆已有更新，未覆盖你的草稿。请复制草稿后重新打开编辑。")
         }
         var remaining = text.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !owner.isEmpty, remaining.count <= 200_000 else { throw BotMemoryError.invalid("文档过长，请精简后保存。") }
-        if eventEdits.isEmpty && remaining == Self.documentText(current) { return }
+        if eventEdits.isEmpty && fixedEdits.isEmpty && remaining == Self.documentText(current) { return }
         guard !Self.containsSecret(remaining) else { throw BotMemoryError.invalid("记忆不能保存密码、验证码或密钥，请移除后再保存。") }
         var result: [BotMemoryEntry] = []
         var retained = Set<String>()
@@ -292,7 +327,11 @@ private extension BotMemoryStore {
         guard eventEdits.keys.allSatisfy({ id in current.contains { $0.id == id && $0.category == "event" } }) else {
             throw BotMemoryError.invalid("事件已不存在，请重新打开编辑。")
         }
-        let longestFirst = current.filter { eventEdits[$0.id] == nil }.sorted { $0.content.count > $1.content.count }
+        guard fixedEdits.keys.allSatisfy({ id in current.contains { $0.id == id && $0.isFixedMemory } }) else {
+            throw BotMemoryError.invalid("固定记忆已不存在，请重新打开编辑。")
+        }
+        let individualEdits = eventEdits.merging(fixedEdits) { _, fixed in fixed }
+        let longestFirst = current.filter { individualEdits[$0.id] == nil }.sorted { $0.content.count > $1.content.count }
         while !remaining.isEmpty {
             let existing = longestFirst.first { entry in
                 guard !retained.contains(entry.id), remaining.hasPrefix(entry.content) else { return false }
@@ -316,14 +355,21 @@ private extension BotMemoryStore {
             }
         }
         for var entry in current {
-            guard let edited = eventEdits[entry.id] else { continue }
+            guard let edited = individualEdits[entry.id] else { continue }
             let content = edited.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Empty fields explicitly delete the event.
             guard !content.isEmpty else { continue }
-            guard content.count <= 2000, !Self.containsSecret(content) else {
-                throw BotMemoryError.invalid("事件内容不能超过2000字或包含密码、验证码、密钥。")
+            let isFixedRule = entry.isFixedMemory && entry.category != "event"
+            let contentChanged = entry.content != content
+            // Unedited legacy rules can be longer than today's limit. Keep them
+            // intact when the user changes another part of the document.
+            if !isFixedRule || contentChanged {
+                let limit = isFixedRule ? Self.fixedMemoryLimit : 2_000
+                guard content.count <= limit, !Self.containsSecret(content) else {
+                    throw BotMemoryError.invalid("内容不能超过\(limit)字，也不能包含密码、验证码或密钥。")
+                }
             }
-            if entry.content != content || entry.documentOrder != result.count { entry.updatedAt = Date() }
+            if isFixedRule && contentChanged { entry.grants = [] }
+            if contentChanged || entry.documentOrder != result.count { entry.updatedAt = Date() }
             entry.content = content
             entry.fingerprint = Self.fingerprint(content)
             entry.documentOrder = result.count
@@ -370,9 +416,10 @@ private extension BotMemoryStore {
         revision += 1
     }
 
-    /// Match the original daily-log injection without reopening shared Markdown storage.
-    /// Visibility is resolved first, so date grouping cannot leak private Bot memories.
-    func recentContext(owner: String, now: Date = Date(), dateCalendar: Calendar = .current) throws -> String {
+    /// Always-injected memory contains only explicit long-term rules. Facts and events
+    /// are retrieved on demand by `recall`. Visibility is resolved first, so grouping
+    /// cannot leak private Bot memories.
+    func longTermRuleContext(owner: String) throws -> String {
         let entries = try visible(to: owner).sorted {
             if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
             return $0.id < $1.id
@@ -380,37 +427,17 @@ private extension BotMemoryStore {
         func line(_ entry: BotMemoryEntry) -> String {
             "[\(entry.id)] [\(entry.category); \(entry.scope)] \(entry.content)"
         }
-        var sections: [String] = []
-        let pinned = entries.filter(\.pinned)
-        if !pinned.isEmpty { sections.append("Pinned:\n" + pinned.map(line).joined(separator: "\n")) }
-        let today = dateCalendar.startOfDay(for: now)
-        guard let start = dateCalendar.date(byAdding: .day, value: -29, to: today) else { return sections.joined(separator: "\n\n") }
-        let recent = entries.filter { !$0.pinned && $0.category != "event" && $0.createdAt >= start && $0.createdAt <= now }
-        let days = Dictionary(grouping: recent) { dateCalendar.startOfDay(for: $0.createdAt) }
-        let formatter = DateFormatter()
-        formatter.calendar = dateCalendar; formatter.timeZone = dateCalendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
-        for day in days.keys.sorted(by: >).prefix(3) {
-            let lines = (days[day] ?? []).map(line).joined(separator: "\n").components(separatedBy: .newlines)
-            sections.append("\(formatter.string(from: day)):\n" + lines.prefix(200).joined(separator: "\n"))
+        var ruleSection = "Long-term rules (explicit user preferences):\n"
+        for entry in entries.filter(\.isFixedMemory).prefix(10) {
+            let ruleLine = line(entry)
+            if ruleSection.count + ruleLine.count > 1600 { continue }
+            ruleSection += ruleLine + "\n"
         }
-        let events = entries.filter { $0.category == "event" && $0.pinned != true && $0.createdAt >= start && $0.createdAt <= now }.prefix(10)
-        if !events.isEmpty {
-            var eventSection = "Events (recorded time; background facts):\n"
-            for entry in events {
-                let formatter = DateFormatter()
-                formatter.calendar = dateCalendar; formatter.timeZone = dateCalendar.timeZone
-                formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd HH:mm"
-                let line = "[\(entry.id)] [\(formatter.string(from: entry.createdAt)) · \(Self.eventKindLabel(entry.eventKind))] \(entry.content)\n"
-                if eventSection.count + line.count > 2400 { continue }
-                eventSection += line
-            }
-            sections.append(eventSection)
-        }
-        return sections.joined(separator: "\n\n")
+        return ruleSection.count > "Long-term rules (explicit user preferences):\n".count
+            ? String(ruleSection.dropLast()) : ""
     }
 
-    func recall(owner: String, query: String, limit: Int = 8, budget: Int = 4000) throws -> String {
+    func recall(owner: String, query: String, limit: Int = 8, budget: Int = 4000, excludeFixed: Bool = false) throws -> String {
         let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init)
         // CJK questions often have no spaces; two-character shingles avoid treating the
         // entire question as one exact-match keyword. No embedding service is required.
@@ -418,16 +445,22 @@ private extension BotMemoryStore {
         let shingles = cjk.count > 1 ? (0..<(cjk.count - 1)).map { cjk[$0] + cjk[$0 + 1] } : []
         let keywords = Array(Set(terms + shingles))
         var ranked: [(entry: BotMemoryEntry, score: Int)] = []
-        for entry in try visible(to: owner) {
+        for entry in try visible(to: owner) where !excludeFixed || !entry.isFixedMemory {
             var haystack = entry.content + " " + entry.scope
             if entry.category == "event" { haystack += " " + (entry.eventKind ?? "") + " " + Self.eventKindLabel(entry.eventKind) }
             haystack = haystack.lowercased()
-            var score = entry.pinned ? 100 : 0
+            // Manual recall keeps the existing pin priority. Automatic history
+            // recall uses relevance; the fixed rules have their own section.
+            var score = !excludeFixed && entry.pinned ? 100 : 0
             for keyword in keywords where haystack.contains(keyword) { score += 1 }
             if query.isEmpty || score > 0 { ranked.append((entry: entry, score: score)) }
         }
         ranked.sort { left, right in
             if left.score != right.score { return left.score > right.score }
+            if left.entry.category == "event" && right.entry.category == "event",
+               left.entry.createdAt != right.entry.createdAt {
+                return left.entry.createdAt > right.entry.createdAt
+            }
             return left.entry.updatedAt > right.entry.updatedAt
         }
         var output = ""

@@ -253,7 +253,7 @@ extension AIChatViewModel {
             return "\nLong-term memory is unavailable in this conversation. Use a Bot or group to save and recall memory."
         }
         return botMemoryPolicy + ((memoryEnabled && botMemoryAvailable)
-            ? "\nScoped memory is enabled; pinned and recent entries are loaded. Use memory_get for other relevant context."
+            ? "\nScoped memory is enabled; explicit rules and relevant history are loaded. Use memory_get for additional context."
             : "\nMemory is disabled or its owner was deleted. Do not read or write long-term memory.")
     }
 }

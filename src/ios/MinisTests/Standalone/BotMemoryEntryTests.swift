@@ -38,6 +38,31 @@ import Foundation
         do { _ = try store.save(make("bot:a", "Paraphrased forgotten fact", source: "m2")); fatalError("Reprocessed forgotten evidence") }
         catch is BotMemoryError {}
         _ = try store.save(make("bot:a", "I prefer direct writing", source: "m4"), userInitiated: true)
+        try store.saveFixedMemory(owner: "bot:fixed", content: "Use plain language")
+        let fixed = try store.documentEntries(owner: "bot:fixed").first!
+        precondition(fixed.isFixedMemory)
+        try check(try store.longTermRuleContext(owner: "bot:fixed").contains("Use plain language"))
+        try store.setGrants(id: fixed.id, owner: fixed.owner, grants: ["room:x"])
+        try store.saveDocument(owner: fixed.owner, text: "", baseline: try store.documentEntries(owner: fixed.owner),
+                               fixedEdits: [fixed.id: "Use plain language and short sentences"])
+        let persisted = try reloaded.documentEntries(owner: fixed.owner).first!
+        precondition(persisted.id == fixed.id && persisted.isFixedMemory && persisted.grants.isEmpty)
+        try check(try store.longTermRuleContext(owner: fixed.owner).contains("short sentences"))
+        do {
+            try store.setFixedMemory(id: fixed.id, owner: "bot:b", fixed: false)
+            fatalError("Changed another Bot's fixed memory")
+        } catch is BotMemoryError {}
+        try store.setFixedMemory(id: fixed.id, owner: fixed.owner, fixed: false)
+        try check(try store.longTermRuleContext(owner: fixed.owner).isEmpty)
+        let historyEntry = try store.documentEntries(owner: fixed.owner).first!
+        precondition(!historyEntry.isFixedMemory && historyEntry.content == persisted.content)
+        var automatic = make("bot:fixed", "Keep test reports short", source: "auto")
+        automatic.automatic = true
+        let suggested = try store.save(automatic)
+        try check(try store.longTermRuleContext(owner: fixed.owner).isEmpty)
+        try store.setFixedMemory(id: suggested.id, owner: fixed.owner, fixed: true)
+        try check(try store.longTermRuleContext(owner: fixed.owner).contains("Keep test reports short"))
+
         var pinned = make("bot:c", "Use plain language")
         pinned.pinned = true
         _ = try store.save(pinned)
@@ -128,7 +153,7 @@ import Foundation
         injectedEvent.pinned = true
         _ = try store.save(injectedEvent)
         let eventContext = try store.longTermRuleContext(owner: "bot:event")
-        precondition(eventContext.contains("Injected decision") && eventContext.contains("Long-term rules:"))
+        precondition(eventContext.contains("Injected decision") && eventContext.contains("Long-term rules (explicit user preferences):"))
         precondition(eventContext.components(separatedBy: "\n").filter { $0.contains("Injected decision") }.count == 1)
         precondition(!eventContext.contains("Events (recorded"))
         precondition(!eventContext.contains("Project note day"))

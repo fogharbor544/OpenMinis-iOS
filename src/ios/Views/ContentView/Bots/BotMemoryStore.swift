@@ -23,6 +23,8 @@ struct BotMemoryEntry: Identifiable, Codable, Equatable {
     var documentOrder: Int? = nil
     var eventKind: String? = nil
     var sourceAssistantMessageID: String? = nil
+
+    var isFixedMemory: Bool { pinned && !automatic }
 }
 
 enum BotMemoryError: LocalizedError {
@@ -236,6 +238,38 @@ private extension BotMemoryStore {
         revision += 1
     }
 
+    static let fixedMemoryLimit = 1_200
+
+    func saveFixedMemory(owner: String, content: String) throws {
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count <= Self.fixedMemoryLimit else {
+            throw BotMemoryError.invalid("固定记忆不能超过1200字。")
+        }
+        var draft = BotMemoryEntry(owner: owner, content: text, category: "preference",
+                                   scope: "general", evidence: "Edited by user")
+        draft.pinned = true
+        let entry = try save(draft, userInitiated: true)
+        if !entry.isFixedMemory { try setFixedMemory(id: entry.id, owner: owner, fixed: true) }
+    }
+
+    func setFixedMemory(id: String, owner: String, fixed: Bool) throws {
+        guard var entry = try entries().first(where: { $0.id == id && $0.owner == owner && $0.status == "active" }) else {
+            throw BotMemoryError.invalid("Memory entry not found.")
+        }
+        guard entry.pinned != fixed || (fixed && entry.automatic) else { return }
+        if fixed {
+            guard entry.category != "event", entry.content.count <= Self.fixedMemoryLimit else {
+                throw BotMemoryError.invalid("仅可固定不超过1200字的非事件记忆。")
+            }
+            // Pinning is the user's explicit confirmation of this content.
+            entry.automatic = false
+        }
+        entry.pinned = fixed
+        entry.updatedAt = Date()
+        try write(entry)
+        revision += 1
+    }
+
     func setGrants(id: String, owner: String, grants: [String]) throws {
         guard var entry = try entries().first(where: { $0.id == id && $0.owner == owner && $0.status == "active" }) else {
             throw BotMemoryError.invalid("Memory entry not found.")
@@ -275,16 +309,17 @@ private extension BotMemoryStore {
         entries.map(\.content).joined(separator: "\n\n")
     }
 
-    /// `text` excludes records supplied in `eventEdits`; those edits use stable IDs
-    /// and retain event provenance and grants. Empty event values delete the record.
-    func saveDocument(owner: String, text: String, baseline: [BotMemoryEntry], eventEdits: [String: String] = [:]) throws {
+    /// The individual edits preserve record IDs. Events retain provenance and grants;
+    /// changed fixed text is private until the user explicitly shares it again.
+    func saveDocument(owner: String, text: String, baseline: [BotMemoryEntry], eventEdits: [String: String] = [:],
+                      fixedEdits: [String: String] = [:]) throws {
         let current = try documentEntries(owner: owner)
         guard current == baseline else {
             throw BotMemoryError.invalid("记忆已有更新，未覆盖你的草稿。请复制草稿后重新打开编辑。")
         }
         var remaining = text.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !owner.isEmpty, remaining.count <= 200_000 else { throw BotMemoryError.invalid("文档过长，请精简后保存。") }
-        if eventEdits.isEmpty && remaining == Self.documentText(current) { return }
+        if eventEdits.isEmpty && fixedEdits.isEmpty && remaining == Self.documentText(current) { return }
         guard !Self.containsSecret(remaining) else { throw BotMemoryError.invalid("记忆不能保存密码、验证码或密钥，请移除后再保存。") }
         var result: [BotMemoryEntry] = []
         var retained = Set<String>()
@@ -292,7 +327,11 @@ private extension BotMemoryStore {
         guard eventEdits.keys.allSatisfy({ id in current.contains { $0.id == id && $0.category == "event" } }) else {
             throw BotMemoryError.invalid("事件已不存在，请重新打开编辑。")
         }
-        let longestFirst = current.filter { eventEdits[$0.id] == nil }.sorted { $0.content.count > $1.content.count }
+        guard fixedEdits.keys.allSatisfy({ id in current.contains { $0.id == id && $0.isFixedMemory } }) else {
+            throw BotMemoryError.invalid("固定记忆已不存在，请重新打开编辑。")
+        }
+        let individualEdits = eventEdits.merging(fixedEdits) { _, fixed in fixed }
+        let longestFirst = current.filter { individualEdits[$0.id] == nil }.sorted { $0.content.count > $1.content.count }
         while !remaining.isEmpty {
             let existing = longestFirst.first { entry in
                 guard !retained.contains(entry.id), remaining.hasPrefix(entry.content) else { return false }
@@ -316,13 +355,15 @@ private extension BotMemoryStore {
             }
         }
         for var entry in current {
-            guard let edited = eventEdits[entry.id] else { continue }
+            guard let edited = individualEdits[entry.id] else { continue }
             let content = edited.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Empty fields explicitly delete the event.
             guard !content.isEmpty else { continue }
-            guard content.count <= 2000, !Self.containsSecret(content) else {
-                throw BotMemoryError.invalid("事件内容不能超过2000字或包含密码、验证码、密钥。")
+            let isFixedRule = entry.isFixedMemory && entry.category != "event"
+            let limit = isFixedRule ? Self.fixedMemoryLimit : 2_000
+            guard content.count <= limit, !Self.containsSecret(content) else {
+                throw BotMemoryError.invalid("内容不能超过\(limit)字，也不能包含密码、验证码或密钥。")
             }
+            if isFixedRule && entry.content != content { entry.grants = [] }
             if entry.content != content || entry.documentOrder != result.count { entry.updatedAt = Date() }
             entry.content = content
             entry.fingerprint = Self.fingerprint(content)
@@ -382,9 +423,9 @@ private extension BotMemoryStore {
             "[\(entry.id)] [\(entry.category); \(entry.scope)] \(entry.content)"
         }
         var ruleSection = "Long-term rules (explicit user preferences):\n"
-        for entry in entries.filter({ $0.pinned && !$0.automatic }).prefix(10) {
+        for entry in entries.filter(\.isFixedMemory).prefix(10) {
             let ruleLine = line(entry)
-            if ruleSection.count + ruleLine.count > 1600 { break }
+            if ruleSection.count + ruleLine.count > 1600 { continue }
             ruleSection += ruleLine + "\n"
         }
         return ruleSection.count > "Long-term rules (explicit user preferences):\n".count

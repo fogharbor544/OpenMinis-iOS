@@ -50,7 +50,7 @@ where a tag may follow the default route.
 - `bypass`: list of `host`, `*.suffix` / `.suffix`, CIDR or IP; loopback
   (`localhost`, `*.localhost`, 127.0.0.0/8, ::1) is always bypassed.
 - The password is **not** in the JSON: it lives in the platform keystore
-  (iOS Keychain service `com.openminis.network.proxy`, account = id; Android
+  (iOS Keychain service `com.fogharbor544.minis.network.proxy`, account = id; Android
   EncryptedSharedPreferences), and is never logged.
 - Deleting a proxy that is in use sends those routes to `direct`.
 

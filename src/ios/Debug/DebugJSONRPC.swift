@@ -2589,7 +2589,7 @@ final class DebugJSONRPC: @unchecked Sendable {
     }
 
     /// URL of iCTRL's JSON-RPC endpoint on this device. iCTRL is a co-
-    /// installed XCTest automation service (bundle com.openminis.ictrl,
+    /// installed XCTest automation service (bundle com.fogharbor544.minis.ictrl,
     /// port 8200). It runs inside a UI test runner so it can drive
     /// XCUIElement.tap() — which we can't from the app process.
     /// Loopback auth exemption on iCTRL side means we don't send a token.
@@ -2624,7 +2624,7 @@ final class DebugJSONRPC: @unchecked Sendable {
         // SpringBoard if none). Since debug.tap is called BY MinisApp asking
         // to tap something in ITSELF, pin the query to our own bundle id
         // unless the caller explicitly overrides via ictrl_bundle_id.
-        let bundleId = (params["ictrl_bundle_id"] as? String) ?? Bundle.main.bundleIdentifier ?? "com.openminis.app"
+        let bundleId = (params["ictrl_bundle_id"] as? String) ?? Bundle.main.bundleIdentifier ?? "com.fogharbor544.minis"
         let rpcParams: [String: Any] = [
             "element_id": elementId,
             "match": matchMode,

@@ -426,7 +426,7 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
     /// Background queue used by flushEtagCacheIfDirty so the per-record
     /// NSKeyedArchive + plist serialization (can be 5–10MB at scale) does
     /// not block the main thread between sends.
-    private static let etagFlushQueue = DispatchQueue(label: "com.openminis.sync.etagFlush", qos: .utility)
+    private static let etagFlushQueue = DispatchQueue(label: "com.fogharbor544.minis.sync.etagFlush", qos: .utility)
     private var etagFlushScheduled: Bool = false
     private static let etagFlushDebounce: TimeInterval = 2.0
 
@@ -519,7 +519,7 @@ final class ICloudSharedZoneTransport: NSObject, SyncTransport {
 
     private func scheduleRecentFetchTimer() {
         recentFetchTimer?.cancel()
-        let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "com.openminis.sync.recentFetch", qos: .utility))
+        let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "com.fogharbor544.minis.sync.recentFetch", qos: .utility))
         t.schedule(deadline: .now() + Self.recentFetchInterval, repeating: Self.recentFetchInterval)
         t.setEventHandler { [weak self] in
             logger.info("[iCloudTrace] recentFetchTimer fired")

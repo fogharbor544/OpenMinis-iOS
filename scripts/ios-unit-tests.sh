@@ -8,12 +8,12 @@
 #   scripts/ios-unit-tests.sh --skip-build          reuse the last build
 #
 # How it stays away from real data:
-#   * MinisTests runs inside MinisTestHost (com.openminis.MinisTestHost): its own
+#   * MinisTests runs inside MinisTestHost (com.fogharbor544.minis.MinisTestHost): its own
 #     container, signed with no entitlements (no App Group, no iCloud, no keychain
 #     group). Minis.app is built (for Minis.debug.dylib, which the test bundle
 #     links) but never installed, launched or listed as a test product.
 #   * Before running, the build is checked: test host bundle id, its signed
-#     entitlements, and that the .xctestrun names nothing from com.openminis.app.
+#     entitlements, and that the .xctestrun names nothing from com.fogharbor544.minis.
 #     Any mismatch stops the script before anything runs.
 #   * static_check.py rejects tests that reach real storage (ChatStore.shared,
 #     UserDefaults.standard, Documents, App Group, keychain, CloudKit).
@@ -30,7 +30,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PROJ="$REPO/src/ios/Minis.xcodeproj"
 DD="${MINIS_UNITTEST_DERIVED_DATA:-$REPO/build/DerivedData-unittests}"
 TOOLS="$REPO/scripts/ios-unit-tests"
-HOST_ID="com.openminis.MinisTestHost"
+HOST_ID="com.fogharbor544.minis.MinisTestHost"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
 OUT="$DD/runs/$RUN_ID"
 mkdir -p "$OUT"
@@ -81,7 +81,7 @@ if [ "$XCTEST" = 1 ]; then
   KEYS=$(python3 -c 'import json,sys; print(" ".join(sorted(json.loads(sys.argv[1]).keys())))' "$ENT")
   [ "$KEYS" = "application-identifier com.apple.developer.team-identifier get-task-allow" ] \
     || fail "test host entitlements must be exactly application-identifier/team-identifier/get-task-allow, got: $KEYS"
-  echo "test host $HOST_ID, entitlements: $KEYS; .xctestrun has no com.openminis.app product"
+  echo "test host $HOST_ID, entitlements: $KEYS; .xctestrun has no com.fogharbor544.minis product"
 
 fi
 

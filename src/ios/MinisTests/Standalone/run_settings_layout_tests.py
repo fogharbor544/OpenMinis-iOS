@@ -10,7 +10,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT.parents[1] / "build/validation/ui-layout"
-BUNDLE = "com.openminis.layout-validation"
+BUNDLE = "com.fogharbor544.minis.layout-validation"
 
 
 def run(*args, **kwargs):

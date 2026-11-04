@@ -21,7 +21,7 @@ protocol BrowserCredentialVault {
 struct KeychainBrowserCredentialVault: BrowserCredentialVault {
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "com.openminis.browser.credentials",
+         kSecAttrService as String: "com.fogharbor544.minis.browser.credentials",
          kSecAttrAccount as String: "vault",
          kSecAttrSynchronizable as String: false]
     }

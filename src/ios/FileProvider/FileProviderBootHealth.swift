@@ -88,7 +88,7 @@ enum FileProviderBootHealth {
     /// This is NOT cross-process locking: the app writes at launch and the
     /// appex writes at boot, and the worst case of an interleave is one
     /// miscounted attempt, which the threshold already tolerates.
-    private static let queue = DispatchQueue(label: "com.openminis.app.fpBootHealth")
+    private static let queue = DispatchQueue(label: "com.fogharbor544.minis.fpBootHealth")
 
     private static func loadState() -> State? {
         guard let url = fileURL, let data = try? Data(contentsOf: url) else { return nil }

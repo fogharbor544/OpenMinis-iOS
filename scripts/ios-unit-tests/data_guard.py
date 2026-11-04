@@ -14,10 +14,10 @@ What is recorded:
     blocks listing another app's Data/, which is recorded as such - the
     containermanagerd audit below is the independent check for that case;
   * the top level of ~/Library/Containers (new containers appear there);
-  * ~/Library/Preferences/com.openminis.app*.plist and group.com.openminis.app*.plist.
+  * ~/Library/Preferences/com.fogharbor544.minis*.plist and group.com.openminis.app*.plist.
 
 The containermanagerd audit fails on any line in the window that names the real
-app (com.openminis.app, its extensions) or a real container UUID, and on any
+app (com.fogharbor544.minis, its extensions) or a real container UUID, and on any
 App Group request that was APPROVED for the test host.
 """
 import glob, hashlib, json, os, re, subprocess, sys, time
@@ -26,7 +26,7 @@ HOME = os.path.expanduser('~')
 GROUP = os.path.join(HOME, 'Library', 'Group Containers', 'group.com.openminis.app')
 CONTAINERS = os.path.join(HOME, 'Library', 'Containers')
 REAL = [c for c in os.environ.get('MINIS_REAL_CONTAINERS', '07EF1093-F27E-4130-9741-9766B14510AA').split(',') if c]
-HOST_ID = 'com.openminis.MinisTestHost'
+HOST_ID = 'com.fogharbor544.minis.MinisTestHost'
 
 
 def sha256(path):
@@ -89,7 +89,7 @@ def snapshot(out):
         }
     for name in sorted(os.listdir(CONTAINERS)):
         snap['containers_top'][name] = stat_entry(os.path.join(CONTAINERS, name))
-    for p in sorted(glob.glob(os.path.join(HOME, 'Library', 'Preferences', 'com.openminis.app*.plist')) +
+    for p in sorted(glob.glob(os.path.join(HOME, 'Library', 'Preferences', 'com.fogharbor544.minis*.plist')) +
                     glob.glob(os.path.join(HOME, 'Library', 'Preferences', 'group.com.openminis.app*.plist'))):
         e = stat_entry(p)
         e['sha256'] = sha256(p)
@@ -157,7 +157,7 @@ def diff(before_p, after_p, start, end):
     print(f'~/Library/Containers: {len(new)} new ({", ".join(new) or "none"}), real container entry changed: {bool(changed_real)}')
     findings += [f'real container entry changed in ~/Library/Containers: {k}' for k in changed_real]
     p = compare(a['prefs'], b['prefs'])
-    print(f'preferences com.openminis.app*/group.com.openminis.app*: {len(b["prefs"])} files, {len(p)} differences')
+    print(f'preferences com.fogharbor544.minis*/group.com.openminis.app*: {len(b["prefs"])} files, {len(p)} differences')
     findings += [f'prefs {kind}: {k}' for kind, k, x, y in p]
     lines, bad, host = audit_log(start, end)
     print(f'containermanagerd log {start} .. {end}: {len(lines)} lines naming openminis, '

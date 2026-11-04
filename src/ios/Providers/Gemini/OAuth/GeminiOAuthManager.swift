@@ -214,7 +214,7 @@ final class GeminiOAuthManager: NSObject, ObservableObject {
     }
 
 
-    static let legacyKeychainService = "com.openminis.app.gemini-oauth"
+    static let legacyKeychainService = "com.fogharbor544.minis.gemini-oauth"
     static let legacyKeychainAccount = "token"
 
 

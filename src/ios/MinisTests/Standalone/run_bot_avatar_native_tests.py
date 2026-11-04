@@ -10,7 +10,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT.parents[1] / "build/validation/bot-avatar-ui"
-BUNDLE = "com.openminis.bot-avatar-validation"
+BUNDLE = "com.fogharbor544.minis.bot-avatar-validation"
 
 
 def run(*args, **kwargs):

@@ -2,7 +2,7 @@
 # key (file<TAB>sha1 of the stripped line)  category  reason. A changed line stops matching and must be re-justified.
 # PIN       = the API name is inside a string the test searches for in app SOURCE TEXT (contains / range(of:)); nothing executes it.
 # STUB      = harness-local stub/override ChatStore whose root is a temp directory; the real ChatStore is never compiled in.
-# OWNDOMAIN = plain macOS script process; UserDefaults.standard is that process's own domain, not com.openminis.app or the App Group.
+# OWNDOMAIN = plain macOS script process; UserDefaults.standard is that process's own domain, not com.fogharbor544.minis or the App Group.
 src/ios/MinisTests/Standalone/AOJITTests.swift	af3ee402d4c3db7b	PIN	source-pinning assertion: checks the app source text contains this call; the test never executes it	# src/ios/MinisTests/Standalone/AOJITTests.swift:456 [UserDefaults.standard]
 src/ios/MinisTests/Standalone/AOJITTests.swift	e881dd0ff229536f	PIN	source-pinning assertion: checks the app source text contains this call; the test never executes it	# src/ios/MinisTests/Standalone/AOJITTests.swift:461 [UserDefaults.standard]
 src/ios/MinisTests/Standalone/AlwaysOnModeTests.swift	d29d8dec879e3224	PIN	source-pinning assertion: checks the app source text contains this call; the test never executes it	# src/ios/MinisTests/Standalone/AlwaysOnModeTests.swift:218 [UserDefaults.standard]

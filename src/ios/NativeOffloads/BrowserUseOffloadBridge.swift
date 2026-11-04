@@ -211,6 +211,7 @@ import Foundation
         // every `dispatch_async(main_queue, ^{ ctx.lineCallback(line) })`
         // coming out of ISHShellExecutor. The fs_context lookup is a locked
         // dictionary read, so it keeps that property.
+        let browserContext = MinisFsRouter.shared.browserContext(for: fsContext)
         let caller = ISHExecutionCoordinator.callerSessionId(fsContext: fsContext)
         let sid = caller.sid ?? Self.unmountedSentinel
         logger.info("[BridgeTiming] enter action=\(input.action.rawValue) tab_id=\(input.tabId.map(String.init) ?? "nil") url=\(input.url?.prefix(80) ?? "nil") sid=\(sid.prefix(8)) via=\(caller.source)")
@@ -223,7 +224,22 @@ import Foundation
 
         let task = Task { @MainActor in
             defer { endInvocation(invocation) }
-            guard let pool = await Self.pool(for: sid) else {
+            let pool: BrowserTabPool
+            if let browserContext {
+                // The workspace still owns file output, but a model script
+                // must address the same browser and owner as its browser_use tool.
+                guard let issuingPool = ViewModelCache.shared.get(for: browserContext.sessionId)?.browserTabPool,
+                      issuingPool.automationID == browserContext.poolID else {
+                    completion([
+                        "text": "Error: The issuing browser session changed. Inspect the current page before retrying.",
+                        "success": false,
+                    ] as NSDictionary)
+                    return
+                }
+                pool = issuingPool
+            } else if let manualPool = await Self.pool(for: sid) {
+                pool = manualPool
+            } else {
                 let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - bridgeStart) * 1000)
                 logger.info("[BridgeTiming] pool_not_found elapsed=\(elapsedMs)ms sid=\(sid.prefix(8))")
                 completion([
@@ -243,7 +259,10 @@ import Foundation
                 // across grace-busy tabs. Explicit --tab-id still routes
                 // normally. Agent tool path keeps the default (fan-out).
                 // [T-browser-executejs-stale-context-ios]
-                let result = try await pool.execute(action: input, singleTab: true)
+                let result = try await pool.execute(
+                    action: input, singleTab: true, owner: browserContext?.sessionId,
+                    takeoverGeneration: browserContext?.takeoverGeneration
+                )
                 let poolDoneMs = Int((CFAbsoluteTimeGetCurrent() - bridgeStart) * 1000)
                 logger.info("[BridgeTiming] pool_execute_done elapsed=\(poolDoneMs)ms action=\(input.action.rawValue)")
 

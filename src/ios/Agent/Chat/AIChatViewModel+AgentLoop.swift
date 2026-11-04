@@ -443,6 +443,7 @@ extension AIChatViewModel {
         let turnCap = helperConfig?.maxTurns ?? Self.maxAgentTurns
         loopLabel: while turnCount < turnCap {
             try Task.checkCancellation()
+            let preparationTakeoverGeneration = try await waitIfBrowserTakeover()
             defer { turnCount += 1 }
             // [T-ios-switch-model-next-request] The user picked another model
             // while this turn was running. Apply it HERE, before the next
@@ -833,6 +834,9 @@ extension AIChatViewModel {
                 break loopLabel
             }
 
+            // Preparation can suspend (model switch, prompt persistence). Check
+            // again before freezing the context and remember what the model saw.
+            let requestTakeoverGeneration = try await waitIfBrowserTakeover(since: preparationTakeoverGeneration)
             CrashReporter.shared.setLastAPI(provider: provider.name, model: activeModelForOffload.id)
             logger.info("Calling \(provider.name) API (streaming) with \(self.agentHistory.count) messages")
             // [StreamDiag] (#181) Monotonic request sequence, so a
@@ -987,6 +991,7 @@ extension AIChatViewModel {
                 stream = preset
             } else {
                 stream = try await streamWithGroupFallback(
+                    takeoverGeneration: requestTakeoverGeneration,
                     provider: provider,
                     messages: contextHistory,
                     baseSystemPrompt: baseSystemPrompt,
@@ -1228,6 +1233,7 @@ extension AIChatViewModel {
                         // group path, which moves to the next member (or fails
                         // with the reason).
                         reminderStream = try await streamWithGroupFallback(
+                            takeoverGeneration: requestTakeoverGeneration,
                             provider: provider,
                             messages: reminderHistory,
                             baseSystemPrompt: baseSystemPrompt,
@@ -1242,6 +1248,7 @@ extension AIChatViewModel {
                         await applyFallbackSwitch()
                     } else {
                         reminderStream = try await streamWithAutoRetry(
+                            takeoverGeneration: requestTakeoverGeneration,
                             provider: provider,
                             messages: reminderHistory,
                             systemPrompt: userSystemPrompt,
@@ -1340,6 +1347,7 @@ extension AIChatViewModel {
                     }
                     msgIdx = resynced
                     streamResult = try await streamWithGroupFallbackUntilContent(
+                        takeoverGeneration: requestTakeoverGeneration,
                         provider: provider,
                         messages: applyRequestImageBudget(effectiveAgentHistory()),
                         baseSystemPrompt: baseSystemPrompt,
@@ -1363,6 +1371,7 @@ extension AIChatViewModel {
                     msgIdx = resynced
                     do {
                         let retryStream = try await streamWithAutoRetry(
+                            takeoverGeneration: requestTakeoverGeneration,
                             provider: provider,
                             messages: applyRequestImageBudget(effectiveAgentHistory()),
                             systemPrompt: userSystemPrompt,
@@ -1421,6 +1430,7 @@ extension AIChatViewModel {
                         // Use streamWithGroupFallbackUntilContent to keep cycling through
                         // group entries until one returns non-empty content.
                         streamResult = try await streamWithGroupFallbackUntilContent(
+                            takeoverGeneration: requestTakeoverGeneration,
                             provider: provider,
                             messages: applyRequestImageBudget(effectiveAgentHistory()),
                             baseSystemPrompt: baseSystemPrompt,
@@ -2055,7 +2065,8 @@ extension AIChatViewModel {
                             ))
                         }
                         let outcome = await self.executeSingleToolUse(
-                            tu: tu, msgIdx: msgIdx, tools: toolsSnapshot, batchBudget: imageBudgetActor
+                            tu: tu, msgIdx: msgIdx, tools: toolsSnapshot, batchBudget: imageBudgetActor,
+                            takeoverGeneration: requestTakeoverGeneration
                         )
                         return (idx, outcome)
                     }

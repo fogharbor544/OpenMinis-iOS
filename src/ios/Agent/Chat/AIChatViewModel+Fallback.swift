@@ -6,6 +6,19 @@ private let logger = AppLogger(category: "AIChatVM")
 
 extension AIChatViewModel {
 
+    /// Fallback and retry can suspend after the loop builds the context.
+    /// Wait at the provider boundary and warn the model if that context
+    /// predates manual browser changes. Tools still carry its old generation.
+    private func browserTakeoverAwarePrompt(_ prompt: String?, since generation: UInt64) async throws -> String? {
+        while browserTabPool.isTakeoverRequested {
+            try await browserTabPool.waitForTakeoverToEnd()
+        }
+        try Task.checkCancellation()
+        guard generation != browserTabPool.takeoverGeneration else { return prompt }
+        let reminder = "The user took manual control of the browser after this context was prepared. Inspect the current page before issuing any browser action that changes it."
+        return prompt.map { $0 + "\n\n" + reminder } ?? reminder
+    }
+
     // MARK: - Auto-Retry on Network Errors
 
     static let retryDelays = [3, 5, 10, 15, 30]
@@ -41,6 +54,7 @@ extension AIChatViewModel {
     }
 
     func streamWithAutoRetry(
+        takeoverGeneration: UInt64,
         provider initialProvider: any AgentProvider,
         messages: [AgentMessage],
         systemPrompt: String?,
@@ -106,6 +120,7 @@ extension AIChatViewModel {
                 }
             }
             do {
+                let requestPrompt = try await browserTakeoverAwarePrompt(systemPrompt, since: takeoverGeneration)
                 var thinkLvl = sessionId.flatMap { ProviderConfigStore.shared.inferenceConfig(for: $0)?.thinkingLevel } ?? .off
                 // [T-fallback-thinking-preclamp] Clamp to the CURRENT entry's
                 // effective max BEFORE building the request — the session's
@@ -126,7 +141,7 @@ extension AIChatViewModel {
                 }
                 let stream = try await currentProvider.streamAgentMessage(
                     messages: messages,
-                    systemPrompt: systemPrompt,
+                    systemPrompt: requestPrompt,
                     tools: tools,
                     maxTokens: maxTokens,
                     thinkingLevel: thinkLvl
@@ -188,6 +203,7 @@ extension AIChatViewModel {
     /// `streamWithAutoRetry`; if retries are exhausted, also fallback to the next
     /// model in the group.
     func streamWithGroupFallback(
+        takeoverGeneration: UInt64,
         provider initialProvider: any AgentProvider,
         messages: [AgentMessage],
         baseSystemPrompt: String,
@@ -211,6 +227,7 @@ extension AIChatViewModel {
         }
 
         while true {
+            let requestPrompt = try await browserTakeoverAwarePrompt(currentSystemPrompt, since: takeoverGeneration)
             // [T-provider-live-check] Before EVERY request: is the provider
             // instance this request would go to still there, and enabled?
             //
@@ -299,7 +316,7 @@ extension AIChatViewModel {
                 }
                 let stream = try await currentProvider.streamAgentMessage(
                     messages: messages,
-                    systemPrompt: currentSystemPrompt,
+                    systemPrompt: requestPrompt,
                     tools: tools,
                     maxTokens: maxTok,
                     thinkingLevel: thinkLvl
@@ -460,6 +477,7 @@ extension AIChatViewModel {
                 let retryModel = currentEntryId.flatMap { ProviderConfigStore.shared.entry(for: $0)?.model } ?? model
                 do {
                     let stream = try await streamWithAutoRetry(
+                        takeoverGeneration: takeoverGeneration,
                         provider: currentProvider,
                         messages: messages,
                         systemPrompt: currentSystemPrompt,
@@ -547,6 +565,7 @@ extension AIChatViewModel {
     /// is silently failing (e.g. Anthropic overloaded returning empty SSE) and the
     /// group should advance to a different provider (e.g. OpenAI).
     func streamWithGroupFallbackUntilContent(
+        takeoverGeneration: UInt64,
         provider: any AgentProvider,
         messages: [AgentMessage],
         baseSystemPrompt: String,
@@ -564,6 +583,7 @@ extension AIChatViewModel {
 
         while true {
             let fbStream = try await streamWithGroupFallback(
+                takeoverGeneration: takeoverGeneration,
                 provider: provider,
                 messages: messages,
                 baseSystemPrompt: baseSystemPrompt,

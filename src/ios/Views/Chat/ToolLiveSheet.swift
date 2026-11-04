@@ -292,8 +292,6 @@ struct FloatingToolBar: View {
     let toolBlocks: [AssistantBlock]
     var toolSnapshots: [ToolSnapshotItem] = []
     var browserPool: BrowserTabPool?
-    var onBrowserTakeover: (() -> Void)?
-    var onTakeoverDone: (() -> Void)?
     @State private var selectedIdx: Int? = nil
     /// [T-agent-follow-change] Which sub agent the bar is following, and when
     /// it was last allowed to change.
@@ -703,9 +701,7 @@ struct FloatingToolBar: View {
                 toolBlocks: toolBlocks,
                 initialIdx: displayedIdx,
                 toolSnapshots: toolSnapshots,
-                browserPool: browserPool,
-                onBrowserTakeover: onBrowserTakeover,
-                onTakeoverDone: onTakeoverDone
+                browserPool: browserPool
             )
         }
         .sheet(item: $childToolTarget) { target in
@@ -715,9 +711,7 @@ struct FloatingToolBar: View {
                 toolBlocks: [target.block],
                 initialIdx: 0,
                 toolSnapshots: toolSnapshots,
-                browserPool: browserPool,
-                onBrowserTakeover: onBrowserTakeover,
-                onTakeoverDone: onTakeoverDone
+                browserPool: browserPool
             )
             .environment(\.chatSessionId, target.sessionId)
         }
@@ -896,8 +890,6 @@ struct ToolLiveSheet: View {
     @State var currentIdx: Int
     var toolSnapshots: [ToolSnapshotItem] = []
     var browserPool: BrowserTabPool?
-    var onBrowserTakeover: (() -> Void)?
-    var onTakeoverDone: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.chatSessionId) private var sessionId
 
@@ -923,16 +915,11 @@ struct ToolLiveSheet: View {
     /// sidestepping SwiftUI's "only one .sheet per view" limitation when
     /// ToolLiveSheet is itself hosted inside a sheet.
     @State private var activeSheet: ActiveSecondarySheet?
-    /// The sheet that was last presented through `activeSheet`, remembered so
-    /// `onDismiss` (which runs after `activeSheet` is already nil) can tell
-    /// which one closed. [T-agent-transcript-halfsheet]
-    @State private var lastPresentedSheet: ActiveSecondarySheet?
-
     /// Describes which secondary sheet is currently presented on top of
     /// ToolLiveSheet. Cases are mutually exclusive by construction — each is
     /// opened by a different, single tap.
     enum ActiveSecondarySheet: Identifiable {
-        case takeoverBrowser
+        case browser(takeover: Bool)
         case linkPreview(URL)
         /// [T-agent-transcript-halfsheet] The agent's live conversation,
         /// stacked on top of this tool sheet so closing it comes back here.
@@ -940,7 +927,7 @@ struct ToolLiveSheet: View {
 
         var id: String {
             switch self {
-            case .takeoverBrowser: return "takeoverBrowser"
+            case .browser(let takeover): return "browser:\(takeover)"
             case .linkPreview(let url): return "linkPreview:\(url.absoluteString)"
             case .agentTranscript(let t): return "agentTranscript:\(t.id)"
             }
@@ -970,14 +957,11 @@ struct ToolLiveSheet: View {
     private static let lazyRenderBatchChunks = LazyRenderTuning.batchChunks
     private static let lazyRenderInitialByteCap = LazyRenderTuning.initialByteCap
 
-    init(toolBlocks: [AssistantBlock], initialIdx: Int, toolSnapshots: [ToolSnapshotItem] = [], browserPool: BrowserTabPool?,
-         onBrowserTakeover: (() -> Void)? = nil, onTakeoverDone: (() -> Void)? = nil) {
+    init(toolBlocks: [AssistantBlock], initialIdx: Int, toolSnapshots: [ToolSnapshotItem] = [], browserPool: BrowserTabPool?) {
         self.toolBlocks = toolBlocks
         self._currentIdx = State(initialValue: initialIdx)
         self.toolSnapshots = toolSnapshots
         self.browserPool = browserPool
-        self.onBrowserTakeover = onBrowserTakeover
-        self.onTakeoverDone = onTakeoverDone
     }
 
     /// Get snapshot for the current block (matched by toolUseId).
@@ -1101,26 +1085,11 @@ struct ToolLiveSheet: View {
         // into a single `.sheet(item:)` driven by `activeSheet`. The two
         // cases are mutually exclusive by construction (takeover = button tap,
         // link preview = URL tap).
-        .sheet(item: $activeSheet, onDismiss: {
-            // [T-agent-transcript-halfsheet] `onTakeoverDone` resumes a paused
-            // browser-takeover continuation in the agent loop. It must not fire
-            // when the agent transcript closes — nothing was taken over, and
-            // resuming would release a continuation that belongs to a real
-            // takeover. The link preview keeps its existing behaviour.
-            let closed = lastPresentedSheet
-            lastPresentedSheet = nil
-            if case .agentTranscript = closed { return }
-            onTakeoverDone?()
-        }) { sheet in
+        .sheet(item: $activeSheet) { sheet in
             switch sheet {
-            case .takeoverBrowser:
+            case .browser(let takeover):
                 if let pool = browserPool {
-                    BrowserSheetView(
-                        pool: pool,
-                        isAgentBusy: false,
-                        onTakeover: onBrowserTakeover,
-                        onTakeoverDone: onTakeoverDone,
-                        isUserTakeoverActive: true)
+                    BrowserSheetView(pool: pool, startsWithTakeover: takeover)
                 }
             case .linkPreview(let url):
                 MinisLinkPreviewView(url: url, browserPool: browserPool)
@@ -1130,7 +1099,6 @@ struct ToolLiveSheet: View {
             }
         }
         .onChange(of: activeSheet?.id) { _ in
-            if let s = activeSheet { lastPresentedSheet = s }
             // [T-agent-transcript-diag] Pairs with HelperTranscriptPage's
             // appear/load lines: a field report of "tapped, screen dimmed,
             // nothing appeared" needs to show which step never happened.
@@ -1169,10 +1137,9 @@ struct ToolLiveSheet: View {
 
                 Spacer()
 
-                if isLive, onBrowserTakeover != nil, case .browserTool = block.kind {
+                if isLive, browserPool != nil, case .browserTool = block.kind {
                     Button {
-                        onBrowserTakeover?()
-                        activeSheet = .takeoverBrowser
+                        activeSheet = .browser(takeover: true)
                     } label: {
                         ZStack {
                             Image(systemName: "hand.point.up.left")
@@ -1188,7 +1155,7 @@ struct ToolLiveSheet: View {
                         .clipShape(Circle())
                     }
                 } else if case .browserTool = block.kind, browserPool != nil {
-                    Button { activeSheet = .takeoverBrowser } label: {
+                    Button { activeSheet = .browser(takeover: false) } label: {
                         toolIcon
                             .font(.system(size: 14))
                             .foregroundStyle(ChatColors.primaryText)

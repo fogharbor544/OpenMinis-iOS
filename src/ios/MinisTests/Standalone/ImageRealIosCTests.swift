@@ -121,7 +121,7 @@ check("toAgentMessage rebuilds a tool image through rebuiltToolResultImage",
 check("applyRequestImageBudget is budgetedRequestImages plus log and toast",
       budget.contains("guard let budgeted = Self.budgetedRequestImages(messages, sessionId: sessionId) else { return messages }"))
 check("the takeover wait injects takeoverScreenshotMessage",
-      background.contains("let msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId, timestamp: timestamp)"))
+      background.contains("msg = Self.takeoverScreenshotMessage(data, sessionId: sessionId, timestamp: timestamp, tabId: tabId)"))
 
 let lifts: [(String, String, String)] = [
     ("AIChatViewModel.swift", vmSrc, "static func estimatedBase64Length("),

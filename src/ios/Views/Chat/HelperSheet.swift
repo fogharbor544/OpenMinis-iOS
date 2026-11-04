@@ -431,8 +431,6 @@ private struct HelperTranscript: View {
             CollectionViewMessageListV3(
                 vm: vm,
                 inputFocused: false,
-                onBrowserTakeover: { vm.browserTakeoverActive = true },
-                onTakeoverDone: { vm.resumeFromBrowserTakeover() },
                 maxContentWidth: geo.size.width,
                 floatingBarHeight: 0,
                 inputBarHeight: 0

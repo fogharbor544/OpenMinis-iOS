@@ -89,10 +89,8 @@ let closureBodies = field.components(separatedBy: "{ ").dropFirst().map { $0.com
 let unguarded = closureBodies.filter { $0.contains("vm.") && !$0.hasPrefix("[vm]") }
 check("no closure body reads vm through self (found \(unguarded.count))", unguarded.isEmpty)
 
-let bar = slice(chat, from: "FloatingToolBar(toolBlocks: allToolBlocks", to: "vm.resumeFromBrowserTakeover()\n            })")
-check("FloatingToolBar call site located", !bar.isEmpty)
-check("onBrowserTakeover captures vm only", bar.contains("onBrowserTakeover: { [vm] in"))
-check("onTakeoverDone captures vm only", bar.contains("onTakeoverDone: { [vm] in"))
+check("FloatingToolBar receives the pool without storing view-capturing callbacks",
+      chat.contains("FloatingToolBar(toolBlocks: allToolBlocks, toolSnapshots: vm.toolSnapshots, browserPool: vm.browserTabPool)"))
 check("vm is bound to a local before the tool bar",
       chat.contains("let vm = self.vm\n            FloatingToolBar(toolBlocks:"))
 

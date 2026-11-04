@@ -129,6 +129,7 @@ actor ISHExecutionCoordinator {
         command: String,
         timeout: TimeInterval?,
         ownerId: String? = nil,
+        browserContext: BrowserShellContext? = nil,
         lineCallback: @escaping (String) -> Void,
         pidCallback: @escaping (Int32) -> Void
     ) async throws -> ISHCommandResult {
@@ -148,7 +149,7 @@ actor ISHExecutionCoordinator {
         mountedSessionId = sessionId
         ensureStaticMountsInitialized(for: sessionId)
 
-        let fsContext = MinisFsRouter.shared.context(for: sessionId)
+        let fsContext = MinisFsRouter.shared.context(for: sessionId, browserContext: browserContext)
 
         defer {
             // Dequeue self. No waiters to wake — concurrent dispatch.

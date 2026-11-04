@@ -296,7 +296,7 @@ enum LLMProviderFactory {
         let customBase = instance.effectiveCustomBaseURL
         let provider = OpenAIProvider(apiKey: key, model: model, customBaseURL: customBase ?? "https://openrouter.ai/api", appendV1Suffix: customBase == nil)
         provider.extraHeaders = [
-            "HTTP-Referer": "https://github.com/OpenMinis/OpenMinis",
+            "HTTP-Referer": "https://github.com/fogharbor544/OpenMinis-iOS",
             "X-Title": "Minis App",
         ]
         provider.useOpenRouterCompat = true

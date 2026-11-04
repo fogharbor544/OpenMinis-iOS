@@ -189,10 +189,10 @@ licenses are listed in
 
 - **Telegram**: [Join the group](https://t.me/+2NzhOJuzRyI1YmM1)
 - **Issues**: Bug reports, feature requests and discussion via
-  [GitHub Issues](https://github.com/OpenMinis/OpenMinis/issues)
+  [GitHub Issues](https://github.com/fogharbor544/OpenMinis-iOS/issues)
 
-This repository is a mirror of a private development tree, so it **does not
-accept pull requests** — there is nowhere for them to land. Issues are the way
+Development happens directly on `main` in this repository, so it **does not
+take pull requests** — there is nowhere for them to land. Issues are the way
 to shape the product, and [AwesomeMinis](https://github.com/OpenMinis/AwesomeMinis)
 and [MinisSkills](https://github.com/OpenMinis/MinisSkills) both do take
 contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).

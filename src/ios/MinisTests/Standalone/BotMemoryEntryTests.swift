@@ -63,6 +63,24 @@ import Foundation
         try store.setFixedMemory(id: suggested.id, owner: fixed.owner, fixed: true)
         try check(try store.longTermRuleContext(owner: fixed.owner).contains("Keep test reports short"))
 
+        var legacyDraft = make("bot:legacy-fixed", String(repeating: "a", count: 1500))
+        legacyDraft.pinned = true
+        let legacyFixed = try store.save(legacyDraft, userInitiated: true)
+        try store.setGrants(id: legacyFixed.id, owner: legacyFixed.owner, grants: ["room:x"])
+        let legacyBaseline = try store.documentEntries(owner: legacyFixed.owner)
+        try store.saveDocument(owner: legacyFixed.owner, text: "Unrelated history edit", baseline: legacyBaseline,
+                               fixedEdits: [legacyFixed.id: legacyFixed.content])
+        let legacyEdited = try store.documentEntries(owner: legacyFixed.owner)
+        precondition(legacyEdited.contains { $0.content == "Unrelated history edit" })
+        precondition(legacyEdited.contains {
+            $0.id == legacyFixed.id && $0.content == legacyFixed.content && $0.isFixedMemory && $0.grants == ["room:x"]
+        })
+        do {
+            try store.saveDocument(owner: legacyFixed.owner, text: "Unrelated history edit", baseline: legacyEdited,
+                                   fixedEdits: [legacyFixed.id: legacyFixed.content + "!"])
+            fatalError("An edited fixed rule should still obey the new length limit")
+        } catch is BotMemoryError {}
+
         var pinned = make("bot:c", "Use plain language")
         pinned.pinned = true
         _ = try store.save(pinned)

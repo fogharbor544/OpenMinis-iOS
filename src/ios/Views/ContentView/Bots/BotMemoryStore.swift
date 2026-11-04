@@ -359,12 +359,17 @@ private extension BotMemoryStore {
             let content = edited.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !content.isEmpty else { continue }
             let isFixedRule = entry.isFixedMemory && entry.category != "event"
-            let limit = isFixedRule ? Self.fixedMemoryLimit : 2_000
-            guard content.count <= limit, !Self.containsSecret(content) else {
-                throw BotMemoryError.invalid("内容不能超过\(limit)字，也不能包含密码、验证码或密钥。")
+            let contentChanged = entry.content != content
+            // Unedited legacy rules can be longer than today's limit. Keep them
+            // intact when the user changes another part of the document.
+            if !isFixedRule || contentChanged {
+                let limit = isFixedRule ? Self.fixedMemoryLimit : 2_000
+                guard content.count <= limit, !Self.containsSecret(content) else {
+                    throw BotMemoryError.invalid("内容不能超过\(limit)字，也不能包含密码、验证码或密钥。")
+                }
             }
-            if isFixedRule && entry.content != content { entry.grants = [] }
-            if entry.content != content || entry.documentOrder != result.count { entry.updatedAt = Date() }
+            if isFixedRule && contentChanged { entry.grants = [] }
+            if contentChanged || entry.documentOrder != result.count { entry.updatedAt = Date() }
             entry.content = content
             entry.fingerprint = Self.fingerprint(content)
             entry.documentOrder = result.count
@@ -432,7 +437,7 @@ private extension BotMemoryStore {
             ? String(ruleSection.dropLast()) : ""
     }
 
-    func recall(owner: String, query: String, limit: Int = 8, budget: Int = 4000) throws -> String {
+    func recall(owner: String, query: String, limit: Int = 8, budget: Int = 4000, excludeFixed: Bool = false) throws -> String {
         let terms = query.lowercased().split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).map(String.init)
         // CJK questions often have no spaces; two-character shingles avoid treating the
         // entire question as one exact-match keyword. No embedding service is required.
@@ -440,11 +445,13 @@ private extension BotMemoryStore {
         let shingles = cjk.count > 1 ? (0..<(cjk.count - 1)).map { cjk[$0] + cjk[$0 + 1] } : []
         let keywords = Array(Set(terms + shingles))
         var ranked: [(entry: BotMemoryEntry, score: Int)] = []
-        for entry in try visible(to: owner) {
+        for entry in try visible(to: owner) where !excludeFixed || !entry.isFixedMemory {
             var haystack = entry.content + " " + entry.scope
             if entry.category == "event" { haystack += " " + (entry.eventKind ?? "") + " " + Self.eventKindLabel(entry.eventKind) }
             haystack = haystack.lowercased()
-            var score = entry.pinned ? 100 : 0
+            // Manual recall keeps the existing pin priority. Automatic history
+            // recall uses relevance; the fixed rules have their own section.
+            var score = !excludeFixed && entry.pinned ? 100 : 0
             for keyword in keywords where haystack.contains(keyword) { score += 1 }
             if query.isEmpty || score > 0 { ranked.append((entry: entry, score: score)) }
         }

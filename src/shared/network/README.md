@@ -1,10 +1,10 @@
 # Settings > Network: routing, Tailscale and proxies
 
 Task FEAT-261021-14 (G7). One definition for iOS, Android and, later, Windows.
-**iOS is the reference implementation** (`src/ios/Agent/Network/`); Android
-follows it (`src/android/.../network/`); both share the Go router and node
-(`deps/rclone-mobile`: `nethub`, `tsnet`, `rcloneroute`). If an implementation
-and this file disagree, fix the implementation or raise the difference here.
+**iOS is the reference implementation** (`src/ios/Agent/Network/`); every other
+platform follows it and shares the Go router and node (`deps/rclone-mobile`:
+`nethub`, `tsnet`, `rcloneroute`). If an implementation and this file
+disagree, fix the implementation or raise the difference here.
 
 Each part is marked:
 - **[same]**: identical on every platform: names, values, defaults, meanings;

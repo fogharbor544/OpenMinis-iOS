@@ -20,9 +20,9 @@
 // rules. OpenRouter 401s count as auth errors only when the body says so.
 //
 // Part 1 runs a port of the mechanism against the live fixture ids. Part 2
-// pins the port to the shipping Swift sources. Part 3 checks that iOS and
-// Android agree: role values, allowlist, auth phrases, cache bump and the
-// fixture lists (Android OpenRouterVoiceRoutingTest.kt).
+// pins the port to the shipping Swift sources. Part 3 checks that the
+// shipping sources agree with the port: role values, chat-audio allowlist
+// and auth phrases.
 //
 // Run: swift OpenRouterVoiceCatalogTests.swift
 import Foundation
@@ -309,12 +309,7 @@ check("the stale 'endpoint does not exist' claim is gone",
 check("read-aloud and Quick Test hand the model to TTS",
       player.contains("resolvedModel: entry.model)") && quick.contains("resolvedModel: entry.model)"))
 
-// ── Part 3: iOS ↔ Android agree ──────────────────────────────────────────────
-
-let droidModality = read("src/android/app/src/main/java/com/openminis/app/data/model/VoiceModality.kt")
-let droidApi = read("src/android/app/src/main/java/com/openminis/app/provider/openrouter/OpenRouterModelsApi.kt")
-let droidVendors = read("src/android/app/src/main/java/com/openminis/app/provider/voice/VoiceProviderVendors.kt")
-let droidTest = read("src/android/app/src/test/java/com/openminis/app/provider/voice/OpenRouterVoiceRoutingTest.kt")
+// ── Part 3: the shipping sources agree with the port ─────────────────────────
 
 /// Every double-quoted literal between `start` and the next `end`.
 func literals(_ src: String, from start: String, to end: String) -> [String] {
@@ -326,31 +321,17 @@ func literals(_ src: String, from start: String, to end: String) -> [String] {
         .map { String(chunk[Range($0.range(at: 1), in: chunk)!]) }
 }
 
-print("\n▶️  6. the two platforms agree")
-if droidModality.isEmpty || droidTest.isEmpty {
-    check("Android sources readable", false)
-} else {
-    check("role values identical",
-          droidModality.contains(#"const val TTS = "tts""#) && droidModality.contains(#"const val STT = "stt""#)
-            && droidModality.contains(#"const val NONE = "none""#)
-            && types.contains(#"static let tts = "tts""#) && types.contains(#"static let stt = "stt""#)
-            && types.contains(#"static let none = "none""#))
-    check("chat-audio allowlist identical",
-          literals(droidModality, from: "OPENROUTER_CHAT_AUDIO_MODELS = setOf(", to: ")")
-            == literals(types, from: "openRouterChatAudioModels: Set<String> = [", to: "]"))
-    let droidPhrases = literals(droidVendors, from: "AUTH_FAILURE_PHRASES = listOf(", to: ")")
-    let iosPhrases = literals(vendors, from: "authFailurePhrases = [", to: "]")
-    check("auth phrases identical (\(iosPhrases.count))", !iosPhrases.isEmpty && droidPhrases == iosPhrases)
-    check("…and identical to this port", iosPhrases == authFailurePhrases)
-    check("Android fetches the same two filters",
-          droidApi.contains(#""$MODELS_URL?output_modalities=speech""#)
-            && droidApi.contains(#""$MODELS_URL?output_modalities=transcription""#))
-    check("Android cache moved too", droidApi.contains(#"ProviderModelsCache("openrouter-v2")"#))
-    check("speech fixtures identical to the Android test",
-          literals(droidTest, from: "private val speechIds = listOf(", to: ")\n") == speechIds)
-    check("transcription fixtures identical to the Android test",
-          literals(droidTest, from: "private val transcriptionIds = listOf(", to: ")\n") == transcriptionIds)
-}
+print("\n▶️  6. the shipping sources agree with the port")
+check("role values identical",
+      types.contains(#"static let tts = "tts""#) && types.contains(#"static let stt = "stt""#)
+        && types.contains(#"static let none = "none""#)
+        && VoiceRole.tts == "tts" && VoiceRole.stt == "stt" && VoiceRole.none == "none")
+check("chat-audio allowlist identical",
+      Set(literals(types, from: "openRouterChatAudioModels: Set<String> = [", to: "]"))
+        == VoiceRole.openRouterChatAudioModels)
+let iosPhrases = literals(vendors, from: "authFailurePhrases = [", to: "]")
+check("auth phrases identical to this port (\(iosPhrases.count))",
+      !iosPhrases.isEmpty && iosPhrases == authFailurePhrases)
 
 print("")
 if failures == 0 { print("✅ ALL PASSED") } else { print("❌ \(failures) FAILURE(S)") }

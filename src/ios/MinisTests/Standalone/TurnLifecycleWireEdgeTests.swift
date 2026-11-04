@@ -58,12 +58,8 @@ func warn(_ label: String, _ gapPresent: Bool) {
 
 let root = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-let repo = root.deletingLastPathComponent().deletingLastPathComponent()
 func src(_ rel: String) -> String {
     (try? String(contentsOf: root.appendingPathComponent(rel), encoding: .utf8)) ?? ""
-}
-func repoSrc(_ rel: String) -> String {
-    (try? String(contentsOf: repo.appendingPathComponent(rel), encoding: .utf8)) ?? ""
 }
 func slice(_ text: String, from start: String, to end: String) -> String {
     guard let a = text.range(of: start),
@@ -77,7 +73,6 @@ let sseSrc = src("Agent/Chat/AIChatViewModel+SSEStream.swift")
 let openaiSrc = src("Providers/OpenAI/OpenAIAgentProvider.swift")
 let coordSrc = src("Agent/ISH/ISHExecutionCoordinator.swift")
 let oauthSrc = src("Providers/Anthropic/OAuthHTTPClient.swift")
-let androidMimicrySrc = repoSrc("src/android/app/src/main/java/com/openminis/app/auth/ClaudeCliMimicryHeaders.kt")
 
 // MARK: - [1] Error durability on turn >= 2
 
@@ -283,9 +278,9 @@ let chatUsesRaw = openaiSrc.contains("\"tool_call_id\": Self.capChatId(id),")
 // sanitizeToolCallAdjacency drops the real result and injects "unavailable".
 warn("mixed-form ids pass the history layer but split apart on Chat Completions", chatUsesRaw)
 
-// MARK: - [7] Claude CLI mimicry header parity
+// MARK: - [7] Claude CLI mimicry header set
 
-print("\n▶️  7. Claude CLI mimicry headers identical on iOS and Android (9b6a9910c)")
+print("\n▶️  7. Claude CLI mimicry headers (9b6a9910c)")
 func pairs(_ text: String, pattern: String) -> [String: String] {
     guard let re = try? NSRegularExpression(pattern: pattern) else { return [:] }
     var out: [String: String] = [:]
@@ -296,17 +291,28 @@ func pairs(_ text: String, pattern: String) -> [String: String] {
     return out
 }
 let iosBlock = slice(oauthSrc, from: "enum ClaudeCLIMimicry {", to: "]\n")
-let androidBlock = slice(androidMimicrySrc, from: "val ALL: List<Pair<String, String>> = listOf(", to: ")\n")
 let iosHeaders = pairs(iosBlock, pattern: #""([A-Za-z-]+)":\s*"([^"]*)""#)
-let androidHeaders = pairs(androidBlock, pattern: #""([A-Za-z-]+)"\s+to\s+"([^"]*)""#)
 check("iOS header set parsed (11)", iosHeaders.count == 11)
-check("Android header set parsed (11)", androidHeaders.count == 11)
-check("same header names", Set(iosHeaders.keys) == Set(androidHeaders.keys))
-for k in iosHeaders.keys.sorted() where iosHeaders[k] != androidHeaders[k] {
-    check("\(k): iOS=\(iosHeaders[k] ?? "nil") Android=\(androidHeaders[k] ?? "nil")", false)
-}
-check("User-Agent identical (model floors are version-gated on it)",
-      iosHeaders["User-Agent"] != nil && iosHeaders["User-Agent"] == androidHeaders["User-Agent"])
+check("header names as expected",
+      Set(iosHeaders.keys) == [
+          "User-Agent", "X-Stainless-Lang", "X-Stainless-Package-Version", "X-Stainless-OS",
+          "X-Stainless-Arch", "X-Stainless-Runtime", "X-Stainless-Runtime-Version",
+          "X-Stainless-Retry-Count", "X-Stainless-Timeout", "X-App",
+          "Anthropic-Dangerous-Direct-Browser-Access",
+      ])
+check("User-Agent as expected (model floors are version-gated on it)",
+      iosHeaders["User-Agent"] == "claude-cli/2.1.280 (external, cli)")
+check("the other header values as expected",
+      iosHeaders["X-Stainless-Lang"] == "js"
+        && iosHeaders["X-Stainless-Package-Version"] == "0.106.0"
+        && iosHeaders["X-Stainless-OS"] == "Linux"
+        && iosHeaders["X-Stainless-Arch"] == "arm64"
+        && iosHeaders["X-Stainless-Runtime"] == "node"
+        && iosHeaders["X-Stainless-Runtime-Version"] == "v24.18.0"
+        && iosHeaders["X-Stainless-Retry-Count"] == "0"
+        && iosHeaders["X-Stainless-Timeout"] == "600"
+        && iosHeaders["X-App"] == "cli"
+        && iosHeaders["Anthropic-Dangerous-Direct-Browser-Access"] == "true")
 
 print("")
 print("⚠️  \(warnings) known gap(s) documented")

@@ -414,7 +414,7 @@ func (a *udpAssoc) flow(dst, host string, hdr []byte) (*udpFlow, error) {
 // dialUDPRoute opens a connected UDP socket to dst for tag, routed as a TCP
 // connection would be - except that loopback is always this device and a
 // proxy route cannot carry UDP (Q2: non-tailnet datagrams leave directly).
-// Shared by SOCKS associations and proot's UDP map (xmap.go).
+// Shared by SOCKS associations.
 func (h *Hub) dialUDPRoute(id, tag, dst, host string) (net.Conn, Decision, int64, error) {
 	d := h.Decide(tag, host)
 	if ip, err := netip.ParseAddr(host); err == nil && ip.Unmap().IsLoopback() {

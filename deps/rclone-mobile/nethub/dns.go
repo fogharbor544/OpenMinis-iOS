@@ -274,8 +274,8 @@ func (h *Hub) serveDNSTCP(c net.Conn, id, tag, resolver string) {
 }
 
 // dnsOverTCP answers DNS-over-TCP frames on c until it closes - for a
-// "~dns" CONNECT above, and for proot's TCP connections to the shell's
-// resolver (xmap.go, a destination file marked "dns").
+// "~dns" CONNECT above, and for a guest TCP connection to the shell's
+// resolver.
 func (h *Hub) dnsOverTCP(c net.Conn, id, tag, resolver string) {
 	h.active.Add(1)
 	defer h.active.Add(-1)

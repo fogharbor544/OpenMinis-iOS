@@ -31,49 +31,7 @@ struct BrowserSheetView: View {
                     tabBar
                         .allowsHitTesting(!isAgentBrowsingInSheet && !pool.hasSecureInput)
 
-                    // URL bar
-                    HStack(spacing: 8) {
-                        BrowserAddressBarIcon(isLoading: manager?.isLoading ?? false)
-
-                        TextField("Search or enter URL", text: $addressText)
-                            .font(.system(size: 13, design: .monospaced))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.URL)
-                            .submitLabel(.go)
-                            .focused($addressFocused)
-                            .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
-                            .onSubmit {
-                                let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                guard !trimmed.isEmpty else { return }
-                                pool.touchActivity()
-                                manager?.loadURL(trimmed)
-                            }
-
-                        if manager?.isLoading ?? false {
-                            Button { manager?.webView.stopLoading() } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .transition(.identity)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .allowsHitTesting(!isAgentBrowsingInSheet && !pool.hasSecureInput)
-                }
-
-                if ownsTakeover {
-                    BrowserTakeoverStatusControl(
-                        isActive: pool.isTakeoverActive,
-                        showsLabel: showsTakeoverLabel,
-                        onShowLabel: { showTakeoverLabelAgain() },
-                        onReturn: endTakeover
-                    )
-                    .padding(.horizontal, 12)
-                    .background(.regularMaterial)
+                    addressRow
                 }
 
                 if let manager, !manager.isSecureInputActive {
@@ -125,6 +83,7 @@ struct BrowserSheetView: View {
                     if isAgentBrowsingInSheet {
                         AgentBrowsingOverlay(
                             currentStep: pool.currentAgentStep,
+                            showsAutomationBorder: !pool.isTakeoverRequested && !pool.hasSecureInput,
                             onTakeover: pool.isTakeoverRequested || pool.hasSecureInput ? nil : beginTakeover)
                             .transition(.opacity)
                     }
@@ -132,8 +91,9 @@ struct BrowserSheetView: View {
                     // Fullscreen exit button
                     if isFullscreen {
                         VStack {
-                            HStack {
+                            HStack(spacing: 8) {
                                 Spacer()
+                                if ownsTakeover { takeoverStatus }
                                 Button {
                                     withAnimation(.easeInOut(duration: 0.25)) { isFullscreen = false }
                                 } label: {
@@ -143,9 +103,10 @@ struct BrowserSheetView: View {
                                         .padding(8)
                                         .background(Circle().fill(Color.black.opacity(0.5)))
                                 }
-                                .padding(.trailing, 12)
-                                .padding(.top, 8)
+                                .accessibilityLabel("Exit fullscreen")
                             }
+                            .padding(.trailing, 12)
+                            .padding(.top, 8)
                             Spacer()
                         }
                     }
@@ -343,6 +304,58 @@ struct BrowserSheetView: View {
         pool.endTakeover()
     }
 
+    private var addressRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                BrowserAddressBarIcon(isLoading: manager?.isLoading ?? false)
+
+                TextField("Search or enter URL", text: $addressText)
+                    .font(.system(size: 13, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .submitLabel(.go)
+                    .focused($addressFocused)
+                    .onSubmit {
+                        let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        pool.touchActivity()
+                        manager?.loadURL(trimmed)
+                    }
+
+                if manager?.isLoading ?? false {
+                    Button { manager?.webView.stopLoading() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Stop loading")
+                }
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, manager?.isLoading == true ? 0 : 8)
+            .frame(minWidth: 90, minHeight: 44)
+            .background(Color(UIColor.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+            .disabled(isAgentBrowsingInSheet || pool.hasSecureInput)
+            .allowsHitTesting(!isAgentBrowsingInSheet && !pool.hasSecureInput)
+
+            if ownsTakeover { takeoverStatus }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(UIColor.secondarySystemBackground))
+    }
+
+    private var takeoverStatus: some View {
+        BrowserTakeoverStatusControl(
+            isActive: pool.isTakeoverActive,
+            showsLabel: showsTakeoverLabel,
+            onShowLabel: { showTakeoverLabelAgain() },
+            onReturn: endTakeover
+        )
+    }
+
     private var navigationTitle: String {
         let title = manager?.pageTitle ?? ""
         return title.isEmpty ? "浏览器" : title
@@ -454,12 +467,12 @@ private struct BrowserAddressBarIcon: View {
 
 // MARK: - Agent Browsing Overlay
 
-/// Breathing-light overlay shown when the agent is controlling the browser.
-/// Blocks all user interaction on the webview while providing a visual cue.
+/// Blocks the page while Minis owns it, and keeps the takeover action separate
+/// from the description of what the browser is doing.
 private struct AgentBrowsingOverlay: View {
     let currentStep: String
+    let showsAutomationBorder: Bool
     var onTakeover: (() -> Void)?
-    @State private var runningLightPhase: CGFloat = 0
 
     private var stepText: String {
         currentStep.isEmpty ? AppLocalized("Minis is browsing") : currentStep
@@ -467,53 +480,63 @@ private struct AgentBrowsingOverlay: View {
 
     var body: some View {
         ZStack {
-            // Semi-transparent backdrop that blocks touches
-            Color.black.opacity(0.35)
+            Color.black.opacity(0.20)
+            if showsAutomationBorder {
+                BrowserAutomationBorder()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
 
-            // Centered indicator with breathing glow
-            VStack(spacing: 10) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Capsule()
-                            .fill(Color.accentColor.opacity(0.25))
-                            .frame(width: 32, height: 4)
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 8, height: 8)
-                            .shadow(color: Color.accentColor.opacity(0.8), radius: 8)
-                            .offset(x: runningLightPhase * 12)
-                    }
-
-                    Text(AppLocalized("Minis is browsing"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
+            VStack(spacing: 12) {
+                Label {
+                    Text(stepText)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                } icon: {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(Color.accentColor)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(Capsule().fill(Color.black.opacity(0.7)))
+                .font(.headline)
 
                 if let onTakeover {
-                    Button {
-                        onTakeover()
-                    } label: {
-                        Label(stepText, systemImage: "hand.point.up.left")
-                            .font(.system(size: 13, weight: .semibold))
+                    Button(action: onTakeover) {
+                        Label(AppLocalized("Takeover"), systemImage: "hand.raised.fill")
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(Capsule().fill(Color.accentColor))
+                            .padding(.horizontal, 18)
                             .frame(minHeight: 44)
+                            .background(Color.accentColor, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
+            .padding(16)
+            .frame(maxWidth: 320)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+            .padding(.horizontal, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle()) // capture all touches
-        .onAppear {
-            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
-                runningLightPhase = 1
+        .contentShape(Rectangle())
+    }
+}
+
+/// Runs the highlight along the perimeter of the page, not the toolbar.
+private struct BrowserAutomationBorder: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4) / 4
+            let gradient = AngularGradient(
+                gradient: Gradient(colors: [.orange, .pink, .purple, .blue, .cyan, .orange]),
+                center: .center,
+                angle: .degrees(reduceMotion ? 0 : 360 * phase)
+            )
+            ZStack {
+                Rectangle().strokeBorder(gradient, lineWidth: 10).blur(radius: 12)
+                Rectangle().strokeBorder(gradient, lineWidth: 2.5)
             }
+            .clipped()
         }
     }
 }
@@ -524,36 +547,41 @@ private struct BrowserTakeoverStatusControl: View {
     let onShowLabel: () -> Void
     let onReturn: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
-        HStack(spacing: 8) {
-            if !isActive {
-                ProgressView()
-                    .accessibilityLabel(AppLocalized("Minis is browsing"))
-            } else if showsLabel {
-                Text(AppLocalized("You are operating"))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Color.orange)
-                    .transition(.opacity)
-            }
-            Spacer(minLength: 0)
+        HStack(spacing: 0) {
             if isActive {
                 Button(action: onShowLabel) {
                     Image(systemName: "hand.raised.fill")
                         .foregroundStyle(Color.orange)
-                        .frame(minWidth: 44, minHeight: 44)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(AppLocalized("You are operating"))
+
+                if showsLabel && !dynamicTypeSize.isAccessibilitySize {
+                    Text(AppLocalized("You are operating"))
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                        .allowsTightening(true)
+                        .transition(.opacity)
+                }
+            } else {
+                ProgressView()
+                    .frame(width: 44, height: 44)
+                    .accessibilityLabel(AppLocalized("Minis is browsing"))
             }
             Button(action: onReturn) {
                 Image(systemName: "arrow.uturn.backward")
                     .foregroundStyle(Color.accentColor)
-                    .frame(minWidth: 44, minHeight: 44)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(AppLocalized("Return to Minis"))
         }
         .buttonStyle(.plain)
+        .background(.regularMaterial, in: Capsule())
     }
 }
 

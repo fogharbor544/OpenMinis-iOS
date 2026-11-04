@@ -11,6 +11,24 @@ def source(path):
 
 
 class BrowserTakeoverTests(unittest.TestCase):
+    def test_browser_observation_uses_current_step_and_address_row_controls(self):
+        sheet = source("Agent/BrowserUse/BrowserSheetView.swift")
+        address_row = sheet.split("private var addressRow:", 1)[-1].split("private var ", 1)[0]
+        self.assertIn("takeoverStatus", address_row)
+        overlay = sheet.split("private struct AgentBrowsingOverlay:", 1)[1].split("private struct BrowserTakeoverStatusControl:", 1)[0]
+        self.assertIn("Text(stepText)", overlay)
+        self.assertIn('AppLocalized("Takeover")', overlay)
+        self.assertIn("BrowserAutomationBorder", sheet)
+        pool = source("Agent/BrowserUse/BrowserTabPool.swift")
+        self.assertIn("summary: input.toolTitle", pool)
+
+    def test_browser_step_titles_use_localized_display_path(self):
+        chat = source("Agent/Chat/ChatModels.swift")
+        self.assertIn("BrowserAction.stepTitle(for: action, summary: toolSummary)", chat)
+        for path in ("Agent/MessageList/CollectionViewMessageListV3/Search/ChatSearchUnits.swift",
+                     "Views/Chat/ToolLiveSheet.swift", "Agent/Chat/AIChatViewModel+BackgroundTask.swift"):
+            self.assertIn("toolDisplayTitle", source(path), path)
+
     def test_automation_waits_before_dispatch_and_before_next_model_turn(self):
         pool = source("Agent/BrowserUse/BrowserTabPool.swift")
         dispatch = pool.split("    func execute(", 1)[1].split("    private func executeInner(", 1)[0]

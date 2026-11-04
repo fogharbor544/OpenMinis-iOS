@@ -173709,6 +173709,28 @@
         }
       }
     },
+    "Interacting with page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interacting with page"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作网页"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作網頁"
+          }
+        }
+      }
+    },
     "Executing script" : {
       "localizations" : {
         "en" : {

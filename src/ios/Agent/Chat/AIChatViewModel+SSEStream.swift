@@ -950,14 +950,14 @@ extension AIChatViewModel {
                     }
                     if let sid = self.sessionId {
                         let blk = messages[msgIdx].blocks[blockIdx]
-                        let snippet = blk.toolSummary ?? blk.toolDescription
+                        let snippet = blk.toolDisplayTitle
                         SessionActivityTracker.shared.updateToolInfo(sessionId: sid, toolName: name, toolStatus: snippet)
                         logger.info("[ToolLifecycle] RENDERED_STATUSBAR toolId=\(id.prefix(20)) tool=\(name) sid=\(sid.prefix(8)) appState=\(UIApplication.shared.applicationState == .active ? "fg" : "bg") suspended=\(self.streamingUIUpdatesSuspended) isProcessing=\(self.isProcessing)")
                     }
                     let speakDesc: String
                     do {
                         let blk = messages[msgIdx].blocks[blockIdx]
-                        speakDesc = blk.toolSummary ?? blk.toolDescription
+                        speakDesc = blk.toolDisplayTitle
                         #if DEBUG
                         logger.debug("[TOOL:RUNNING] \(name) id:\(id.prefix(8)) displayText=\"\(speakDesc)\" content=\"\(blk.content.prefix(120))\"")
                         #endif

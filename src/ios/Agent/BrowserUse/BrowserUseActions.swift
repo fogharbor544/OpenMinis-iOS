@@ -60,6 +60,27 @@ extension BrowserAction {
     static func displayTitle(for rawValue: String) -> String {
         BrowserAction(rawValue: rawValue)?.displayTitle ?? rawValue
     }
+
+    static var stepLanguage: String {
+        let selected = UserDefaults.standard.string(forKey: "appLanguage") ?? ""
+        return selected.isEmpty
+            ? Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
+            : selected
+    }
+
+    /// Titles from the model are optional, including on existing chat history.
+    /// In Chinese, keep contextual titles such as “打开 Outlook 收件箱”, but
+    /// fall back to the localized action when a model returns an English sentence.
+    static func stepTitle(for rawValue: String, summary: String?, language: String = BrowserAction.stepLanguage) -> String {
+        let title = String((summary ?? "").prefix(96)).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if !title.isEmpty,
+           !language.lowercased().hasPrefix("zh") ||
+            title.range(of: #"^[^\p{L}\p{N}]*\p{Han}"#, options: .regularExpression) != nil {
+            return title
+        }
+        if rawValue == BrowserAction.executeJS.rawValue { return AppLocalized("Interacting with page") }
+        return BrowserAction(rawValue: rawValue)?.displayTitle ?? AppLocalized("Browser action")
+    }
 }
 
 // MARK: - Browser Action Input
@@ -103,6 +124,7 @@ struct BrowserActionInput {
     var userAgentRaw: String? = nil
     var secretKind: String? = nil
     var purpose: String? = nil
+    var toolTitle: String? = nil
 
     enum ScrollDirection: String {
         case up, down
@@ -150,7 +172,8 @@ struct BrowserActionInput {
             cookies: Self.parseCookies(dict["cookies"]),
             userAgentRaw: dict["user_agent"] as? String,
             secretKind: dict["secret_kind"] as? String,
-            purpose: dict["purpose"] as? String
+            purpose: dict["purpose"] as? String,
+            toolTitle: dict["tool_title"] as? String
         )
     }
 

@@ -45,8 +45,7 @@ enum ChatSearchDisplayText {
     /// file / action.
     static func toolCapsule(_ block: AssistantBlock) -> String {
         if let control = HelperBlockInfo.controlSummary(block) { return control }
-        if let summary = block.toolSummary, !summary.isEmpty { return summary }
-        return block.toolDescription
+        return block.toolDisplayTitle
     }
 
     /// The user bubble's text: no attachment markup, no `<system-reminder>`.

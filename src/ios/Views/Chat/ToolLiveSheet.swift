@@ -1292,7 +1292,7 @@ struct ToolLiveSheet: View {
                         // re-renders. `activeSheet` is ToolLiveSheet's own
                         // root-level @State and its `.sheet(item:)` sits on the
                         // root of the body, so a block re-render cannot reach it.
-                        let title = block.toolSummary ?? block.toolDescription
+                        let title = block.toolDisplayTitle
                         activeSheet = .agentTranscript(HelperSheetTarget(id: childId, title: title))
                     } label: {
                         Image(systemName: "text.bubble")
@@ -2829,7 +2829,7 @@ struct ToolLiveSheet: View {
     }
 
     private var toolSubtitle: String {
-        let raw = if let s = block.toolSummary, !s.isEmpty { s } else { block.toolDescription }
+        let raw = block.toolDisplayTitle
         return raw.replacingOccurrences(of: "\n", with: " ")
     }
 
@@ -3493,8 +3493,7 @@ private struct ToolStatusBar: View {
     }
 
     private var displayTitle: String {
-        if let s = block.toolSummary, !s.isEmpty { return s }
-        return block.toolDescription
+        return block.toolDisplayTitle
     }
 }
 

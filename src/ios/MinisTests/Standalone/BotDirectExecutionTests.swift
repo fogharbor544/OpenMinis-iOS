@@ -71,6 +71,9 @@ struct TestJob {
     func queuedCount(parent: String) -> Int { 0 }
     func list() -> [TestJob] { [] }
 }
+@MainActor final class BrowserTabPool {
+    var isAwaitingUserInteraction = false
+}
 @MainActor final class AIChatViewModel {
     enum ToolSwitch { case agents }
     static var holdAnswers = false
@@ -80,6 +83,7 @@ struct TestJob {
     static var agentsEnabled = true
     static func toolEnabled(_ value: ToolSwitch) -> Bool { agentsEnabled }
     static func jsonString(_ value: [String: Any]) -> String { String(decoding: try! JSONSerialization.data(withJSONObject: value), as: UTF8.self) }
+    let browserTabPool = BrowserTabPool()
     var botResultDeliveries: [String: Date] = [:]
     var sessionId: String?
     var isHelper = false
@@ -250,6 +254,30 @@ struct TestJob {
         precondition(store.delegation(waitingTask)?.state == .running, "A question is not a final result")
         UserAskCenter.shared.waiting.remove(waitingSID)
         try await wait { store.delegation(waitingTask)?.state == .reviewing }
+        AIChatViewModel.holdAnswers = true
+        let browserTask = try delegate("browser-takeover")
+        try await wait {
+            guard let sid = store.delegation(browserTask)?.childSessionID else { return false }
+            return store.delegation(browserTask)?.state == .running && ViewModelCache.shared.get(for: sid)?.isProcessing == true
+        }
+        let browserVM = ViewModelCache.shared.get(for: store.delegation(browserTask)!.childSessionID!)!
+        let runtime = BotTeamRuntime.shared
+        await runtime.checkInactivityNow(for: browserTask, elapsed: 0) // establish the message signature
+        browserVM.browserTabPool.isAwaitingUserInteraction = true
+        await runtime.checkInactivityNow(for: browserTask, elapsed: 121)
+        precondition(store.delegation(browserTask)?.followUpSent == false, "Manual browser control must not trigger a follow-up")
+        browserVM.browserTabPool.isAwaitingUserInteraction = false
+        parent.browserTabPool.isAwaitingUserInteraction = true
+        await runtime.checkInactivityNow(for: browserTask, elapsed: 121)
+        precondition(store.delegation(browserTask)?.followUpSent == true, "Another session's browser must not suppress follow-up")
+        parent.browserTabPool.isAwaitingUserInteraction = false
+        browserVM.browserTabPool.isAwaitingUserInteraction = true
+        await runtime.checkInactivityNow(for: browserTask, elapsed: 121)
+        precondition(store.delegation(browserTask)?.state == .running && browserVM.cancelCount == 0,
+                     "Manual browser control must prevent cancellation even after a prior follow-up")
+        browserVM.browserTabPool.isAwaitingUserInteraction = false
+        AIChatViewModel.holdAnswers = false
+        try await wait { store.delegation(browserTask)?.state == .reviewing }
         // A real user Stop entry point must neither notify nor reawaken the commander.
         try await wait { !BotTeamRuntime.shared.hasPendingExecution }
         AIChatViewModel.holdAnswers = true

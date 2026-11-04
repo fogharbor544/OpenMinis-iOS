@@ -97,6 +97,28 @@ class BrowserTakeoverTests(unittest.TestCase):
         self.assertIn("startsWithTakeover: takeover", tool)
         self.assertNotIn("isUserTakeoverActive: true", tool)
 
+    def test_browser_download_report_uses_the_parsed_secure_input_flag(self):
+        tools = source("Agent/Chat/AIChatViewModel+ConcurrentTools.swift")
+        branch = tools.split('case "browser_use":', 1)[1]
+        flag = "let isSecureInput = browserInput?.action == .secureInput"
+        download = "if !isSecureInput, !browserTabPool.hasSecureInput"
+        self.assertTrue(flag in branch.split("// [T-browser-download-ux]", 1)[0])
+        self.assertIn(download, branch)
+        self.assertIn("browserTabPool.isTakeoverRequested && !isSecureInput", branch)
+
+    def test_bot_inactivity_skips_only_its_own_browser_interactions(self):
+        runtime = source("Views/ContentView/Bots/BotTeamRuntime.swift")
+        running = runtime.split("let waiting = UserAskCenter.shared.isAwaitingUserInteraction", 1)[1]
+        before_timeout = running.split("let elapsed =", 1)[0]
+        self.assertTrue("if waiting || vm.browserTabPool.isAwaitingUserInteraction" in before_timeout)
+        self.assertIn("activity[record.id] = now", before_timeout)
+        self.assertIn("continue", before_timeout)
+        pool = source("Agent/BrowserUse/BrowserTabPool.swift")
+        predicate = pool.split("var isAwaitingUserInteraction: Bool {", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("isTakeoverRequested", predicate)
+        self.assertIn("tabs.contains { $0.manager.secureInputSession != nil }", predicate)
+        self.assertNotIn("hasSecureInput", predicate)
+
     def test_manual_tab_creation_does_not_mark_automation_busy(self):
         pool = source("Agent/BrowserUse/BrowserTabPool.swift")
         creation = pool.split("    func newTab(", 1)[1].split("\n    }", 1)[0]

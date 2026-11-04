@@ -429,6 +429,12 @@ final class BrowserTabPool: ObservableObject {
     @Published private var executingActionCount = 0
     var isTakeoverActive: Bool { isTakeoverRequested && executingActionCount == 0 && !hasSecureInput }
 
+    /// User interaction in this pool only. The app-wide secure-input lock
+    /// also blocks other pools, but those sessions are not waiting for the user.
+    var isAwaitingUserInteraction: Bool {
+        isTakeoverRequested || tabs.contains { $0.manager.secureInputSession != nil }
+    }
+
     /// Block new automation immediately. WebKit work that cannot be stopped
     /// safely must settle before the sheet unlocks its controls.
     func beginTakeover() -> Bool {

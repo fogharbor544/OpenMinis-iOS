@@ -334,7 +334,10 @@ extension AIChatViewModel {
             if record.waitingForUser != waiting {
                 record.waitingForUser = waiting; _ = store.saveDelegation(record)
             }
-            if waiting { activity[record.id] = now; continue }
+            if waiting || vm.browserTabPool.isAwaitingUserInteraction {
+                activity[record.id] = now
+                continue
+            }
             let signature = vm.messages.suffix(2).map { message in
                 "\(message.content.count):" + message.blocks.map { "\($0.content.count):\(String(describing: $0.toolStatus))" }.joined(separator: ",")
             }.joined(separator: ";")

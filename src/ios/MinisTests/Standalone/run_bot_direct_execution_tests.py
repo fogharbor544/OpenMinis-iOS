@@ -20,6 +20,16 @@ with tempfile.TemporaryDirectory(prefix="minis-direct-bot-") as temp:
     types = (HERE / "BotToolCommandTests.swift").read_text(encoding="utf-8").split("@MainActor final class AgentJobRegistry", 1)[0]
     (directory / "Services.swift").write_text(services + types, encoding="utf-8")
     runtime = (ROOT / "Views/ContentView/Bots/BotTeamRuntime.swift").read_text(encoding="utf-8").replace("import UIKit", "")
+    # Advance the real watchdog without sleeping through its two-minute intervals.
+    runtime += """
+extension BotTeamRuntime {
+    func checkInactivityNow(for id: String, elapsed: TimeInterval) async {
+        lastTick = Date()
+        activity[id] = lastTick.addingTimeInterval(-elapsed)
+        await tick()
+    }
+}
+"""
     (directory / "Runtime.swift").write_text(runtime, encoding="utf-8")
     helper = (ROOT / "Agent/Jobs/HelperRunner.swift").read_text(encoding="utf-8")
     stop = helper.split("    func stopByUser() {", 1)[1].split("    /// [T-stop-sibling-subagent]", 1)[0]

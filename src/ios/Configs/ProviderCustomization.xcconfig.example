@@ -15,3 +15,27 @@
 // talking to the same endpoint declare the same identifier, e.g.
 // https://github.com/Wei-Shaw/claude-relay-service
 ANTHROPIC_OAUTH_IDENTIFIER_PROMPT =
+
+// ── OAuth clients ───────────────────────────────────────────────────────────
+//
+// Every provider ships a built-in OAuth client id (and, for the Google-based
+// ones, a client secret). To sign in with an OAuth app of your own instead,
+// set the matching key below. Each one is injected into the built Info.plist
+// as INFOPLIST_KEY_<Name> and read back at runtime.
+//
+// An empty or unset value keeps the built-in client, so fill in only the
+// providers you actually own.
+//
+// Register the redirect URI your provider expects - the app uses a fixed
+// localhost callback: Anthropic http://localhost:54545/callback, Google
+// http://localhost:8085/oauth2callback.
+//
+// AnthropicOAuthClientID =
+// OpenAIOAuthClientID =
+// XAIOAuthClientID =
+// GeminiOAuthClientID =
+// GeminiOAuthClientSecret =
+// AntigravityOAuthClientID =
+// AntigravityOAuthClientSecret =
+// CopilotOAuthClientID =
+// KimiOAuthClientID =

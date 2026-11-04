@@ -16,11 +16,32 @@ final class GeminiOAuthManager: NSObject, ObservableObject {
     private let authURL = "https://accounts.google.com/o/oauth2/v2/auth"
     private let tokenURL = "https://oauth2.googleapis.com/token"
     private let userInfoURL = "https://www.googleapis.com/oauth2/v1/userinfo"
-    private let clientID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
-    // Placeholder. Google OAuth requires a client secret alongside the
-    // client id; supply your own from Google Cloud Console to use this
-    // sign-in. API-key providers are unaffected.
-    private let clientSecret = "GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    /// OAuth client id.
+    ///
+    /// Override with the `GeminiOAuthClientID` Info.plist key — set
+    /// `INFOPLIST_KEY_GeminiOAuthClientID` in
+    /// `Configs/ProviderCustomization.xcconfig` — to sign in with an OAuth app
+    /// of your own. Unset or blank keeps the built-in client.
+    private let clientID: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "GeminiOAuthClientID") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com" : trimmed
+    }()
+    /// OAuth client secret.
+    ///
+    /// Placeholder. Google OAuth requires a client secret alongside the
+    /// client id; supply your own from Google Cloud Console to use this
+    /// sign-in. API-key providers are unaffected.
+    ///
+    /// Override with the `GeminiOAuthClientSecret` Info.plist key — set
+    /// `INFOPLIST_KEY_GeminiOAuthClientSecret` in
+    /// `Configs/ProviderCustomization.xcconfig`. Unset or blank keeps the
+    /// built-in value.
+    private let clientSecret: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "GeminiOAuthClientSecret") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxxxxx" : trimmed
+    }()
     private let callbackPort: UInt16 = 8085
     private var redirectURI: String { "http://localhost:\(callbackPort)/oauth2callback" }
     private let scopes = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"

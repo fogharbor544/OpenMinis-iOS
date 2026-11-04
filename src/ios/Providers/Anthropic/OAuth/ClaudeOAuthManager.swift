@@ -15,7 +15,17 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
 
     private let authURL = "https://claude.ai/oauth/authorize"
     private let tokenURL = "https://claude.ai/v1/oauth/token"
-    private let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+    /// OAuth client id.
+    ///
+    /// Override with the `AnthropicOAuthClientID` Info.plist key — set
+    /// `INFOPLIST_KEY_AnthropicOAuthClientID` in
+    /// `Configs/ProviderCustomization.xcconfig` — to sign in with an OAuth app
+    /// of your own. Unset or blank keeps the built-in client.
+    private let clientID: String = {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "AnthropicOAuthClientID") as? String) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "9d1c250a-e61b-44d9-88ed-5944d1962f5e" : trimmed
+    }()
     private let callbackPort: UInt16 = 54545
     private var redirectURI: String { "http://localhost:\(callbackPort)/callback" }
     private let scopes = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"

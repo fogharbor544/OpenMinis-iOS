@@ -33,6 +33,10 @@ stubs = stubs.replace('final class ProviderConfigStore {', 'final class Provider
 stubs = stubs.replace('final class SkillStore {', 'final class SkillStore: ObservableObject {')
 stubs = stubs.replace('final class MCPStore {', 'final class MCPStore: ObservableObject {')
 stubs += '''
+enum AgentToolSwitch {
+    case agents
+    var isEnabled: Bool { true }
+}
 enum SearchKeywords {
     static func terms(_ query: String) -> [String] { query.split(separator: " ").map(String.init) }
 }

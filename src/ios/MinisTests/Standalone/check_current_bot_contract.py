@@ -14,6 +14,16 @@ assert "static let shared = BotWorkspaceStore()" in store
 assert 'static let commanderID = "builtin-commander"' in store
 assert "seedCommander" in store and "guard id != BotProfile.commanderID" in store
 assert "func capabilitySessionID" in store and "func inheritOwner" in store
+commander_policy = store.split("var commanderInstructions: String {", 1)[1].split(
+    "/// Ephemeral UI state", 1
+)[0]
+assert "data.bots" not in commander_policy, "Commander built-in rules must not grow with the Bot roster"
+assert "bot_task" in commander_policy and "action=list" in commander_policy
+runtime = read("Views/ContentView/Bots/BotTeamRuntime.swift")
+bot_task_schema = runtime.split("static var botTaskTool:", 1)[1].split("func executeBotCreate", 1)[0]
+assert '"list"' in bot_task_schema, "Bot discovery must be exposed in the tool schema"
+bot_list = runtime.split('case "list":', 1)[1].split('case "delegate":', 1)[0]
+assert ".instructions" not in bot_list, "Discovery must not return specialist working instructions"
 unread = store.split("func updateConversation", 1)[1].split("func latestDelegation", 1)[0]
 assert "return next == data || persist(next)" not in unread
 assert "writeQueue.async" in unread

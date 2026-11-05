@@ -358,3 +358,13 @@ User explicitly requests combined document memory reading/editing, and direct ta
 - Final review corrections: carry recognized collection ancestry into accounts.primary, starting root recognition false; synchronize native case gate to15. No further confirmed P1/P2 reported. Native behavior remains pending.
 
 - Approved implementation removes dynamic roster from shared Commander rules. bot_task list reads current configuration only; no specialist instructions, persistence writes, queue admission or model start in this branch. Returning missing introductions as empty strings preserves name-based discovery without copying working instructions.
+
+
+## 2026-11-06 backup destination rollback
+- Working tree initially clean for tracked files; untracked .codegraph/ and AGENTS.md preserved.
+- Destination changes originate in f31e408, a5e2b63 and 01a5cbb; upstream still uses synchronous MountedFoldersManager.add and system Files picker.
+- BackupDestinationPicker, BackupDestinations, BackupAndRestoreView and MountedFoldersManager differ only in this folder-add/resolution work.
+- Current minisbak/4 (Bot archive version 3) is independent of destinations; retained exporter/importer, category dependencies and Bot workspace/memory restore. The older baseline document describes an earlier format.
+
+- Final differences from upstream are limited to the pre-existing cold-launch bookmark deadline helper/resolver. Folder addition and reactivation match upstream exactly; no parallel destination storage or new agent adaptation is needed.
+- Upstream synchronously creates bookmarks/probes writes during addition; slow FileProvider behavior and two-device restore remain native acceptance items.

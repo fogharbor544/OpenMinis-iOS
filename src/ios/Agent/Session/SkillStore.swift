@@ -389,11 +389,85 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
 
     private func installBundledSkills() {
         let bundledId = "skill-creator"
-        if let existing = skills.first(where: { $0.id == bundledId }) {
-            // Upgrade if the bundled version is newer
-            guard existing.version < Self.skillCreatorVersion else { return }
+        if let existing = skills.first(where: { $0.id == bundledId }),
+           existing.version >= Self.skillCreatorVersion {
+            // Already current.
+        } else {
+            _ = try? importSkill(content: Self.skillCreatorContent, source: .bundled)
         }
-        _ = try? importSkill(content: Self.skillCreatorContent, source: .bundled)
+
+        installBundledSkillDirectory(named: "openminis-ios-user-guide")
+    }
+
+    /// Install or upgrade a skill whose `SKILL.md` ships as a folder in the
+    /// app bundle. Resource folders keep large guides out of source strings
+    /// while still using the normal import path, database row and rootfs sync.
+    private func installBundledSkillDirectory(named directoryName: String) {
+        guard let directory = bundledSkillDirectory(named: directoryName) else { return }
+        let skillFile = directory.appendingPathComponent("SKILL.md")
+        guard let content = try? String(contentsOf: skillFile, encoding: .utf8) else { return }
+
+        let parsed = Self.parse(skillMD: content)
+        let skillId = Self.slugify(parsed.name)
+        if let existing = skills.first(where: { $0.id == skillId }),
+           existing.version >= parsed.version {
+            syncToRootfs(skill: existing, content: content)
+            installBundledSkillResources(from: directory, skillId: skillId)
+            return
+        }
+
+        if let installed = try? importSkill(content: content, source: .bundled) {
+            installBundledSkillResources(from: directory, skillId: installed.id)
+        }
+    }
+
+    /// Copy a bundled skill's non-`SKILL.md` files into both the Library copy
+    /// and the iSH-visible copy. Resource writes are skipped when the bytes
+    /// already match, so this remains cheap on every launch.
+    private func installBundledSkillResources(from sourceDirectory: URL, skillId: String) {
+        let relativePaths = collectRelativePaths(in: sourceDirectory)
+        guard !relativePaths.isEmpty else { return }
+
+        let libraryDirectory = skillsDir.appendingPathComponent(skillId, isDirectory: true)
+        let rootfsDirectory = rootfsSkillsDir.appendingPathComponent(skillId, isDirectory: true)
+
+        for relativePath in relativePaths {
+            let sourceFile = sourceDirectory.appendingPathComponent(relativePath)
+            guard let data = try? Data(contentsOf: sourceFile) else { continue }
+
+            let libraryFile = libraryDirectory.appendingPathComponent(relativePath)
+            let libraryData = try? Data(contentsOf: libraryFile)
+            if libraryData != data {
+                try? fm.createDirectory(at: libraryFile.deletingLastPathComponent(),
+                                        withIntermediateDirectories: true)
+                try? data.write(to: libraryFile, options: .atomic)
+            }
+
+            let rootfsFile = rootfsDirectory.appendingPathComponent(relativePath)
+            let rootfsData = try? Data(contentsOf: rootfsFile)
+            if rootfsData != data {
+                try? fm.createDirectory(at: rootfsFile.deletingLastPathComponent(),
+                                        withIntermediateDirectories: true)
+                try? data.write(to: rootfsFile, options: .atomic)
+            }
+
+            let linuxPath = "/var/minis/skills/\(skillId)/\(relativePath)"
+            ensureParentDirsInMetaDB(for: linuxPath)
+            ensureFakefsMetadata(for: linuxPath, isDirectory: false)
+        }
+    }
+
+    private func bundledSkillDirectory(named directoryName: String) -> URL? {
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        let candidates = [
+            resources.appendingPathComponent(directoryName, isDirectory: true),
+            resources
+                .appendingPathComponent("BundledSkills", isDirectory: true)
+                .appendingPathComponent(directoryName, isDirectory: true),
+        ]
+        return candidates.first {
+            fm.fileExists(atPath: $0.appendingPathComponent("SKILL.md").path)
+        }
     }
 
     // MARK: - One-time Migration: re-sync skills with bundled files

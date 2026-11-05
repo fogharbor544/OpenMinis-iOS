@@ -111,7 +111,7 @@ struct AboutView: View {
 
             // MARK: - Links
             Section("Links") {
-                Link(destination: URL(string: "https://github.com/OpenMinis")!) {
+                Link(destination: URL(string: "https://github.com/fogharbor544/OpenMinis-iOS")!) {
                     Label {
                         HStack {
                             Text("GitHub Repository")

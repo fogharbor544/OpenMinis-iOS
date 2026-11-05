@@ -39,3 +39,12 @@ ANTHROPIC_OAUTH_IDENTIFIER_PROMPT =
 // AntigravityOAuthClientSecret =
 // CopilotOAuthClientID =
 // KimiOAuthClientID =
+
+// ── Web launcher ────────────────────────────────────────────────────────────
+//
+// The "Add to Home Screen" sheet pins a tile from a launcher page served at
+// https://<host>/launch.html, whose <link rel="apple-touch-icon"> points at
+// /icons/category/<name>.png. Set the host that serves those; with no host
+// the sheet reports that the feature is unavailable.
+//
+// WebAppLauncherHost =

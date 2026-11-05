@@ -77,9 +77,6 @@ struct AIDataSharingConsentView: View {
                         }
                     }
 
-                    Link("Read our full Privacy Policy", destination: URL(string: "https://openminis.github.io/privacy-policy.html")!)
-                        .font(.footnote)
-
                     Spacer(minLength: 80)
                 }
                 .padding()

@@ -209,35 +209,9 @@ extension AIChatViewModel {
         // [T-subagent-termination] The closing request was sent in this run (once).
         var helperClosingNudgeSent = false
 
-        var userSystemPrompt = baseSystemPrompt
-        // `var` for [T-ios-switch-model-next-request]: a mid-turn model switch
-        // replaces it so the next request carries the new model's limits.
+        // A mid-turn switch replaces these with the next model's limits and scoped context.
         var activeModel = ProviderConfigStore.shared.entry(for: entry.id)?.model ?? selectedModel
-        if let capFragment = activeModel.capabilityPromptFragment {
-            userSystemPrompt += "\n\n" + capFragment
-        }
-        if let behaviorFragment = activeModel.agentBehaviorPromptFragment {
-            userSystemPrompt += "\n\n" + behaviorFragment
-        }
-
-        // Inject enabled skill metadata into system prompt
-        // Bot delegations use the target Bot; ordinary helpers inherit their parent.
-        if let sid = capabilitySessionId,
-           let skillFragment = SkillStore.shared.skillPromptFragment(for: sid) {
-            userSystemPrompt += "\n\n" + skillFragment
-        }
-
-        // [T-mcp-integration-ios] Inject Top-20 enabled MCP server metadata.
-        if let sid = capabilitySessionId,
-           let mcpFragment = MCPStore.shared.systemPromptSnippet(for: sid) {
-            userSystemPrompt += "\n\n" + mcpFragment
-        }
-
-        AppLogger(category: "MemDiag").info("[MemDiag] inject-decision sid=\(self.sessionId?.prefix(8) ?? "nil") vm.memoryEnabled=\(self.memoryEnabled)")
-        if let fragment = botMemoryFragment() { userSystemPrompt += "\n\n" + fragment }
-        // Authoritative memory-status footer (overrides any earlier
-        // baseSystemPrompt mentions when memory is disabled).
-        userSystemPrompt += memoryStatusFragment
+        var userSystemPrompt = agentSystemPrompt(for: activeModel)
 
         let promptBuildMs = (CFAbsoluteTimeGetCurrent() - loopSetupStart) * 1000
         logger.info("⏱️ [runAgentLoop] prompt build elapsed=\(String(format: "%.1f", promptBuildMs))ms history=\(self.agentHistory.count)")
@@ -1037,29 +1011,7 @@ extension AIChatViewModel {
                 // use. This stayed on the model the run started with, which
                 // may since have been removed with its provider.
                 activeModel = newEntry.model
-                userSystemPrompt = baseSystemPrompt
-                if let capFragment = newEntry.model.capabilityPromptFragment {
-                    userSystemPrompt += "\n\n" + capFragment
-                }
-                if let behaviorFragment = newEntry.model.agentBehaviorPromptFragment {
-                    userSystemPrompt += "\n\n" + behaviorFragment
-                }
-                // Keep the same Bot/ordinary-helper scope after a model fallback.
-                if let sid = capabilitySessionId,
-                   let skillFragment = SkillStore.shared.skillPromptFragment(for: sid) {
-                    userSystemPrompt += "\n\n" + skillFragment
-                }
-                // [T-mcp-integration-ios] Inject Top-20 enabled MCP metadata.
-                if let sid = capabilitySessionId,
-                   let mcpFragment = MCPStore.shared.systemPromptSnippet(for: sid) {
-                    userSystemPrompt += "\n\n" + mcpFragment
-                }
-                // [T-memory-toggle-gates-injection-and-tools-ios] Mirror
-                // the gate from the first injection site — fallback to a
-                // new provider must respect the per-session memoryEnabled
-                // toggle the same way the initial system prompt did.
-                if let fragment = botMemoryFragment() { userSystemPrompt += "\n\n" + fragment }
-                userSystemPrompt += memoryStatusFragment
+                userSystemPrompt = agentSystemPrompt(for: newEntry.model)
                 fallbackTrigger += 1
                 if !fallbackReasons.isEmpty {
                     // Resync the assistant message index by its stable id before

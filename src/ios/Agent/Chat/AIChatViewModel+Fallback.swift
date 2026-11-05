@@ -284,14 +284,7 @@ extension AIChatViewModel {
                     triedEntries.insert(nextEntryId)
                     currentEntryId = nextEntryId
                     currentProvider = await makeAgentProvider(for: nextEntry)
-                    var rebuiltPrompt = baseSystemPrompt
-                    if let capFragment = nextEntry.model.capabilityPromptFragment {
-                        rebuiltPrompt += "\n\n" + capFragment
-                    }
-                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                        rebuiltPrompt += "\n\n" + behaviorFragment
-                    }
-                    currentSystemPrompt = rebuiltPrompt
+                    currentSystemPrompt = agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)
                     // Check the member just chosen as well before sending.
                     continue
                 }
@@ -395,14 +388,7 @@ extension AIChatViewModel {
                 currentEntryId = nextEntryId
                 currentProvider = await makeAgentProvider(for: nextEntry)
                 // Rebuild system prompt for the new model's capabilities
-                var rebuiltPrompt = baseSystemPrompt
-                if let capFragment = nextEntry.model.capabilityPromptFragment {
-                    rebuiltPrompt += "\n\n" + capFragment
-                }
-                if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                    rebuiltPrompt += "\n\n" + behaviorFragment
-                }
-                currentSystemPrompt = rebuiltPrompt
+                currentSystemPrompt = agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)
                 // continue loop — will try next entry immediately
             } catch {
                 // Check if group uses "always" fallback strategy — if so, treat all
@@ -443,14 +429,7 @@ extension AIChatViewModel {
                     triedEntries.insert(nextEntryId)
                     currentEntryId = nextEntryId
                     currentProvider = await makeAgentProvider(for: nextEntry)
-                    var rebuiltPrompt = baseSystemPrompt
-                    if let capFragment = nextEntry.model.capabilityPromptFragment {
-                        rebuiltPrompt += "\n\n" + capFragment
-                    }
-                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                        rebuiltPrompt += "\n\n" + behaviorFragment
-                    }
-                    currentSystemPrompt = rebuiltPrompt
+                    currentSystemPrompt = agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)
                     continue
                 }
 
@@ -543,14 +522,7 @@ extension AIChatViewModel {
                     triedEntries.insert(nextEntryId)
                     currentEntryId = nextEntryId
                     currentProvider = await makeAgentProvider(for: nextEntry)
-                    var rebuiltPrompt = baseSystemPrompt
-                    if let capFragment = nextEntry.model.capabilityPromptFragment {
-                        rebuiltPrompt += "\n\n" + capFragment
-                    }
-                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                        rebuiltPrompt += "\n\n" + behaviorFragment
-                    }
-                    currentSystemPrompt = rebuiltPrompt
+                    currentSystemPrompt = agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)
                     // continue loop — will try next entry
                 }
             }

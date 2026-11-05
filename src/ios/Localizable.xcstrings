@@ -338,6 +338,38 @@
       }
     }
   },
+  "删除此 Bot？它的长期记忆、专属子代理、专属环境变量和所有会话记录会一并删除，此操作不可撤销。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Delete this Bot? Its long-term memories, private sub-agents, private environment variables and all conversations will be deleted. This cannot be undone."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除此 Bot？它的长期记忆、专属子代理、专属环境变量和所有会话记录会一并删除，此操作不可撤销。"
+        }
+      }
+    }
+  },
+  "删除此群聊？群聊记忆、共享记录和所有成员的群内会话会一并删除，此操作不可撤销。": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Delete this group? Its memories, shared transcript and every member's group conversation will be deleted. This cannot be undone."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除此群聊？群聊记忆、共享记录和所有成员的群内会话会一并删除，此操作不可撤销。"
+        }
+      }
+    }
+  },
   "Exporting persona…": {
     "localizations": {
       "en": {

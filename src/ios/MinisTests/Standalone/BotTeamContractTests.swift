@@ -11,7 +11,7 @@ import Foundation
         var commander = store.bot(BotProfile.commanderID)!
         precondition(commander.name == "指挥官" && commander.avatarPresetID == "cloud-bear")
         precondition(BotWorkspaceStore(fileURL: url).data.bots.count == 1)
-        store.deleteBot(commander.id)
+        precondition(store.deleteBot(commander.id) == nil)
         precondition(store.bot(commander.id) != nil)
         commander.name = "我的队长"; commander.sessionId = "parent"; commander.conversationIds = ["parent"]
         precondition(store.save(commander))

@@ -339,8 +339,8 @@ actor ChatStore {
         var data = workspace.data
         data.sessionOwners = ["private-a": BotSessionOwner(botId: a.id)]
         precondition(workspace.persist(data))
-        workspace.deleteBot(a.id)
-        precondition(vm.botMemoryOwner != nil && !vm.botMemoryAvailable)
+        precondition(workspace.deleteBot(a.id) != nil)
+        precondition(vm.botMemoryOwner == nil && !vm.botMemoryAvailable)
         precondition(!vm.executeBotMemoryGet("{}").success)
         print("PASS: runtime owner isolation, group opt-in sharing, summarized proactive saves, optional provenance, reload tombstones, scheduled notes, bounded automatic review, usage, stale-source and cancellation gates, toggle and deleted-owner refusal")
     }

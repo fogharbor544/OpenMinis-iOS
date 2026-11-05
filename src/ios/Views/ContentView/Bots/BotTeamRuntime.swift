@@ -359,10 +359,22 @@ extension AIChatViewModel {
         let store = BotWorkspaceStore.shared
         defer { userStoppedExecutions.remove(accepted.id); executions[accepted.id] = nil; models[accepted.id] = nil; stopping[accepted.id] = nil; signatures[accepted.id] = nil; activity[accepted.id] = nil }
         do {
-            let sid = try await store.prepareDelegationSession(accepted)
-            try Task.checkCancellation()
-            guard let record = store.delegation(accepted.id), record.state == .queued else { return }
-            guard store.bindDelegation(record.id, childSessionID: sid) else { throw BotWorkspaceError.storage }
+            let prepared = try await store.prepareDelegationSession(accepted)
+            let sid = prepared.id
+            do {
+                try Task.checkCancellation()
+                guard let record = store.delegation(accepted.id), record.state == .queued else {
+                    if prepared.created { await discardPreparedSession(sid) }
+                    return
+                }
+                guard store.bindDelegation(record.id, childSessionID: sid) else {
+                    throw BotWorkspaceError.storage
+                }
+            } catch {
+                if prepared.created { await discardPreparedSession(sid) }
+                throw error
+            }
+            guard let record = store.delegation(accepted.id) else { return }
             let (vm, fresh) = ViewModelCache.shared.getOrCreate(for: sid)
             models[record.id] = vm
             if fresh { await vm.loadSession() }
@@ -413,6 +425,12 @@ extension AIChatViewModel {
             await stopping[accepted.id]?.value
             finish(accepted.id, state: Task.isCancelled ? .cancelled : .failed, result: error.localizedDescription)
         }
+    }
+
+    private func discardPreparedSession(_ id: String) async {
+        ProviderConfigStore.shared.removeBinding(for: id)
+        ProviderConfigStore.shared.removeInferenceConfig(for: id)
+        await ChatStore.shared.deleteSession(id)
     }
 
     private func awaitingHelperReplies(sessionID: String, vm: AIChatViewModel, excluding oldJobs: Set<String>) -> Bool {

@@ -206,9 +206,20 @@ final class BotWorkspaceStore: ObservableObject {
     @Published private(set) var data = BotWorkspaceData()
     @Published var errorMessage: String?
     var pendingSessions: [String: Task<String, Error>] = [:]
+    /// Deletions that are in flight. Session creation checks these before and
+    /// after its only await, so a task cannot bind a freshly-created ChatStore
+    /// row to a Bot or group that is being removed.
+    private var deletingBotIDs: Set<String> = []
+    private var deletingRoomIDs: Set<String> = []
+    /// Removed conversations whose queued read-state writes must not resurrect
+    /// a `conversationStates` entry after the workspace was saved without it.
+    private var deletedSessionIDs: Set<String> = []
     private let fileURL: URL
     private var unreadable = false
     private static let conversationWriteQueue = DispatchQueue(label: "Minis.BotWorkspaceStore.conversationState", qos: .utility)
+    /// Mirror of `deletedSessionIDs` for the off-main merge path. Guarded by
+    /// `BotDataSnapshotLock`, the same lock that serializes workspace writes.
+    nonisolated(unsafe) private static var deletedSessionIDsForMerges: Set<String> = []
 
     init(fileURL: URL? = nil, seedCommander: Bool = true) {
         self.fileURL = fileURL ?? Self.defaultFileURL
@@ -371,6 +382,173 @@ final class BotWorkspaceStore: ObservableObject {
         data.sessionOwners[id]
     }
 
+    /// Marks a Bot/group deletion before its async teardown starts. Session
+    /// creation uses these flags at both ends of its await, because the Bot or
+    /// room can be removed while `ChatStore.createSession` is suspended.
+    func beginDeletingBot(_ id: String) -> Bool {
+        guard !BotRestoreControl.isRestoring else {
+            errorMessage = BotWorkspaceError.storage.localizedDescription
+            return false
+        }
+        guard !unreadable else {
+            errorMessage = BotWorkspaceError.storage.localizedDescription
+            return false
+        }
+        guard bot(id) != nil, !deletingBotIDs.contains(id) else { return false }
+        deletingBotIDs.insert(id)
+        return true
+    }
+
+    func endDeletingBot(_ id: String) {
+        deletingBotIDs.remove(id)
+    }
+
+    func beginDeletingRoom(_ id: String) -> Bool {
+        guard !BotRestoreControl.isRestoring else {
+            errorMessage = BotWorkspaceError.storage.localizedDescription
+            return false
+        }
+        guard !unreadable else {
+            errorMessage = BotWorkspaceError.storage.localizedDescription
+            return false
+        }
+        guard room(id) != nil, !deletingRoomIDs.contains(id) else { return false }
+        deletingRoomIDs.insert(id)
+        return true
+    }
+
+    func endDeletingRoom(_ id: String) {
+        deletingRoomIDs.remove(id)
+    }
+
+    func isDeleting(botID: String) -> Bool {
+        deletingBotIDs.contains(botID)
+    }
+
+    func isDeleting(roomID: String) -> Bool {
+        deletingRoomIDs.contains(roomID)
+    }
+
+    func isDeletingParentRoom(of sessionID: String) -> Bool {
+        guard let roomID = owner(forSession: sessionID)?.roomId else { return false }
+        return deletingRoomIDs.contains(roomID)
+    }
+
+    /// Every ChatStore conversation whose data belongs to this Bot: private
+    /// chats, group-member chats, and delegated task conversations.
+    func sessionIDsOwned(byBot id: String) -> Set<String> {
+        var ids = Set(data.sessionOwners.compactMap { sessionID, owner in
+            owner.botId == id ? sessionID : nil
+        })
+        if let profile = bot(id) {
+            if let sessionID = profile.sessionId { ids.insert(sessionID) }
+            ids.formUnion(profile.conversationIds)
+        }
+        for room in data.rooms {
+            if let sessionID = room.sessions[id] {
+                if let owner = data.sessionOwners[sessionID] {
+                    if owner.botId == id { ids.insert(sessionID) }
+                } else if !sessionIsClaimed(byOtherBotThan: id, sessionID: sessionID) {
+                    ids.insert(sessionID)
+                }
+            }
+            // Legacy rows may have a session link but no owner entry. Accept
+            // one only when it does not conflict with another owner or with
+            // this room's current mapping for the same Bot.
+            for message in room.messages where message.botId == id {
+                guard let sessionID = message.sessionId else { continue }
+                if let owner = data.sessionOwners[sessionID] {
+                    if owner.botId == id { ids.insert(sessionID) }
+                } else if !sessionIsClaimed(byOtherBotThan: id, sessionID: sessionID) {
+                    ids.insert(sessionID)
+                }
+            }
+        }
+        for record in data.delegations where record.toBotID == id || record.fromBotID == id {
+            if let sessionID = record.childSessionID { ids.insert(sessionID) }
+        }
+        return ids
+    }
+
+    /// Every ChatStore conversation created for this group's member turns.
+    func sessionIDsOwned(byRoom id: String) -> Set<String> {
+        var ids = Set(data.sessionOwners.compactMap { sessionID, owner in
+            owner.roomId == id ? sessionID : nil
+        })
+        if let room = room(id) {
+            for (_, sessionID) in room.sessions {
+                guard let owner = data.sessionOwners[sessionID] else {
+                    if !sessionIsClaimed(byOtherRoomThan: id, sessionID: sessionID) {
+                        ids.insert(sessionID)
+                    }
+                    continue
+                }
+                if owner.roomId == id { ids.insert(sessionID) }
+            }
+            // `room.messages.sessionId` is display/provenance data, not an
+            // ownership declaration. Only use it as a fallback for an
+            // unowned legacy session whose Bot has no conflicting mapping.
+            for message in room.messages {
+                guard let sessionID = message.sessionId,
+                      message.botId != nil else { continue }
+                if data.sessionOwners[sessionID] != nil { continue }
+                if !sessionIsClaimed(byOtherRoomThan: id, sessionID: sessionID) {
+                    ids.insert(sessionID)
+                }
+            }
+            // A group's commander can delegate from its group session. Those
+            // task conversations are independent ChatStore rows, not database
+            // children, so ChatStore's cascade cannot find them.
+            let parents = ids
+            for record in data.delegations where parents.contains(record.parentSessionID) {
+                if let sessionID = record.childSessionID { ids.insert(sessionID) }
+            }
+        }
+        return ids
+    }
+
+    /// A legacy message may reference an old session with no owner entry.
+    /// Delete it only when no other Bot or room explicitly claims the id.
+    private func sessionIsClaimed(byOtherBotThan botID: String, sessionID: String) -> Bool {
+        data.bots.contains { $0.id != botID && ($0.sessionId == sessionID || $0.conversationIds.contains(sessionID)) }
+            || data.rooms.contains { room in room.sessions.contains { $0.key != botID && $0.value == sessionID } }
+            || data.delegations.contains { $0.toBotID != botID && $0.childSessionID == sessionID }
+    }
+
+    private func sessionIsClaimed(byOtherRoomThan roomID: String, sessionID: String) -> Bool {
+        data.bots.contains { $0.sessionId == sessionID || $0.conversationIds.contains(sessionID) }
+            || data.rooms.contains { $0.id != roomID && $0.sessions.values.contains(sessionID) }
+            || data.delegations.contains { $0.childSessionID == sessionID }
+    }
+
+    /// Sessions that belong to a Bot runtime rather than a user-facing
+    /// conversation. The Storage page uses the same validated mapping as the
+    /// delete path instead of treating every message link as ownership.
+    func internalSessionIDs() -> Set<String> {
+        var ids = Set(data.sessionOwners.compactMap { sessionID, owner in
+            owner.roomId != nil || owner.delegationID != nil ? sessionID : nil
+        })
+        for room in data.rooms {
+            for (_, sessionID) in room.sessions {
+                if let owner = data.sessionOwners[sessionID] {
+                    if owner.roomId == room.id { ids.insert(sessionID) }
+                } else if !sessionIsClaimed(byOtherRoomThan: room.id, sessionID: sessionID) {
+                    ids.insert(sessionID)
+                }
+            }
+            for message in room.messages {
+                guard let sessionID = message.sessionId,
+                      message.botId != nil else { continue }
+                if data.sessionOwners[sessionID] != nil { continue }
+                if !sessionIsClaimed(byOtherRoomThan: room.id, sessionID: sessionID) {
+                    ids.insert(sessionID)
+                }
+            }
+        }
+        ids.formUnion(data.delegations.compactMap(\.childSessionID))
+        return ids
+    }
+
     /// Bot and group sessions own their capabilities; helpers inherit the parent.
     func capabilitySessionID(for sessionID: String?, parentSessionID: String?) -> String? {
         if let sessionID, owner(forSession: sessionID) != nil { return sessionID }
@@ -460,13 +638,32 @@ final class BotWorkspaceStore: ObservableObject {
         return persist(next)
     }
 
-    func deleteBot(_ id: String) {
-        guard !BotRestoreControl.isRestoring else { return }
-        guard id != BotProfile.commanderID else { return }
+    @discardableResult
+    func deleteBot(_ id: String, removingSessionIDs additionalSessionIDs: Set<String> = []) -> Set<String>? {
+        guard !BotRestoreControl.isRestoring else {
+            errorMessage = BotWorkspaceError.storage.localizedDescription
+            return nil
+        }
+        guard id != BotProfile.commanderID, bot(id) != nil else { return nil }
+        let removedSessions = sessionIDsOwned(byBot: id).union(additionalSessionIDs)
         var next = data
         next.bots.removeAll { $0.id == id }
-        for index in next.rooms.indices { next.rooms[index].members.removeAll { $0 == id } }
-        _ = persist(next) // ChatStore conversations and room history remain available.
+        for index in next.rooms.indices {
+            next.rooms[index].members.removeAll { $0 == id }
+            next.rooms[index].sessions.removeValue(forKey: id)
+            next.rooms[index].messages.removeAll { message in
+                message.botId == id
+                    || message.sessionId.map(removedSessions.contains) == true
+            }
+        }
+        next.delegations.removeAll { record in
+            record.fromBotID == id || record.toBotID == id
+                || removedSessions.contains(record.parentSessionID)
+                || record.childSessionID.map(removedSessions.contains) == true
+        }
+        removeSessionArtifacts(removedSessions, from: &next)
+        guard persist(next, deletingSessions: removedSessions) else { return nil }
+        return removedSessions
     }
 
     func delegation(_ id: String) -> BotDelegation? { data.delegations.first { $0.id == id } }
@@ -481,7 +678,10 @@ final class BotWorkspaceStore: ObservableObject {
 
     @discardableResult
     func bindDelegation(_ id: String, childSessionID: String, jobID: String? = nil) -> Bool {
-        guard var record = delegation(id), record.state == .queued, bot(record.toBotID) != nil else { return false }
+        guard var record = delegation(id), record.state == .queued,
+              !isDeleting(botID: record.toBotID),
+              !isDeletingParentRoom(of: record.parentSessionID),
+              bot(record.toBotID) != nil else { return false }
         record.childSessionID = childSessionID; record.jobID = jobID
         record.directExecution = jobID == nil ? true : nil
         record.waitingForUser = false
@@ -496,6 +696,9 @@ final class BotWorkspaceStore: ObservableObject {
     @discardableResult
     func updateConversation(_ sessionID: String, _ change: (inout BotConversationState) -> Void) -> Bool {
         guard !unreadable else { return false }
+        // A deleted session has no owner. If a backup later restores the same
+        // stable id (and therefore its owner), updates are valid again.
+        if deletedSessionIDs.contains(sessionID), data.sessionOwners[sessionID] == nil { return false }
         var next = data
         var state = next.conversationStates[sessionID] ?? BotConversationState()
         change(&state); next.conversationStates[sessionID] = state
@@ -528,17 +731,61 @@ final class BotWorkspaceStore: ObservableObject {
         return "\(direction) · \(record.statusLabel)：\(record.title)"
     }
 
-    func deleteRoom(_ id: String) {
-        guard !BotRestoreControl.isRestoring else { return }
+    @discardableResult
+    func deleteRoom(_ id: String, removingSessionIDs additionalSessionIDs: Set<String> = []) -> Set<String>? {
+        guard !BotRestoreControl.isRestoring else {
+            errorMessage = BotWorkspaceError.storage.localizedDescription
+            return nil
+        }
+        guard room(id) != nil else { return nil }
+        let removedSessions = sessionIDsOwned(byRoom: id).union(additionalSessionIDs)
         var next = data
         next.rooms.removeAll { $0.id == id }
-        _ = persist(next)
+        next.delegations.removeAll { record in
+            removedSessions.contains(record.parentSessionID)
+                || record.childSessionID.map(removedSessions.contains) == true
+        }
+        removeSessionArtifacts(removedSessions, from: &next)
+        guard persist(next, deletingSessions: removedSessions) else { return nil }
+        return removedSessions
+    }
+
+    /// Drop every workspace reference to conversations that no longer exist.
+    private func removeSessionArtifacts(_ sessionIDs: Set<String>, from next: inout BotWorkspaceData) {
+        guard !sessionIDs.isEmpty else { return }
+        next.sessionOwners = next.sessionOwners.filter { !sessionIDs.contains($0.key) }
+        next.conversationStates = next.conversationStates.filter { !sessionIDs.contains($0.key) }
+        for index in next.bots.indices {
+            next.bots[index].conversationIds.removeAll { sessionIDs.contains($0) }
+            if let sessionID = next.bots[index].sessionId, sessionIDs.contains(sessionID) {
+                next.bots[index].sessionId = nil
+            }
+        }
+        for index in next.rooms.indices {
+            next.rooms[index].sessions = next.rooms[index].sessions.filter { !sessionIDs.contains($0.value) }
+            for messageIndex in next.rooms[index].messages.indices {
+                if let sessionID = next.rooms[index].messages[messageIndex].sessionId,
+                   sessionIDs.contains(sessionID) {
+                    next.rooms[index].messages[messageIndex].sessionId = nil
+                }
+            }
+        }
     }
 
     @discardableResult
     func append(_ message: BotRoomMessage, to roomID: String) -> Bool {
+        guard !isDeleting(roomID: roomID) else { return false }
         var next = data
         guard let index = next.rooms.firstIndex(where: { $0.id == roomID }) else { return false }
+        let room = next.rooms[index]
+        if let botID = message.botId {
+            guard room.members.contains(botID), bot(botID) != nil, !isDeleting(botID: botID) else { return false }
+        }
+        if let sessionID = message.sessionId {
+            if let owner = next.sessionOwners[sessionID], owner.roomId != roomID { return false }
+            if let botID = message.botId,
+               let mapped = room.sessions[botID], mapped != sessionID { return false }
+        }
         next.rooms[index].messages.append(message)
         return persist(next)
     }
@@ -564,15 +811,38 @@ final class BotWorkspaceStore: ObservableObject {
         } catch { errorMessage = error.localizedDescription; return false }
     }
 
+    /// Persist a deletion and register its session tombstones under the same
+    /// lock, so a read-state merge cannot slip between the file write and the
+    /// tombstone update. A successful backup restore that re-adds an owner
+    /// still wins over the tombstone.
+    private func persist(_ next: BotWorkspaceData, deletingSessions sessionIDs: Set<String>) -> Bool {
+        guard !sessionIDs.isEmpty else { return persist(next) }
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
+        let tombstoneKeys = Set(sessionIDs.map { Self.tombstoneKey(fileURL: fileURL, sessionID: $0) })
+        deletedSessionIDs.formUnion(sessionIDs)
+        Self.deletedSessionIDsForMerges.formUnion(tombstoneKeys)
+        let saved = persist(next)
+        if !saved {
+            deletedSessionIDs.subtract(sessionIDs)
+            Self.deletedSessionIDsForMerges.subtract(tombstoneKeys)
+        }
+        return saved
+    }
+
+    nonisolated private static func tombstoneKey(fileURL: URL, sessionID: String) -> String {
+        fileURL.path + "\u{0}" + sessionID
+    }
+
     /// Merge one conversation-state update into the latest on-disk data.
     ///
     /// This runs off the main actor while the shared lock is held. Decoding the
     /// file fresh here prevents a queued unread-state write from overwriting a
     /// newer Bot profile or room saved after this update was scheduled.
-    private static func mergeConversationState(_ sessionID: String,
-                                                _ state: BotConversationState,
-                                                into fileURL: URL,
-                                                fallback: BotWorkspaceData) throws {
+    nonisolated private static func mergeConversationState(_ sessionID: String,
+                                                           _ state: BotConversationState,
+                                                           into fileURL: URL,
+                                                           fallback: BotWorkspaceData) throws {
         BotDataSnapshotLock.lock.lock()
         defer { BotDataSnapshotLock.lock.unlock() }
 
@@ -581,6 +851,10 @@ final class BotWorkspaceStore: ObservableObject {
             workspace = try JSONDecoder().decode(BotWorkspaceData.self, from: Data(contentsOf: fileURL))
         } else {
             workspace = fallback
+        }
+        if Self.deletedSessionIDsForMerges.contains(Self.tombstoneKey(fileURL: fileURL, sessionID: sessionID)),
+           workspace.sessionOwners[sessionID] == nil {
+            return
         }
         workspace.conversationStates[sessionID] = state
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),

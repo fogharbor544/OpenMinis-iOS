@@ -2,6 +2,18 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
+/// Deletes the real ChatStore rows after a Bot or group is removed. The
+/// workspace cleanup runs separately; this keeps the visible data and the
+/// persisted conversation records in sync.
+@MainActor
+private func deleteOwnedConversations(_ sessionIDs: Set<String>) async {
+    guard !sessionIDs.isEmpty else { return }
+    await ContentView.tearDownForDeletion(sessionIDs)
+    for sessionID in sessionIDs.sorted() {
+        await ChatStore.shared.deleteSession(sessionID)
+    }
+}
+
 /// Chat-page actions the profile's "会话" section hands back to the open chat.
 /// They depend on the chat's own state (share picker, search bar, alerts), so
 /// the profile only requests them; the chat performs them after dismissal.
@@ -212,7 +224,7 @@ struct BotProfileView: View {
             }
             .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .confirmationDialog("删除此 Bot？它的长期记忆、专属子代理和专属环境变量会一并删除，共享给它的记忆访问也会移除。对话记录保留。",
+        .confirmationDialog("删除此 Bot？它的长期记忆、专属子代理、专属环境变量和所有会话记录会一并删除，此操作不可撤销。",
                             isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { deleteBot(bot) }
         }
@@ -340,14 +352,31 @@ struct BotProfileView: View {
 
     private func deleteBot(_ bot: BotProfile) {
         guard !bot.isCommander else { return }
+        guard store.beginDeletingBot(bot.id) else { return }
+        for room in store.data.rooms where room.members.contains(bot.id) {
+            BotRoomRunner.shared.stop(room.id)
+        }
         BotTeamRuntime.shared.cancelSpecialist(botID)
-        do {
-            try memory.forgetOwner("bot:\(bot.id)")
-            SubAgentStore.shared.removeSubAgents(ownedBy: bot.id)
-            EnvVarStore.shared.deleteEntries(ownedBy: bot.id)
-            store.deleteBot(bot.id)
-            dismiss()
-        } catch { store.errorMessage = error.localizedDescription }
+        Task { @MainActor in
+            defer { store.endDeletingBot(bot.id) }
+            do {
+                try memory.forgetOwner("bot:\(bot.id)")
+                SubAgentStore.shared.removeSubAgents(ownedBy: bot.id)
+                EnvVarStore.shared.deleteEntries(ownedBy: bot.id)
+                let roots = store.sessionIDsOwned(byBot: bot.id)
+                let all = Set(await ChatStore.shared.sessionIdsWithDescendants(roots))
+                guard let removed = store.deleteBot(bot.id, removingSessionIDs: all) else {
+                    store.errorMessage = store.errorMessage ?? BotWorkspaceError.storage.localizedDescription
+                    return
+                }
+                await deleteOwnedConversations(removed)
+                if !removed.isEmpty {
+                    NotificationCenter.default.post(name: .sessionsDeletedElsewhere,
+                                                    object: nil, userInfo: ["ids": Array(removed)])
+                }
+                dismiss()
+            } catch { store.errorMessage = error.localizedDescription }
+        }
     }
 
     private func modelGroupBinding(_ bot: BotProfile) -> Binding<String> {
@@ -431,15 +460,32 @@ struct BotRoomProfileView: View {
         .navigationTitle("群聊资料")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editing) { BotRoomEditor(room: $0) }
-        .confirmationDialog("Delete this group, its memories and shared transcript? Member chat data is retained.",
+        .confirmationDialog("删除此群聊？群聊记忆、共享记录和所有成员的群内会话会一并删除，此操作不可撤销。",
                             isPresented: $deleting, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                do {
-                    try memory.forgetOwner("room:\(roomID)")
-                    store.deleteRoom(roomID)
-                    dismiss()
-                } catch { store.errorMessage = error.localizedDescription }
-            }
+            Button("Delete", role: .destructive) { deleteRoom(roomID) }
+        }
+    }
+
+    private func deleteRoom(_ roomID: String) {
+        guard store.beginDeletingRoom(roomID) else { return }
+        BotRoomRunner.shared.stop(roomID)
+        Task { @MainActor in
+            defer { store.endDeletingRoom(roomID) }
+            do {
+                try memory.forgetOwner("room:\(roomID)")
+                let roots = store.sessionIDsOwned(byRoom: roomID)
+                let all = Set(await ChatStore.shared.sessionIdsWithDescendants(roots))
+                guard let removed = store.deleteRoom(roomID, removingSessionIDs: all) else {
+                    store.errorMessage = store.errorMessage ?? BotWorkspaceError.storage.localizedDescription
+                    return
+                }
+                await deleteOwnedConversations(removed)
+                if !removed.isEmpty {
+                    NotificationCenter.default.post(name: .sessionsDeletedElsewhere,
+                                                    object: nil, userInfo: ["ids": Array(removed)])
+                }
+                dismiss()
+            } catch { store.errorMessage = error.localizedDescription }
         }
     }
 }

@@ -560,7 +560,7 @@ private struct BotInstructionsEditor: View {
                     Section {
                         Text("指挥官负责处理任务、协调专职 Bot 并核查结果。委派任务由目标 Bot 直接执行。")
                         DisclosureGroup("查看完整内置指令") {
-                            Text(store.commanderInstructions)
+                            Text(store.commanderInstructions(agentsEnabled: AgentToolSwitch.agents.isEnabled))
                                 .font(.callout)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -62,10 +62,46 @@ struct AgentCallback {
         workspace.sessionOwners["other-parent"] = BotSessionOwner(botId: commander.id)
         precondition(store.persist(workspace))
         let vm = AIChatViewModel(); vm.sessionId = "parent"
+        precondition(vm.commanderPolicy.contains("bot_create") && vm.commanderPolicy.contains("bot_task"))
+        precondition(AIChatViewModel.botTaskTool.parameters["action"]?.enumValues?.contains("list") == true)
+        let fixedPolicy = vm.commanderPolicy
+        let emptyList = try object(vm.executeBotTask(["action": "list"], toolUseID: "list-empty"))
+        precondition((emptyList["bots"] as! [[String: String]]).isEmpty)
+        var fixtures: [BotProfile] = []
+        for index in 0..<24 {
+            var bot = store.newBot(); bot.name = "Specialist \(index)"
+            bot.instructions = String(repeating: "FULL_PRIVATE_INSTRUCTIONS", count: 400)
+            if index != 0 { bot.introduction = "Quoted \"intro\"\n" + String(repeating: "👩‍💻", count: 200) }
+            precondition(store.save(bot)); fixtures.append(bot)
+        }
+        precondition(vm.commanderPolicy == fixedPolicy, "Adding specialist instructions must not change Commander rules")
+        let beforeList = store.data
+        let startsBeforeList = BotTeamRuntime.shared.starts
+        let manyList = try object(vm.executeBotTask(["action": "list"], toolUseID: "list-many"))
+        let listed = manyList["bots"] as! [[String: String]]
+        precondition(listed.count == fixtures.count && listed.allSatisfy { Set($0.keys) == ["bot_id", "name", "introduction"] })
+        precondition(listed.allSatisfy { $0["bot_id"] != commander.id && $0["introduction"]!.count <= 160 })
+        precondition(listed.first?["bot_id"] == fixtures[0].id && listed.first?["introduction"] == "")
+        precondition(listed[1]["introduction"] == String(fixtures[1].introduction!.prefix(160)))
+        precondition(listed[1]["name"] == fixtures[1].name)
+        precondition(store.data == beforeList && BotTeamRuntime.shared.starts == startsBeforeList, "Discovery must be read-only")
+        fixtures[0].name = "Renamed specialist"; fixtures[0].introduction = "Updated summary"
+        precondition(store.save(fixtures[0]))
+        precondition(store.deleteBot(fixtures.removeLast().id) != nil)
+        let refreshedList = try object(vm.executeBotTask(["action": "list"], toolUseID: "list-refreshed"))
+        let refreshed = refreshedList["bots"] as! [[String: String]]
+        precondition(refreshed.count == fixtures.count && refreshed.first?["name"] == "Renamed specialist")
+        precondition(refreshed.first?["introduction"] == "Updated summary" && vm.commanderPolicy == fixedPolicy)
+        for bot in fixtures { precondition(store.deleteBot(bot.id) != nil) }
+        let clearedList = try object(vm.executeBotTask(["action": "list"], toolUseID: "list-cleared"))
+        precondition((clearedList["bots"] as! [[String: String]]).isEmpty && vm.commanderPolicy == fixedPolicy)
         let config: [String: Any] = ["name": "核查助手", "instructions": "Verify original sources and report uncertainty.",
             "introduction": "我会核对来源。", "question": "常查什么？", "options": ["新闻", "价格", "政策", "技术"], "avatar_id": "mint-otter"]
         let created = try object(vm.executeBotCreate(config, toolUseID: "create-call"))
         let id = created["bot_id"] as! String
+        let createdList = try object(vm.executeBotTask(["action": "list"], toolUseID: "list-created"))
+        precondition((createdList["bots"] as! [[String: String]]).first?["bot_id"] == id)
+        precondition(vm.commanderPolicy == fixedPolicy)
         precondition(store.bot(id)?.onboarding?.options.count == 4 && store.bot(id)?.avatarPresetID == "mint-otter")
         var edited = store.bot(id)!; edited.instructions = "User's revised instructions"; precondition(store.save(edited))
         let retried = try object(vm.executeBotCreate(config, toolUseID: "create-call"))
@@ -126,13 +162,24 @@ struct AgentCallback {
             precondition(queued.success == (index < AgentJobRegistry.maxQueuedDelegationsPerParent))
         }
         precondition(vm.executeBotTask(task, toolUseID: "capacity-0").success)
+        precondition(vm.executeBotTask(["action": "list"], toolUseID: "list-full-queue").success)
         BotRestoreControl.isRestoring = true
+        precondition(!vm.executeBotTask(["action": "list"], toolUseID: "list-restoring").success)
         precondition(!vm.executeBotCreate(config, toolUseID: "restoring").success && !vm.executeBotTask(task, toolUseID: "restoring").success)
         BotRestoreControl.isRestoring = false
         AIChatViewModel.agentsEnabled = false
+        precondition(!vm.executeBotTask(["action": "list"], toolUseID: "list-disabled").success)
+        precondition(!vm.commanderPolicy.contains("bot_create") && !vm.commanderPolicy.contains("bot_task") && !vm.commanderPolicy.contains("subagent_task"))
+        precondition(vm.commanderPolicy.contains("disabled"))
+        let targetVM = AIChatViewModel(); targetVM.sessionId = "bot-conversation"
+        precondition(!targetVM.executeBotTask(["action": "list"], toolUseID: "list-specialist").success)
+        precondition(targetVM.botDelegationPolicy.contains("Helper delegation is disabled") && !targetVM.botDelegationPolicy.contains("subagent_task"))
         precondition(!vm.executeBotCreate(config, toolUseID: "disabled").success && !vm.executeBotTask(task, toolUseID: "disabled").success)
         AIChatViewModel.agentsEnabled = true; vm.isHelper = true
+        precondition(!targetVM.executeBotTask(["action": "list"], toolUseID: "list-specialist-enabled").success)
+        precondition(!vm.executeBotTask(["action": "list"], toolUseID: "list-helper").success)
+        precondition(vm.commanderPolicy.isEmpty)
         precondition(!vm.executeBotCreate(config, toolUseID: "helper").success && !vm.executeBotTask(task, toolUseID: "helper").success)
-        print("PASS: shipping Bot command creation/idempotence, validation, parent isolation, queued/running follow-up, one rework, review completion, explicit new resume attempts and disabled/helper boundaries")
+        print("PASS: fixed Commander rules, read-only compact Bot discovery/CRUD/Unicode/boundaries, shipping Bot command creation/idempotence, validation, parent isolation, queued/running follow-up, one rework, review completion, explicit new resume attempts and disabled/helper boundaries")
     }
 }

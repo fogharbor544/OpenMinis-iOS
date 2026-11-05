@@ -452,3 +452,44 @@ Do not use the quota-blocked private remote for this task.
 - [x] Confirm the delayed guest CLI path, missed handoff, wrong tab snapshot, and child cleanup cases.
 - [x] Preserve shell provenance across iSH, observe completed handoffs once per VM, and transfer manual tabs when their helper finishes.
 - [x] Run regression checks and inspect native test source.
+
+## 2026-11-05 agent prompt audit
+- Scope: review shipped iOS system prompts, Commander/Bot/helper policies, dynamic injection and tool/runtime contracts; no application changes requested.
+- [ ] Trace prompt assembly and current execution architecture.
+- [ ] Verify concrete mismatches against runtime, tools and existing checks.
+- [ ] Report ranked findings and validation limits.
+- Preserve existing unrelated work and planning history.
+
+### Agent prompt audit completed
+- [x] Traced initial and fallback prompt assembly; Commander, direct specialist, generic helper and group contexts; skills/MCP/scoped memory and user_ask contracts.
+- [x] Confirmed seven concrete source mismatches in six groups; discarded the claim that generic helpers receive memory schemas (getter correctly prevents it).
+- [x] Prepared ranked findings, recommended correction order and explicit validation limits.
+- No application source, runtime configuration, commits or pushes changed by this audit.
+
+
+## 2026-11-05 resumed backup / credential code review
+- [x] Recover the interrupted review from thread 01a1ab2a-5ac9-7303-8d43-d3e79c7d1423 and all three completed gpt-6.1-sol/high reviewers.
+- [x] Check findings against current uncommitted source and reproduce the SPA capture gap.
+- [x] Deliver docs/ios-backup-credential-review-2026-11-05.md with six P1 and three P2 findings and explicit native-validation limits.
+- Review complete; findings remain unfixed. No business-code edits, commit, push or cloud dispatch in this continuation.
+- Tool issues: broad session-file discovery encountered a protected secrets directory (not read); a regex alternation was misinterpreted by the command wrapper, resolved with separate rg -e arguments.
+
+
+## 2026-11-05 review repair execution
+- Authorized: repair all nine findings; plan docs/superpowers/plans/2026-11-05-backup-credential-review-fixes.md.
+- In progress: failing capture/store/native regressions, then focused repairs. Preserve prior local changes; no commit/push.
+
+### Agent prompt alignment complete locally
+- Implemented all six approved findings; shared prompt composer and targeted regressions are in place.
+- Source/wiring, existing Bot contracts and seven chat-settings tests passed. Python/YAML/scoped Swift syntax checked.
+- Independent read-only review complete; its single stale test guard finding was fixed. No blocking finding remains in the source review.
+- Native Swift/UI/Xcode/live-provider validation remains pending on macOS/device. No commit, push or cloud workflow run performed.
+
+## 2026-11-05 Commander roster growth investigation
+- [x] Trace built-in prompt generation, editor display and specialist delegation lookup.
+- [x] Confirm root cause: commanderInstructions embeds up to 1200 instruction characters for every specialist; editor and runtime share it.
+- [x] User approved on-demand discovery; recorded the selected design and implementation plan.
+- [x] Added regression, removed dynamic prompt roster and added bot_task list; source checks and syntax passed, independent review found no Critical/Important defect. Native Swift/iOS validation remains unavailable locally.
+- Preserve prior uncommitted prompt-alignment, browser and backup edits; Windows has no Swift/Xcode.
+
+- 2026-11-05 repair status: all nine code fixes implemented; available portable checks passed and independent review completed. Native compile/runtime validation remains pending (Windows lacks Swift/Xcode).

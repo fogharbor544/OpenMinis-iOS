@@ -122,3 +122,9 @@ deps/lame-3.100/**/.deps/
 deps/aot/*.S
 deps/aot/.build/
 deps/aot/.build-iphonesimulator/
+
+# CodeGraph local index: per-machine SQLite database, sockets and logs.
+.codegraph/
+
+# Local agent instruction file, not repository content.
+AGENTS.md

@@ -468,3 +468,65 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 ### Browser takeover shell and handoff follow-up
 - Three added portable contracts failed before the changes and all nine now pass. Existing Bot, chat settings, and 55 secure-input JS assertions also pass. Swift source parsing found no new syntax errors; whitespace check passed.
 - Added four native XCTest cases for old shell stamps, completed handoff reminder, closed snapshot target, and helper tab transfer. The Swift runner and XCTest cannot start on Windows because swiftc/Xcode are unavailable.
+
+## 2026-11-05 agent prompt audit
+- Started read-only product review; no source changes.
+- Read system prompt, tool registration, Commander creation/task handlers and direct Bot execution.
+- Initial broad search referenced nonexistent Agent/Memory; corrected to targeted file discovery. Large combined output truncated; subsequent reads use bounded segments.
+- Traced actual initial/fallback prompt assembly and direct specialist lifecycle.
+- Some guessed file names did not exist; switched to file inventory and exact symbol searches.
+
+### Agent prompt audit verification
+- Used systematic-debugging principles to trace conflicting fragments to their assembly/dispatch boundaries; made no product fixes.
+- PASS: python src/ios/MinisTests/Standalone/check_current_bot_contract.py (source guards only).
+- PASS: one-off seven source-evidence assertions for the reported mismatches; does not prove model behavior.
+- NOT COMPLETED: check_bot_memory_ui.py reached xcrun lookup and stopped with WinError 2 because Xcode tools are absent. No UI/runtime success claim.
+- Environment has Python; no swiftc/Xcode detected. No live model or iPhone checks, no reads of user-specific installed Bot custom instructions/configuration.
+- Product source edits shown in git status existed before this audit. This task only appended task_plan.md/findings.md/progress.md.
+
+
+## 2026-11-05 resumed backup / credential review
+- Completed the previously interrupted code-review aggregation; preserved existing business-code changes.
+- Fresh verification: credential capture runner passed; secure-input runner passed all 55 assertions; shipping JS reproduced zero candidate posts after synchronous SPA form clearing; git diff --check passed.
+- Wrote docs/ios-backup-credential-review-2026-11-05.md. No Swift/Xcode/native tests, commit, push or cloud build performed. Review complete; repairs remain outstanding.
+
+## 2026-11-05 agent prompt alignment implementation
+- Regression first: new runner failed as expected on missing shared full composer, then passed dispatch wiring after implementation.
+- Initial patch attempts failed context verification (no source changes from failed attempts); corrected exact hunks and applied successfully.
+- PASS: new runner source wiring, current Bot contracts, 7 chat settings checks, Python syntax and workflow parse/required native-test wiring.
+- PASS: tree-sitter syntax for 10 changed Swift sources/fixtures, extracted composer fixture, capability transport fixture, and changed model behavior property. This is syntax parsing, not Swift compilation.
+- Full LLMTypes.swift tree-sitter parse reported an error; baseline comparison command stalled and was terminated. Changed agentBehaviorPromptFragment parses independently; do not claim full-file native validity.
+- Native Swift behavior, iOS UI type checking and Xcode build are NOT RUN on Windows. New regression is registered with --require-swift in macOS workflow; workflow has not been triggered.
+- Independent reviewer found one additional ProviderLiveCheck source guard still expecting old prompt assembly; corrected it and strengthened direct-Bot disabled-policy assertion.
+- Other browser/backup edits and concurrent updates are outside this task and preserved.
+- Final portable rerun after review fixes: new dispatch wiring PASS; current Bot contracts PASS; 7 chat-settings tests PASS; changed Python/YAML and last changed Swift source/fixture syntax PASS.
+- Independent review complete with no remaining blocking source finding. Product changes remain local and reviewable; native and device acceptance are still unverified.
+
+
+## 2026-11-05 Commander roster growth
+- Inspected existing dirty tree and relevant source; preserved existing work.
+- Confirmed source matches screenshot. No tests or product edits yet.
+- Tool wrapper misparsed rg regex alternation; switched to repeated -e. Guessed runner path absent; used actual file inventory.
+
+
+## 2026-11-05 backup / credential review repairs
+- Implemented nine reviewed fixes in existing stores/browser/mount code; added portable JS and native regressions.
+- RED/GREEN observed: delayed SPA capture and username semantics. Swift runner cannot start (missing swiftc), so native behavior/typecheck is pending.
+- Fresh portable checks passed: credential capture, 55 secure-input JS assertions, 14 takeover checks, 7 settings checks, fresh-install SQLite checks and current Bot source contract.
+- Swift tree grammar passed for six complete touched files, five modified BrowserUseManager methods and generated storage/form/mount fixtures. Whole BrowserUseManager parser timed out; no compiler claim.
+- Independent read-only repair review is running. Existing concurrent prompt/Bot/provider changes preserved.
+
+- Final repair review complete: corrected nested recognized-container propagation and native case count15. Portable checks passed; report updated with exact limits. No commit/push/cloud build.
+
+## 2026-11-05 Commander on-demand roster implementation
+- User approved the on-demand design and instructed implementation.
+- Added source regression; observed RED on the old data.bots-dependent Commander policy, then GREEN after removal.
+- Built-in policy now stays fixed and directs bot_task action=list; schema and handler return only bot_id/name/introduction capped at 160 Swift Characters. Existing common guards remain ahead of list handling.
+- Extended native command fixture with empty/many/CRUD/Unicode/quotes/read-only/capacity and permission cases; registered runner already exists in macOS workflow.
+- PASS: current Bot source contracts, 7 chat settings checks, agent prompt dispatch source checks, three changed Swift files plus extracted command fixture grammar, Python syntax, git diff --check.
+- NOT RUN: native command runner failed to launch swiftc (WinError 2), no Swift/Xcode on this Windows host. No native behavior/build/device success claim.
+- Global isolation static_check.py initially reports every allowlist entry stale on Windows due backslash path separators. Checking with in-memory POSIX key normalization to distinguish environment noise from existing findings; no unrelated code changes.
+- One independent read-only reviewer is inspecting the focused change.
+- Final independent read-only review found no Critical/Important defects in this change; no new findings or extra fixes required.
+- Global isolation guard with POSIX keys: 59 allowed, 9 unexplained in other pre-existing tests, 2 stale. Original Windows run fails due path mismatch as well. This is not a green global test suite; no unrelated cleanup was made.
+- Implementation and available targeted verification finished. No commit/push/cloud build or IPA; native Swift behavior and iOS build/device acceptance remain unverified.

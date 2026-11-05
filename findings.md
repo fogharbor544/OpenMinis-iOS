@@ -298,3 +298,63 @@ User explicitly requests combined document memory reading/editing, and direct ta
 - iSH stamps fs_context on the guest task group and browser offloads read it on that guest thread. The scoped token keeps the same filesystem route and stores the original browser pool, issuer and generation separately.
 - Handoff records the selected tab and its manager identity, keeps snapshot routing separate from selection, and falls back to a text reminder if a safe snapshot is unavailable.
 - Child cleanup transfers takeover tabs to the chat and releases untouched child tabs normally.
+
+## 2026-11-05 agent prompt audit
+- Prompt assembly begins in AIChatViewModel+SystemPrompt.swift and AgentLoop; normal Bot profile includes Commander/direct-task rules, helpers use a separate identity.
+- Candidate mismatch: base long-running-work rules say nothing runs after a turn ends, while subagent and Bot policies promise automatic callbacks. Verify delivery paths before final assessment.
+- Existing root planning files contain prior work; append this audit only.
+- Confirmed: Commander uses bot_task for specialists; direct task VM has helperConfig == nil, keeps specialist profile/capabilities/memory and can start its own depth-one helpers.
+- Confirmed candidate: Commander policy unconditionally advertises bot_create/bot_task even when agents switch hides/rejects those tools.
+- Confirmed candidate: bot_create description calls onboarding optional, while schema/handler require a nonempty question and 2–6 choices.
+- Helper tools have no Bot/group memory owner; memory tool exposure still depends only on memoryEnabled, and base prompt lists memory tools unconditionally. Check constructor/default behavior.
+- Memory tool exposure is correctly disabled for generic helpers by memoryEnabled getter; earlier candidate about exposed schemas is discarded. Unconditional base memory bullets still advertise absent tools, with an unavailable footer later.
+- Group runner adds a separate user-level prompt saying not to contact members, while a Commander member still receives its higher-level bot_task policy; check group behavior and report as context ambiguity if concrete.
+- Confirmed automatic helper and direct-Bot callbacks invoke submitProgrammaticPrompt after job completion; base no-future-work statement is stale.
+- Confirmed high-impact issue: agentBehaviorPromptFragment for listed Codex IDs says never ask permission under any circumstances, appended after Commander/user_ask authorization rules.
+- Confirmed fallback issue: four fallback branches reconstruct from baseSystemPrompt + model fragments only. AgentLoop passes undecorated base separately from full userSystemPrompt. Skills/MCP/memory reinjection occurs only after accepted stream, too late for fallback's first request.
+- App user guide, mandated by base prompt as source of truth, still says /memory disables writes only and /var/minis/memory stores memory; shipping runtime suppresses reads, writes and injection when disabled and uses scoped SQLite.
+- Review remains source-based; no Swift compiler or iOS runtime available locally.
+
+### Agent prompt audit final findings
+1. High: listed Codex model autonomy fragment forbids confirmation unconditionally, conflicting with Commander and user_ask authorization contracts (LLMTypes.swift:1011).
+2. High: four inner group-fallback prompt rebuilds drop skills/MCP/retrieved memory until a later outer-loop refresh (Fallback.swift:287,398,446,546; AgentLoop.swift:997).
+3. Medium: base long-running instructions deny all post-turn work and encourage polling, conflicting with helper and direct Bot automatic callbacks (SystemPrompt.swift:80-83).
+4. Medium: Commander policy advertises bot_create/bot_task with agents disabled; base memory bullets advertise tools absent in memoryless/disabled sessions. Runtime rejects/unregisters correctly; prompt is inconsistent.
+5. Medium: mandatory app guide claims /memory affects writes only, contrary to runtime gates on reads, writes and injection (manual:330; BotMemory runtime and ToolDefinitions).
+6. Low: bot_create calls onboarding optional while schema and handler require question/options (BotTeamRuntime.swift:40-76).
+- Main architecture is otherwise aligned: direct specialist runs its own profile/configuration/skills/connectors/memory; generic helpers are memoryless, share the parent's filesystem and inherit capability scope; depth-one helper delegation; completed Bot delivery is automatic after persisted summary rather than complete command.
+- Group contact wording, full helper artifact-inlining and callback old prefix remain possible wording improvements, not promoted to confirmed material findings without behavior acceptance.
+
+
+## 2026-11-05 resumed backup / credential review
+- Recovered all three prior reviewer final reports instead of launching duplicate reviews.
+- Confirmed six P1 findings: missing bridge registration after WebView rebuild, SPA delayed capture, untrusted declared origin, unbounded waiting/closed-tab prompt, no active-page vault refresh, and false-success source writeback.
+- Confirmed three P2 findings: emptied nested vault rejection, premature folder fallback success, and username selector coverage/order. Details and source locations: docs/ios-backup-credential-review-2026-11-05.md.
+- Native WebKit/FileProvider behavior remains unexecuted on Windows; broader coverage questions are explicitly separated from confirmed defects.
+
+## 2026-11-05 agent prompt alignment implementation
+- User approved all six audit recommendations. Executing the plan in docs/superpowers/plans/2026-11-05-agent-prompt-alignment.md inline.
+- Shared full composer now serves initial dispatch, all four inner fallback paths and outer refresh, retaining scoped skill/MCP/memory fragments before the fallback model receives a request.
+- Scoped Codex autonomy to authorized actions; clarified real automatic callbacks; gated memory guidance and Commander/direct-Bot delegation wording; synchronized displayed Commander rules and required onboarding descriptions.
+- Guide now describes scoped SQLite memory, Bot/group-wide /memory read/write/injection gating and Sub Agents control of Bot creation/delegation.
+- Preserved user onboarding schema and existing Bot persistence format.
+- Final alignment: the universal tool-call-style sentence now also limits direct execution to already-authorized actions; corresponding UserAsk source guard synchronized. No new confirmation requirement was introduced for authorized routine work.
+- Independent review concluded no further blocking issue after the stale ProviderLiveCheck guard repair. Details and remaining native validation limits are recorded in the implementation plan.
+
+## 2026-11-05 Commander roster growth
+- BotWorkspaceStore.commanderInstructions builds each roster entry from id/name/instructions.prefix(1200), without a total roster limit.
+- BotInstructionsEditor displays the exact runtime built-in policy; this is computed dynamically, not appended by the LLM or saved into Commander custom instructions.
+- bot_task currently supports delegation/status/follow_up/cancel/complete/resume, without Bot discovery. Removing the roster requires an explicit discovery path so named specialist routing remains possible.
+- User preference requested asynchronously: on-demand discovery (recommended) or compact name/short-introduction roster. No product code changed yet.
+
+
+## 2026-11-05 repair decisions
+- Use actual WK frame security origin plus WebView identity at the credential bridge; do not use delayed currentURL as authority. Rebind handlers at both WebView rebuilds.
+- Save prompts use weak manager ownership, an optional waiting deadline, and explicit close/eviction/rebuild/termination cleanup. Secure-input waiting behavior remains unchanged.
+- The visible manager owns a cancellable monitor; unchanged shared-file bytes avoid repeated Keychain writes. Shared imports need no bookmark. Linked writes require exactly one unchanged source row; missing/conflicting source fails before Keychain changes.
+- Valid empty nested/domain collections clear shared rows; invalid JSON preserves the last good state.
+- Mount metadata is committed only after acquiring an active scope. Fallback awaits bounded bookmark resolution, and resolution uses a locked one-shot continuation rather than a task group that joins blocked XPC.
+
+- Final review corrections: carry recognized collection ancestry into accounts.primary, starting root recognition false; synchronize native case gate to15. No further confirmed P1/P2 reported. Native behavior remains pending.
+
+- Approved implementation removes dynamic roster from shared Commander rules. bot_task list reads current configuration only; no specialist instructions, persistence writes, queue admission or model start in this branch. Returning missing introductions as empty strings preserves name-based discovery without copying working instructions.

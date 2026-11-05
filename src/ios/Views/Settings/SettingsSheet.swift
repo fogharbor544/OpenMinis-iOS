@@ -220,8 +220,8 @@ struct SettingsSheet: View {
                         Button("Report a Bug (GitHub)") {
                             if let url = Self.makeBugReportURL() { UIApplication.shared.open(url) }
                         }
-                        Button("Feedback (Telegram)") {
-                            if let url = URL(string: "https://t.me/+2NzhOJuzRyI1YmM1") { UIApplication.shared.open(url) }
+                        Button("Community") {
+                            if let url = URL(string: "https://github.com/fogharbor544/OpenMinis-iOS") { UIApplication.shared.open(url) }
                         }
                         Button("Cancel", role: .cancel) {}
                     }

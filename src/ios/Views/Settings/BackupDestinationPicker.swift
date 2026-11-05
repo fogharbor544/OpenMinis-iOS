@@ -28,7 +28,6 @@ struct BackupDestinationPicker: View {
     @State private var showAddServer = false
     @State private var showFolderPicker = false
     @State private var errorText: String?
-    @State private var isAddingFolder = false
 
     var body: some View {
         NavigationStack {
@@ -43,19 +42,6 @@ struct BackupDestinationPicker: View {
                         Text(errorText)
                             .font(.footnote)
                             .foregroundStyle(.red)
-                    }
-                }
-                if isAddingFolder {
-                    Section {
-                        HStack(spacing: 12) {
-                            ProgressView()
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(AppLocalized("Adding folder…"))
-                                Text(AppLocalized("Checking that Minis can write to it"))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
                     }
                 }
             }
@@ -73,25 +59,15 @@ struct BackupDestinationPicker: View {
                 }
             }
             .sheet(isPresented: $showFolderPicker) {
-                BackupFolderPicker(onPick: { url in
-                    guard !isAddingFolder else { return }
-                    // The picker is the sheet's root controller, so UIKit does not
-                    // clear this SwiftUI binding when the user taps Open.
-                    showFolderPicker = false
-                    isAddingFolder = true
-                    Task { @MainActor in
-                        defer { isAddingFolder = false }
-                        do {
-                            _ = try await BackupDestinations.addDestination(pickedURL: url)
-                            reload()
-                            onChanged()
-                        } catch {
-                            errorText = error.localizedDescription
-                        }
+                BackupFolderPicker { url in
+                    do {
+                        _ = try BackupDestinations.addDestination(pickedURL: url)
+                        reload()
+                        onChanged()
+                    } catch {
+                        errorText = error.localizedDescription
                     }
-                }, onCancel: {
-                    showFolderPicker = false
-                })
+                }
             }
             .onAppear(perform: reload)
         }
@@ -218,7 +194,6 @@ struct BackupDestinationPicker: View {
                     }
                 }
             }
-            .disabled(isAddingFolder)
         } header: {
             Text("Add New")
         }

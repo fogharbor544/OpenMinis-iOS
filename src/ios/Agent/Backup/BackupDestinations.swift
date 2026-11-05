@@ -83,13 +83,11 @@ enum BackupDestinations {
     /// Folders, survives relaunch via the same security-scoped bookmark, and is
     /// governed by the same writability rules. No parallel storage.
     @discardableResult
-    static func addDestination(pickedURL: URL) async throws -> MountedFolderEntry {
-        let pending = PendingFolderAddition(
-            url: pickedURL,
+    static func addDestination(pickedURL: URL) throws -> MountedFolderEntry {
+        let entry = try MountedFoldersManager.shared.add(
+            pickedURL: pickedURL,
             customName: suggestedName(for: pickedURL),
-            userAllowWrite: true
-        )
-        let entry = try await MountedFoldersManager.shared.add(pending: pending)
+            userAllowWrite: true)
         register(entry.id)
         toggle(entry.id, on: true)
         logger.info("[Backup] destination added: '\(entry.name)'")

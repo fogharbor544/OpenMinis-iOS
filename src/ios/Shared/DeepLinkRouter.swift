@@ -4,7 +4,7 @@ private let deepLinkLog = AppLogger(category: "DeepLink")
 
 extension Notification.Name {
     /// Posted by `DeepLinkRouter` when `minis://open?session=…&path=…` lands
-    /// from the openminis.app launcher. `userInfo["shortcut"]` is a
+    /// from the web launcher. `userInfo["shortcut"]` is a
     /// `WebAppShortcut` reconstructed from the deep-link params; not
     /// necessarily persisted. (Relocated here from the removed
     /// OpenWebAppIntent.swift — T-ios-remove-open-webapp-shortcut-intent.)
@@ -18,7 +18,7 @@ extension Notification.Name {
 ///   minis://share
 ///   minis://views/alarm
 ///   minis://open_terminal[?init_command=…]
-///   minis://open?session=<sid>&path=<scope-prefixed-path>  (openminis.app launcher round-trip)
+///   minis://open?session=<sid>&path=<scope-prefixed-path>  (web launcher round-trip)
 ///   minis://session/<id>      (legacy singular alias)
 ///   minis://sessions/<id>     (canonical — matches minis-sessions-cli)
 ///   minis://settings
@@ -210,10 +210,10 @@ enum DeepLinkRouter {
         }
     }
 
-    // MARK: - openminis.app launcher round-trip
+    // MARK: - web launcher round-trip
 
     /// Parses a `minis://open?session=…&path=…` URL fired by the
-    /// openminis.app launcher when the pinned home-screen tile is
+    /// web launcher when the pinned home-screen tile is
     /// launched in standalone mode. The `path` query is scope-prefixed
     /// so we can recover `(scope, scopeContext, htmlPath)` without
     /// looking anything up:

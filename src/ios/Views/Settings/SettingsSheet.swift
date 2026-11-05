@@ -206,13 +206,6 @@ struct SettingsSheet: View {
                             SettingsActionIcon(systemImage: "info", color: .indigo)
                         }
                     }
-                    Link(destination: URL(string: "https://openminis.github.io/privacy-policy.html")!) {
-                        Label {
-                            Text("Privacy Policy")
-                        } icon: {
-                            SettingsActionIcon(systemImage: "hand.raised", color: .teal)
-                        }
-                    }
                     Button {
                         showFeedbackDialog = true
                     } label: {
@@ -229,9 +222,6 @@ struct SettingsSheet: View {
                         }
                         Button("Feedback (Telegram)") {
                             if let url = URL(string: "https://t.me/+2NzhOJuzRyI1YmM1") { UIApplication.shared.open(url) }
-                        }
-                        Button("Feedback (Email)") {
-                            if let url = Self.makeFeedbackEmailURL() { UIApplication.shared.open(url) }
                         }
                         Button("Cancel", role: .cancel) {}
                     }
@@ -391,40 +381,6 @@ struct SettingsSheet: View {
             navPath.append(SettingsDestination.mcpServerDetail(serverId: id))
         }
         deepLink.pendingSettingsTarget = nil
-    }
-
-    /// Compose the feedback mailto URL with a prefilled body that includes
-    /// app version, iOS version, and a machine identifier, plus a prompt
-    /// asking the user to attach a screenshot manually (mailto:// can't
-    /// auto-attach). Using URLComponents so the subject and body go through
-    /// proper URL encoding without hand-rolling addingPercentEncoding calls.
-    fileprivate static func makeFeedbackEmailURL() -> URL? {
-        let bundle = Bundle.main
-        let appVersion = bundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = bundle.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        let iosVersion = UIDevice.current.systemVersion
-        let device = machineIdentifier()
-
-        let body = """
-        Please describe your feedback:
-
-
-        ---
-        App Version: \(appVersion) (\(build))
-        iOS Version: \(iosVersion)
-        Device: \(device)
-
-        Screenshot (optional): Please attach a screenshot if relevant.
-        """
-
-        var components = URLComponents()
-        components.scheme = "mailto"
-        components.path = "dev@openminis.app"
-        components.queryItems = [
-            URLQueryItem(name: "subject", value: "Minis Feedback"),
-            URLQueryItem(name: "body", value: body),
-        ]
-        return components.url
     }
 
     /// Build the GitHub Issue URL with a bilingual bug-report template

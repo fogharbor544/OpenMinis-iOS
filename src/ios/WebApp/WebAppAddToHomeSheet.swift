@@ -10,7 +10,7 @@ private let sheetLogger = AppLogger(category: "WebAppAddSheet")
 ///   1. Classify the host URL into `(scope, scopeContext, htmlPath)` and
 ///      persist a `WebAppShortcut` row so deep-link return can re-resolve
 ///      the file by id (or by session+path).
-///   2. Build an `https://openminis.app/launch.html?…` URL whose query
+///   2. Build an `https://<launcher host>/launch.html?…` URL whose query
 ///      encodes the scope-prefixed path + session + a category-driven
 ///      icon key, with the title in the fragment.
 ///   3. `UIApplication.shared.open(url)` hands the user off to Safari so
@@ -21,6 +21,20 @@ private let sheetLogger = AppLogger(category: "WebAppAddSheet")
 struct WebAppAddToHomeSheet: View {
     let htmlURL: URL
     let sourceSessionId: String?
+
+    /// Host that serves the launcher page (`/launch.html`) and the category
+    /// icons (`/icons/category/<name>.png`) the home-screen tile is pinned
+    /// from.
+    ///
+    /// Configure it with the `WebAppLauncherHost` Info.plist key — set
+    /// `INFOPLIST_KEY_WebAppLauncherHost` in
+    /// `Configs/ProviderCustomization.xcconfig`. No host means no launcher:
+    /// the sheet reports that the feature is unavailable instead of handing
+    /// the user off to a site this build does not own.
+    static var launcherHost: String {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "WebAppLauncherHost") as? String) ?? ""
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     @Environment(\.dismiss) private var dismiss
 
@@ -253,9 +267,12 @@ struct WebAppAddToHomeSheet: View {
     private func buildLauncherURL(classification: WebAppPathClassifier.Classified,
                                   title: String,
                                   category: LauncherCategory) -> URL? {
+        let host = Self.launcherHost
+        guard !host.isEmpty else { return nil }
+
         var components = URLComponents()
         components.scheme = "https"
-        components.host = "openminis.app"
+        components.host = host
         components.path = "/launch.html"
 
         var items: [URLQueryItem] = [
@@ -293,7 +310,7 @@ struct WebAppAddToHomeSheet: View {
 // MARK: - Launcher category
 
 /// The 16 home-screen-tile categories. Each one maps 1:1 to:
-///   - a PNG at openminis.app/icons/category/<rawValue>.png
+///   - a PNG served by the launcher host at /icons/category/<rawValue>.png
 ///   - the `(systemName, color)` pair shown in the iOS Category UI
 ///     (ContentView's session-category picker) so the sheet and the
 ///     home-screen tile feel like the same visual language.
@@ -384,7 +401,7 @@ private struct LauncherTilePreview: View {
             ZStack {
                 // Aurora-ish background — a lightweight on-device
                 // approximation; the actual home-screen tile uses the
-                // exact PNG from openminis.app.
+                // exact PNG served by the launcher host.
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(
                         LinearGradient(

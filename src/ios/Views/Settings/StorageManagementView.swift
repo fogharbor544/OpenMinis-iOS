@@ -6,7 +6,7 @@ import WebKit
 private let storageLogger = AppLogger(category: "Storage")
 
 class StorageManagementViewModel: ObservableObject {
-    /// [T-child-delete-storage] A top-level session with its hidden agent
+    /// [T-child-delete-storage] A user-facing session with its hidden agent
     /// children folded in (their ids, for cascading "clear files").
     typealias SessionStorage = SessionStorageLedger.Row
 
@@ -31,6 +31,9 @@ class StorageManagementViewModel: ObservableObject {
     @Published var staleRootfsSize: Int64 = 0
     @Published var otherSize: Int64 = 0
     @Published var containerTotalSize: Int64 = 0
+    /// Files of Bot-internal conversations (delegations and group-member
+    /// sessions) that intentionally have no row in the Sessions list.
+    @Published private(set) var internalSessionBytes: Int64 = 0
     /// [T-storage-session-cache] Per-session sizes from the last full scan,
     /// kept current by re-measuring only what an action touched.
     @Published private(set) var ledger = SessionStorageLedger()
@@ -56,7 +59,7 @@ class StorageManagementViewModel: ObservableObject {
         formatter.string(fromByteCount: bytes)
     }
 
-    var totalSessionSize: Int64 { ledger.totalBytes }
+    var totalSessionSize: Int64 { ledger.totalBytes + internalSessionBytes }
 
     // MARK: - Scanning
     //
@@ -236,6 +239,11 @@ class StorageManagementViewModel: ObservableObject {
 
             let chatSessions = await ChatStore.shared.listSessions()
             let sessionIds = Set(chatSessions.map(\.id))
+            // Delegation and group-member conversations are internal Bot
+            // sessions. They remain real ChatStore rows (and their files still
+            // count in "Session Files"), but they are not user-facing
+            // conversations and must not appear as separate storage rows.
+            let internalSessionIds = await MainActor.run { BotWorkspaceStore.shared.internalSessionIDs() }
             // [T-child-delete-storage] child → parent, to fold agent child
             // sessions onto their root parent's row.
             let parentOf: [String: String] = Dictionary(uniqueKeysWithValues:
@@ -303,14 +311,15 @@ class StorageManagementViewModel: ObservableObject {
                 tmpTotal += size
             }
 
-            // Rows: top-level sessions only; each carries its own files plus
-            // every descendant's. The global total below still sums raw
-            // per-directory sizes once, so nothing is counted twice.
+            // Rows: user-facing top-level sessions only; each carries its own
+            // files plus every hidden agent child's. The global total below
+            // still sums raw per-directory sizes once, so nothing is counted
+            // twice.
             let rolledUp = SessionTree.aggregateOntoRoots(minisSizes, parentOf: parentOf)
             var childrenOf: [String: [String]] = [:]
             for (c, p) in parentOf { childrenOf[p, default: []].append(c) }
             let rows: [SessionStorage] = chatSessions
-                .filter { !$0.isChild }
+                .filter { !$0.isChild && !internalSessionIds.contains($0.id) }
                 .map { session in
                     SessionStorage(
                         id: session.id,
@@ -322,6 +331,7 @@ class StorageManagementViewModel: ObservableObject {
             let ledger = SessionStorageLedger(rows: rows, directoryBytes: minisSizes)
 
             let sessionsTotal = minisSizes.values.reduce(0, +)
+            let internalBytes = max(0, sessionsTotal - ledger.totalBytes)
             let classified = shell + staleRootfs + db + logsCaches + tmpTotal + orphaned + sharedData + sessionsTotal
             // Residual, never negative: a file counted into two buckets would
             // otherwise render as a nonsensical negative "Other".
@@ -346,6 +356,7 @@ class StorageManagementViewModel: ObservableObject {
                 self.sharedDataSize = finalShared
                 self.otherSize = other
                 self.containerTotalSize = finalTotal
+                self.internalSessionBytes = internalBytes
                 self.ledger = ledger
                 self.isLoading = false
             }

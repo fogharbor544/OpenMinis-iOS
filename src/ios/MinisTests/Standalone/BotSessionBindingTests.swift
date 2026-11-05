@@ -11,6 +11,7 @@ actor ChatStore {
         return session
     }
     func remove(_ id: String) { sessions[id] = nil }
+    func deleteSession(_ id: String) { sessions[id] = nil }
     func count() -> Int { sessions.count }
     func getMemoryEnabled(sessionId: String) -> Bool { false }
 }
@@ -29,6 +30,8 @@ struct SessionModelBinding {
     func group(for id: String) -> TestGroup? { ["default", "alternate"].contains(id) ? TestGroup(id: id) : nil }
     func entry(for id: String) -> TestEntry? { TestEntry() }
     func setBinding(_ binding: SessionModelBinding, for id: String) { bindings[id] = binding }
+    func removeBinding(for id: String) { bindings[id] = nil }
+    func removeInferenceConfig(for id: String) {}
 }
 @MainActor enum ModelGroupRouter {
     static func resolve(group: TestGroup, sessionId: String, store: ProviderConfigStore) -> String? { group.id + "-entry" }
@@ -95,16 +98,17 @@ struct TestCapability { let id: String }
         precondition(pair.0 == replacement && pair.1 == replacement)
         let restoredWorkspace = BotWorkspaceStore(fileURL: file, seedCommander: false)
         precondition(restoredWorkspace.bot(bot.id)?.sessionId == replacement)
-        store.deleteBot(bot.id)
-        precondition(store.owner(forSession: replacement)?.botId == bot.id)
-        let preserved = await ChatStore.shared.getSession(groupID)
-        precondition(preserved != nil)
+        let ownedSessions = store.sessionIDsOwned(byBot: bot.id)
+        precondition(ownedSessions.contains(replacement) && ownedSessions.contains(groupID))
+        precondition(store.deleteBot(bot.id) != nil)
+        precondition(store.owner(forSession: replacement) == nil)
+        precondition(store.owner(forSession: groupID) == nil)
         let invalid = BotProfile(name: "No model", modelGroupId: "missing")
         precondition(store.save(invalid))
         do {
             _ = try await store.session(botID: invalid.id)
             fatalError("Invalid model group was accepted")
         } catch BotWorkspaceError.noModel {}
-        print("PASS: shipping Bot session reuse/reload, isolated group sessions, skill/MCP inheritance, model rebinding, deleted-session recovery and history preservation")
+        print("PASS: shipping Bot session reuse/reload, isolated group sessions, skill/MCP inheritance, model rebinding, deleted-session recovery and workspace ownership cleanup")
     }
 }

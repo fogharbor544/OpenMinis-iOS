@@ -90,7 +90,7 @@ final class ChatMessage {
         target.name = "设置助手"; precondition(store.save(target))
         let renamed = vm.botTimelineMessages([user, tool, final])[3]
         precondition(renamed === oldCard && renamed.content == "设置助手", "Same-length name edits refresh the card")
-        store.deleteBot(target.id)
+        precondition(store.deleteBot(target.id) != nil)
         precondition(vm.botTimelineMessages([user, tool, final]).count == 4)
         precondition(vm.botCreationMessages.isEmpty)
         print("PASS: shipping Bot timeline ordering, stable identity, deduplication, conversation isolation, empty-chat task/result refresh, onboarding dismissal, rename and deletion")

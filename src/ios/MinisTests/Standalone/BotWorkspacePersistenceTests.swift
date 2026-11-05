@@ -40,12 +40,67 @@ struct BotWorkspacePersistenceTests {
         precondition(settingsReload.bot(forSession: "group-copy")?.skillOverrides?["skill"] == false)
         precondition(settingsReload.bot(forSession: "group-session")?.connectorOverrides?["connector"] == false)
         precondition(!settingsReload.memoryEnabled(forSession: "group-session"))
-        reload.deleteBot(researcher.id)
+        precondition(reload.deleteBot(researcher.id) != nil)
         precondition(!reload.inheritOwner(for: "deleted-bot-copy", from: "group-session"))
-        precondition(BotWorkspaceStore(fileURL: file, seedCommander: false).owner(forSession: "group-session")?.botId == researcher.id)
+        precondition(reload.owner(forSession: "group-session") == nil)
+        precondition(reload.owner(forSession: "group-copy") == nil)
+        precondition(BotWorkspaceStore(fileURL: file, seedCommander: false).owner(forSession: "group-session") == nil)
         precondition(reload.room(room.id)?.members == [reviewer.id])
-        precondition(reload.room(room.id)?.messages.first?.speaker == "Researcher")
-        precondition(reload.room(room.id)?.sessions[researcher.id] == "group-session")
+        precondition(reload.room(room.id)?.messages.isEmpty == true)
+        precondition(reload.room(room.id)?.sessions[researcher.id] == nil)
+        precondition(!reload.append(BotRoomMessage(speaker: researcher.name, botId: researcher.id,
+                                                    text: "late", sessionId: "group-session"), to: room.id))
+        precondition(!reload.updateConversation("group-session") { $0.lastReadMessageID = "late" })
+        var disposableRoom = BotRoom(name: "Disposable", members: [reviewer.id])
+        disposableRoom.sessions[reviewer.id] = "room-delete-session"
+        precondition(reload.save(disposableRoom))
+        var roomOwned = reload.data
+        roomOwned.sessionOwners["room-delete-session"] = BotSessionOwner(
+            botId: reviewer.id, roomId: disposableRoom.id)
+        roomOwned.conversationStates["room-delete-session"] = BotConversationState()
+        precondition(reload.persist(roomOwned))
+        precondition(reload.sessionIDsOwned(byRoom: disposableRoom.id) == Set(["room-delete-session"]))
+        precondition(reload.deleteRoom(disposableRoom.id) != nil)
+        precondition(reload.room(disposableRoom.id) == nil)
+        precondition(reload.owner(forSession: "room-delete-session") == nil)
+        precondition(reload.data.conversationStates["room-delete-session"] == nil)
+        var worker = BotProfile(name: "Worker")
+        precondition(reload.save(worker))
+        var taskRoom = BotRoom(name: "Task Group", members: [reviewer.id])
+        taskRoom.sessions[reviewer.id] = "task-parent"
+        precondition(reload.save(taskRoom))
+        let task = BotDelegation(id: "room-task", fromBotID: reviewer.id, toBotID: worker.id,
+            fromName: reviewer.name, toName: worker.name, parentSessionID: "task-parent",
+            toolUseID: "call", title: "Task", task: "Do it")
+        var taskData = reload.data
+        taskData.sessionOwners["task-parent"] = BotSessionOwner(botId: reviewer.id, roomId: taskRoom.id)
+        taskData.sessionOwners["task-child"] = BotSessionOwner(botId: worker.id, delegationID: task.id)
+        var boundTask = task
+        boundTask.childSessionID = "task-child"
+        taskData.delegations = [boundTask]
+        precondition(reload.persist(taskData))
+        precondition(reload.sessionIDsOwned(byRoom: taskRoom.id).contains("task-child"))
+        precondition(reload.deleteRoom(taskRoom.id) != nil)
+        precondition(reload.owner(forSession: "task-parent") == nil)
+        precondition(reload.owner(forSession: "task-child") == nil)
+        precondition(reload.delegation(task.id) == nil)
+        var mixedRoom = BotRoom(name: "Mixed", members: [reviewer.id])
+        mixedRoom.sessions[reviewer.id] = "mixed-group"
+        mixedRoom.messages = [BotRoomMessage(speaker: reviewer.name, botId: reviewer.id,
+                                              text: "linked", sessionId: "worker-private")]
+        precondition(reload.save(mixedRoom))
+        var mixedData = reload.data
+        mixedData.sessionOwners["worker-private"] = BotSessionOwner(botId: worker.id)
+        precondition(reload.persist(mixedData))
+        precondition(!reload.sessionIDsOwned(byRoom: mixedRoom.id).contains("worker-private"))
+        precondition(reload.deleteRoom(mixedRoom.id) != nil)
+        precondition(reload.owner(forSession: "worker-private")?.botId == worker.id)
+        var legacyRoom = BotRoom(name: "Legacy", members: [reviewer.id])
+        legacyRoom.messages = [BotRoomMessage(speaker: reviewer.name, botId: reviewer.id,
+                                             text: "old", sessionId: "legacy-bot-session")]
+        precondition(reload.save(legacyRoom))
+        precondition(reload.sessionIDsOwned(byBot: reviewer.id).contains("legacy-bot-session"))
+        precondition(reload.deleteRoom(legacyRoom.id) != nil)
         var duplicate = room
         duplicate.members = [reviewer.id, reviewer.id]
         precondition(!reload.save(duplicate))
@@ -81,7 +136,7 @@ struct BotWorkspacePersistenceTests {
         precondition(team.save(specialist))
         let savedTeam = BotWorkspaceStore(fileURL: root.appendingPathComponent("fresh.json"), seedCommander: false)
         precondition(savedTeam.data.bots == [specialist])
-        savedTeam.deleteBot(specialist.id)
+        precondition(savedTeam.deleteBot(specialist.id) != nil)
         precondition(savedTeam.data.bots.isEmpty)
         precondition(savedTeam.save(reviewer))
         precondition(savedTeam.capabilitySessionID(for: "ordinary-helper", parentSessionID: "parent-chat") == "parent-chat")
@@ -189,6 +244,6 @@ struct BotWorkspacePersistenceTests {
         let persistedData = try Data(contentsOf: unreadURL)
         let persistedWorkspace = try JSONDecoder().decode(BotWorkspaceData.self, from: persistedData)
         precondition(persistedWorkspace.conversationStates["destination-chat"]?.lastReadMessageID == "latest")
-        print("PASS: Bot/room persistence, order, session mapping, deletion preservation, interrupted rounds and corrupt-store protection")
+        print("PASS: Bot/room persistence, order, session mapping, deletion cleanup, interrupted rounds and corrupt-store protection")
     }
 }

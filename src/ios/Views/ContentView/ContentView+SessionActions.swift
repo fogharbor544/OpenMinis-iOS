@@ -28,9 +28,9 @@ extension ContentView {
     }
 
     /// [T-child-delete-storage] Before the rows go: stop every running agent
-    /// under these sessions and drop their in-memory state, for the
-    /// selection AND its descendants (the store's delete funnel removes rows
-    /// and the whole per-session directory for each of them).
+    /// under these sessions and drop their in-memory and side-channel state,
+    /// for the selection AND its descendants (the store's delete funnel
+    /// removes rows and the whole per-session directory for each of them).
     static func tearDownForDeletion(_ ids: Set<String>) async {
         let all = await ChatStore.shared.sessionIdsWithDescendants(ids)
         for sid in all {
@@ -43,6 +43,10 @@ extension ContentView {
             AgentJobRegistry.shared.cancelScheduled(createdBy: sid, reason: "sessionDeleted", silent: true)
             ViewModelCache.shared.remove(sessionId: sid)
             BrowserUseOffloadBridge.releasePool(forSession: sid)
+            ProviderConfigStore.shared.removeBinding(for: sid)
+            ProviderConfigStore.shared.removeInferenceConfig(for: sid)
+            OffloadPermissionManager.shared.resetSessionGrants(for: sid)
+            SessionLockStore.shared.unlockPermanently(sid)
         }
     }
 

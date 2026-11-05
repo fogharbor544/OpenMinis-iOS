@@ -147,7 +147,7 @@ struct AboutView: View {
             // exception is conditional on the distribution conveying the
             // license text and the corresponding source. Without this the
             // app ships a GPL work with no way to reach either.
-            Section("Open Source Licenses") {
+            Section {
                 licenseLink(
                     "This App (GPL-3.0)",
                     "https://github.com/fogharbor544/OpenMinis-iOS/blob/main/LICENSE")
@@ -157,6 +157,8 @@ struct AboutView: View {
                 licenseLink(
                     "iSH App Store Exception",
                     "https://github.com/fogharbor544/OpenMinis-iOS/blob/main/deps/ish/LICENSE.IOS")
+            } header: {
+                Text("Open Source Licenses")
             } footer: {
                 Text("Minis links iSH (GPL-3.0). Its source, the full license texts and every third-party notice are in the repository above.")
                     .font(.caption)

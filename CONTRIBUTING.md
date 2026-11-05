@@ -21,9 +21,9 @@ Everything else. The product is shaped by what people report:
   crashes, papercuts, feature requests, questions about behaviour. A clear
   report is worth more to us than a patch, because it tells us what to build.
 - **Share what you have built** — real workflows and use cases go in
-  **[AwesomeMinis](https://github.com/fogharbor544/AwesomeMinis)**, which does
+  **[AwesomeMinis](https://github.com/OpenMinis/AwesomeMinis)**, which does
   take contributions.
-- **Write a skill** — **[MinisSkills](https://github.com/fogharbor544/MinisSkills)**
+- **Write a skill** — **[MinisSkills](https://github.com/OpenMinis/MinisSkills)**
   also takes contributions, and skills are how most people extend Minis
   without touching the app at all.
 - **Talk to us** — [fogharbor544/OpenMinis-iOS](https://github.com/fogharbor544/OpenMinis-iOS)

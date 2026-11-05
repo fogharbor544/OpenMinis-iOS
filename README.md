@@ -50,7 +50,7 @@ A few things people actually use it for:
 - **Share anything into a calendar event** — send a page or message to Minis via the
   iOS Share Sheet and it creates the event, time and place included.
 
-**→ [fogharbor544/AwesomeMinis](https://github.com/fogharbor544/AwesomeMinis)** — a curated,
+**→ [OpenMinis/AwesomeMinis](https://github.com/OpenMinis/AwesomeMinis)** — a curated,
 community-contributed collection of use cases and workflows across health,
 productivity, research, finance and developer tooling.
 
@@ -68,7 +68,7 @@ for it: **skills built for Claude, Codex, OpenClaw or Hermes Agent generally run
 Minis as-is.** Skills that have been adapted to Minis' tools simply run better —
 they can reach the Linux shell, device integrations and native offloads directly.
 
-**→ [fogharbor544/MinisSkills](https://github.com/fogharbor544/MinisSkills)** — skills
+**→ [OpenMinis/MinisSkills](https://github.com/OpenMinis/MinisSkills)** — skills
 adapted for Minis alongside ones built for it from scratch, covering TTS, search,
 media downloads, health analysis, cloud APIs and more.
 
@@ -177,6 +177,6 @@ licenses are listed in
 
 Development happens directly on `main` in this repository, so it **does not
 take pull requests** — there is nowhere for them to land. Issues are the way
-to shape the product, and [AwesomeMinis](https://github.com/fogharbor544/AwesomeMinis)
-and [MinisSkills](https://github.com/fogharbor544/MinisSkills) both do take
+to shape the product, and [AwesomeMinis](https://github.com/OpenMinis/AwesomeMinis)
+and [MinisSkills](https://github.com/OpenMinis/MinisSkills) both do take
 contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).

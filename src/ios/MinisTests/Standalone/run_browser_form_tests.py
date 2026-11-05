@@ -10,19 +10,35 @@ source = (root / 'Agent/BrowserUse/BrowserPasswords.swift').read_text(encoding='
 scripts = re.findall(r'callAsyncJavaScript\("""\n(.*?)\n\s*""", arguments:', source, re.S)
 assert len(scripts) == 2
 capture, fill = scripts
+manager = (root / 'Agent/BrowserUse/BrowserUseManager.swift').read_text(encoding='utf-8')
+post_login = re.search(r'nonisolated static func credentialCaptureScript\(\).*?let js = """\n(.*?)\n\s*"""', manager, re.S).group(1)
+post_login = post_login.replace(r'\(credentialSaveMessageHandlerName)', 'minisCredentialSave')
 secure_fill = re.search(r'// BEGIN NativeSecureFillScript.*?static let fillScript = """\n(.*?)\n\s*"""', source, re.S).group(1)
 program = '''import AppKit
 import WebKit
 
-@MainActor final class Page: NSObject, WKNavigationDelegate {
+@MainActor final class Page: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    var messages: [[String: Any]] = []
     let web: WKWebView
     var ready: CheckedContinuation<Void, Error>?
     override init() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
+        config.userContentController.addUserScript(WKUserScript(source: """
+''' + post_login + '''
+""", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         web = WKWebView(frame: CGRect(x: 0, y: 0, width: 800, height: 600), configuration: config)
         super.init()
+        config.userContentController.add(self, name: "minisCredentialSave")
         web.navigationDelegate = self
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if let body = message.body as? [String: Any] { messages.append(body) }
+    }
+    func waitForMessages(_ count: Int) async throws {
+        let deadline = Date().addingTimeInterval(3)
+        while messages.count < count && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        precondition(messages.count == count, "post-login bridge message count")
     }
     func load(_ html: String) async throws {
         try await withCheckedThrowingContinuation { continuation in
@@ -110,6 +126,22 @@ import WebKit
         otpArgs["origin"] = "https://other.example"
         let crossOrigin = try await page.web.callAsyncJavaScript(secureFill, arguments: otpArgs, in: nil, contentWorld: .defaultClient)
         precondition(crossOrigin as? Bool == false)
+        let loginHTML = """
+        <form><input id="noise" type="text" value="unrelated search">
+        <input id="account" name="username" value="implicit-user">
+        <input id="loginSecret" type="password" value="synthetic-login">
+        <button type="button" onclick="this.form.reset();document.querySelector('#loginSecret').value=''">Sign in</button></form>
+        """
+        page.messages.removeAll()
+        try await page.load(loginHTML)
+        _ = try await page.web.evaluateJavaScript("document.querySelector('button').click();true")
+        try await page.waitForMessages(1)
+        precondition(page.messages[0]["username"] as? String == "implicit-user")
+        precondition(page.messages[0]["password"] as? String == "synthetic-login")
+        _ = try await page.web.evaluateJavaScript("document.querySelector('#account').name='';document.querySelector('#account').autocomplete='section-login username';document.querySelector('#account').value='semantic-user';document.querySelector('#loginSecret').value='second-login';document.querySelector('button').click();true")
+        try await page.waitForMessages(2)
+        precondition(page.messages[1]["username"] as? String == "semantic-user")
+        precondition(page.messages[1]["password"] as? String == "second-login")
         print("PASS: real WebKit capture/fill, native password/OTP masking and erasure, no auto-submit, origin mismatch, invalid field rejection")
     }
 }

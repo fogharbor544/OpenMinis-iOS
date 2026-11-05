@@ -12,6 +12,39 @@ final class BrowserCredentialOriginTests: XCTestCase {
         XCTAssertNil(BrowserCredentialStore.origin(for: "file:///tmp/login.html"))
         XCTAssertNil(BrowserCredentialStore.origin(for: "about:blank"))
     }
+    @MainActor
+    func testCredentialOriginUsesActualFrameInsteadOfClaimedWebsite() {
+        XCTAssertEqual(BrowserUseManager.credentialOrigin(declared: "https://example.com", scheme: "https", host: "example.com", port: 443), "https://example.com")
+        XCTAssertNil(BrowserUseManager.credentialOrigin(declared: "https://example.com", scheme: "https", host: "attacker.example", port: 443))
+        XCTAssertNil(BrowserUseManager.credentialOrigin(declared: "https://example.com", scheme: "http", host: "example.com", port: 80))
+        XCTAssertNil(BrowserUseManager.credentialOrigin(declared: "https://example.com", scheme: "https", host: "example.com", port: 8443))
+    }
+
+    @MainActor
+    func testCredentialBridgeSurvivesBothWebViewRebuilds() async throws {
+        let manager = BrowserUseManager()
+        for rebuild in 0..<3 {
+            if rebuild == 1 { _ = manager.setUserAgent(profile: .mobileSafari) }
+            if rebuild == 2 { manager.setViewport(width: 800, height: 600, profile: .mobileSafari, customUA: nil) }
+            let registered = try await manager.webView.evaluateJavaScript("Boolean(window.webkit && window.webkit.messageHandlers.minisCredentialSave)")
+            XCTAssertEqual(registered as? Bool, true)
+        }
+    }
+
+    @MainActor
+    func testClosingTabEndsSavePromptAndReleasesGlobalOwner() {
+        let pool = BrowserTabPool()
+        _ = pool.newTab()
+        let manager = pool.activeManager!
+        let prompt = BrowserCredentialSavePromptSession(manager: manager, origin: "https://synthetic.example", username: "synthetic", password: UUID().uuidString)
+        manager.credentialSavePrompt = prompt
+        BrowserUseManager.credentialSaveManager = manager
+        _ = pool.closeTab(id: pool.selectedTabId)
+        XCTAssertNil(manager.credentialSavePrompt)
+        XCTAssertNil(BrowserUseManager.credentialSaveManager)
+        prompt.finish("cancelled")
+    }
+
 }
 
 @MainActor
@@ -27,11 +60,12 @@ private final class BrowserTestVault: BrowserCredentialVault {
 
 final class BrowserPasswordFileTests: XCTestCase {
     @MainActor
-    func testExplicitImportNeverModifiesSourceFile() async throws {
+    func testImportedSourceStaysLinkedAndRollsBackOnKeychainFailure() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("vault.json")
+        let shared = root.appendingPathComponent("shared.json")
         let initial = UUID().uuidString
         let object: [String: Any] = ["version": 1, "accounts": [
             ["website": "https://example.com/login", "username": "test-user", "password": initial],
@@ -39,17 +73,18 @@ final class BrowserPasswordFileTests: XCTestCase {
         ]]
         try JSONSerialization.data(withJSONObject: object).write(to: file)
         let vault = BrowserTestVault()
-        let store = BrowserCredentialStore(vault: vault, authenticate: { true })
+        let store = BrowserCredentialStore(vault: vault, sharedVaultURL: shared, authenticate: { true })
         await store.unlock()
         XCTAssertTrue(store.entries.isEmpty)
         XCTAssertTrue(store.importFile(file))
         XCTAssertEqual(store.entries.count, 2)
         var entry = try XCTUnwrap(store.entries.first { $0.username == "test-user" })
-        entry.password = UUID().uuidString
+        let updated = UUID().uuidString
+        entry.password = updated
         XCTAssertTrue(store.save(entry))
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
         XCTAssertEqual(saved["version"] as? Int, 1)
-        XCTAssertEqual((saved["accounts"] as? [[String: String]])?.first?["password"], initial)
+        XCTAssertEqual((saved["accounts"] as? [[String: String]])?.first?["password"], updated)
         let beforeFailure = try Data(contentsOf: file)
         vault.failWrites = true
         store.delete(entry)
@@ -59,10 +94,38 @@ final class BrowserPasswordFileTests: XCTestCase {
         vault.failWrites = false
         store.delete(entry)
         XCTAssertEqual(store.entries.count, 1)
+        let afterDelete = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        let remaining = try XCTUnwrap(afterDelete["accounts"] as? [[String: String]])
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?["username"], "other")
         store.lock()
         await store.unlock()
         XCTAssertEqual(store.entries.map(\.username), ["other"])
-        XCTAssertEqual(try Data(contentsOf: file), beforeFailure)
+    }
+
+    @MainActor
+    func testUnlockImportsSharedVaultAndMirrorsDeletion() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shared = root.appendingPathComponent("vault.json")
+        let secret = UUID().uuidString
+        let object: [String: Any] = ["version": 1, "accounts": [
+            ["website": "https://example.com/login", "username": "shared-user", "password": secret]
+        ]]
+        try JSONSerialization.data(withJSONObject: object).write(to: shared)
+        let store = BrowserCredentialStore(vault: BrowserTestVault(), sharedVaultURL: shared,
+                                           authenticate: { true })
+        await store.unlock()
+        let entry = try XCTUnwrap(store.entries.first)
+        XCTAssertEqual(entry.username, "shared-user")
+        XCTAssertEqual(entry.password, secret)
+        XCTAssertTrue(entry.isSharedVault == true)
+        XCTAssertNil(entry.sourceBookmark)
+        store.delete(entry)
+        XCTAssertTrue(store.entries.isEmpty)
+        let afterDelete = try JSONSerialization.jsonObject(with: Data(contentsOf: shared)) as! [String: Any]
+        XCTAssertEqual((afterDelete["accounts"] as? [[String: String]])?.count, 0)
     }
 
     @MainActor
@@ -71,8 +134,10 @@ final class BrowserPasswordFileTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("vault.json")
+        let shared = root.appendingPathComponent("shared.json")
         try JSONSerialization.data(withJSONObject: ["example.com": ["account": "user", "password": UUID().uuidString]]).write(to: file)
-        let store = BrowserCredentialStore(vault: BrowserTestVault(), authenticate: { true })
+        let store = BrowserCredentialStore(vault: BrowserTestVault(), sharedVaultURL: shared,
+                                           authenticate: { true })
         await store.unlock()
         XCTAssertTrue(store.entries.isEmpty)
         XCTAssertTrue(store.importFile(file))
@@ -120,7 +185,8 @@ final class BrowserSecureSessionTests: XCTestCase {
     func testSaveRequiresLoginConfirmationAndTruthfulAuthenticationAndWriteResults() async throws {
         let manager = BrowserUseManager()
         let vault = BrowserTestVault()
-        let denied = BrowserCredentialStore(vault: vault, authenticate: { false })
+        let shared = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        let denied = BrowserCredentialStore(vault: vault, sharedVaultURL: shared, authenticate: { false })
         var statuses: [String] = []
         let refused = BrowserSecureInputSession(manager: manager, origin: "https://example.com",
             requester: "Synthetic Bot", purpose: "Test", selector: "#password", kind: .password,
@@ -133,7 +199,7 @@ final class BrowserSecureSessionTests: XCTestCase {
         refused.finish("cancelled")
         statuses.removeAll()
 
-        let store = BrowserCredentialStore(vault: vault, authenticate: { true })
+        let store = BrowserCredentialStore(vault: vault, sharedVaultURL: shared, authenticate: { true })
         let session = BrowserSecureInputSession(manager: manager, origin: "https://example.com",
             requester: "Synthetic Bot", purpose: "Test", selector: "#password", kind: .password,
             store: store) { statuses.append($0) }
@@ -166,7 +232,8 @@ final class BrowserSecureSessionTests: XCTestCase {
     func testPINAndOTPDoNotOfferPersistence() async {
         for kind in [BrowserSecureInputSession.Kind.pin, .otp] {
             let vault = BrowserTestVault()
-            let store = BrowserCredentialStore(vault: vault, authenticate: { true })
+            let shared = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+            let store = BrowserCredentialStore(vault: vault, sharedVaultURL: shared, authenticate: { true })
             let session = BrowserSecureInputSession(manager: BrowserUseManager(), origin: "https://example.com",
                 requester: "Synthetic Bot", purpose: "Test", selector: "#code", kind: kind,
                 store: store) { _ in }

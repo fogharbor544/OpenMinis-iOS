@@ -127,6 +127,42 @@ struct PendingFolderAddition: Sendable {
     let userAllowWrite: Bool
 }
 
+// BEGIN MountBookmarkResolution
+/// FileProvider bookmark resolution is synchronous and cannot be cancelled.
+/// A one-shot gate lets the caller time out without joining that blocked work.
+private final class MountBookmarkResolution: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, Bool), Error>?
+
+    private init(_ continuation: CheckedContinuation<(URL, Bool), Error>) {
+        self.continuation = continuation
+    }
+
+    private func finish(_ result: Result<(URL, Bool), Error>) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(with: result)
+    }
+
+    static func resolve(timeout: TimeInterval = 5,
+                        operation: @escaping @Sendable () throws -> (URL, Bool)) async throws -> (URL, Bool) {
+        try await withCheckedThrowingContinuation { continuation in
+            let resolution = MountBookmarkResolution(continuation)
+            DispatchQueue.global(qos: .userInitiated).async {
+                do { resolution.finish(.success(try operation())) }
+                catch { resolution.finish(.failure(error)) }
+            }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
+                resolution.finish(.failure(NSError(domain: "MountBookmarkResolution", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "文件夹激活超时，请确认文件提供器在线后重试。"])))
+            }
+        }
+    }
+}
+// END MountBookmarkResolution
+
 /// Singleton that owns mount metadata + active security scopes.
 ///
 /// All mutating operations are main-actor-isolated; read access (`list`,
@@ -331,7 +367,14 @@ final class MountedFoldersManager {
             throw AddError.bookmarkFailed(error.localizedDescription)
         }
         let writable = await Self.probeWritableInBackground(at: url)
-        return try finishAdd(pending: pending, bookmark: bookmark, writable: writable)
+        do {
+            return try finishAdd(pending: pending, bookmark: bookmark, writable: writable)
+        } catch AddError.scopeDenied {
+            // Keep the caller's progress/error flow alive until activation is known.
+            let (resolved, _) = try await Self.resolveBookmark(bookmark)
+            try Task.checkCancellation()
+            return try finishAdd(pending: pending, bookmark: bookmark, writable: writable, activationURL: resolved)
+        }
     }
 
     private nonisolated static func createBookmark(at url: URL) throws -> Data {
@@ -348,10 +391,13 @@ final class MountedFoldersManager {
     private func finishAdd(
         pending: PendingFolderAddition,
         bookmark: Data,
-        writable: Bool
+        writable: Bool,
+        activationURL: URL? = nil
     ) throws -> MountedFolderEntry {
         let name = pending.customName.trimmingCharacters(in: .whitespaces)
         let pickedURL = pending.url
+        let activeURL = activationURL ?? pickedURL
+        guard activeURL.startAccessingSecurityScopedResource() else { throw AddError.scopeDenied }
 
         let entry = MountedFolderEntry(
             id: UUID(),
@@ -365,12 +411,10 @@ final class MountedFoldersManager {
         entries.append(entry)
         save()
 
-        // Activate immediately so it's usable without restart.
-        activate(entry: entry)
-        // Create/refresh the fakefs symlink so FileBrowserView sees it.
+        activeURLs[entry.id] = activeURL
+        activationStates[entry.id] = .active(resolvedURL: activeURL)
+        cacheCanonicalPath(for: entry.id, url: activeURL)
         AIChatViewModel.refreshMountedFolderSymlinks()
-        // Register the new mount with the iSH kernel bind-mount table so the
-        // shell can read/write it directly (no-op if kernel not booted).
         pushExternalMountSnapshot()
         mountLog.info("added mount '\(entry.name)' -> \(pickedURL.lastPathComponent)")
         return entry
@@ -597,54 +641,22 @@ final class MountedFoldersManager {
     /// user-visible symptom was a mounted folder appearing in `ls` but
     /// `cd` returning ENOENT because the host scope was never acquired and
     /// `pushExternalMountSnapshot` dropped it via `compactMap`. The fix below
-    /// uses a single `Task` for the resolve and races it against
-    /// `Task.sleep` — the `Result` lives entirely inside one task, so there
-    /// is no cross-thread shared mutable state.
+    /// uses a one-shot continuation, so timing out never waits for blocked XPC.
+    private nonisolated static func resolveBookmark(_ bookmark: Data) async throws -> (URL, Bool) {
+        try await MountBookmarkResolution.resolve {
+            var stale = false
+            let url = try URL(resolvingBookmarkData: bookmark, options: [],
+                              relativeTo: nil, bookmarkDataIsStale: &stale)
+            return (url, stale)
+        }
+    }
+
     private static func resolveAndCommit(entry: MountedFolderEntry) async {
         let idPrefix = String(entry.id.uuidString.prefix(8))
         let started = Date()
-        mountLog.info("resolveAndCommit '\(entry.name)' [\(idPrefix)] start — bookmark=\(entry.bookmark.count)B")
-        let timeoutNanos: UInt64 = 5 * 1_000_000_000
-
-        let resolveTask = Task.detached(priority: .userInitiated) { () -> (URL, Bool) in
-            var stale = false
-            let u = try URL(
-                resolvingBookmarkData: entry.bookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &stale
-            )
-            return (u, stale)
-        }
-
-        let timeoutTask = Task.detached(priority: .utility) { () -> (URL, Bool)? in
-            try? await Task.sleep(nanoseconds: timeoutNanos)
-            return nil
-        }
-
-        // Race: whichever finishes first wins. We deliberately don't cancel
-        // the resolve task on timeout — `URL(resolvingBookmarkData:)` is a
-        // synchronous XPC call and cannot be cancelled; let it finish in the
-        // background and drop its result.
-        let outcome: Result<(URL, Bool), Error>? = await withTaskGroup(
-            of: ResolveOutcome.self
-        ) { group in
-            group.addTask {
-                do { return .resolved(try await resolveTask.value) }
-                catch { return .failed(error) }
-            }
-            group.addTask {
-                _ = await timeoutTask.value
-                return .timedOut
-            }
-            defer { group.cancelAll() }
-            guard let first = await group.next() else { return nil }
-            switch first {
-            case .resolved(let v): return .success(v)
-            case .failed(let e): return .failure(e)
-            case .timedOut: return nil
-            }
-        }
+        let outcome: Result<(URL, Bool), Error>
+        do { outcome = .success(try await resolveBookmark(entry.bookmark)) }
+        catch { outcome = .failure(error) }
 
         let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
         await MainActor.run {
@@ -660,10 +672,6 @@ final class MountedFoldersManager {
             }
 
             switch outcome {
-            case .none:
-                let msg = "resolve timed out after 5s (FileProvider unresponsive)"
-                manager.activationStates[entry.id] = .failed(msg)
-                mountLog.warning("activate '\(entry.name)' [\(idPrefix)] \(msg) (elapsed=\(elapsedMs)ms)")
             case .failure(let error):
                 manager.activationStates[entry.id] = .failed(error.localizedDescription)
                 mountLog.warning("activate '\(entry.name)' [\(idPrefix)] resolve failed: \(error.localizedDescription) (elapsed=\(elapsedMs)ms)")
@@ -672,12 +680,6 @@ final class MountedFoldersManager {
                 manager.commitResolved(entry: entry, url: url, stale: stale)
             }
         }
-    }
-
-    private enum ResolveOutcome {
-        case resolved((URL, Bool))
-        case failed(Error)
-        case timedOut
     }
 
     /// Main-actor tail of `resolveAndCommit`: start the security scope, record

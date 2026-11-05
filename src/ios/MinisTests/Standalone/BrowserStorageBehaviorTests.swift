@@ -18,6 +18,7 @@ struct BrowserStorageBehaviorTests {
     static func main() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
+        let shared = root.appendingPathComponent("shared-vault.json")
         let file = root.appendingPathComponent("bookmarks.json")
         let bookmarks = BrowserBookmarkStore(fileURL: file)
         var bookmark = BrowserBookmark(title: "Page", url: "https://example.com/a")
@@ -43,10 +44,10 @@ struct BrowserStorageBehaviorTests {
         precondition(!failed.save(bookmark) && failed.entries.isEmpty)
 
         let vault = MemoryCredentialVault()
-        let denied = BrowserCredentialStore(vault: vault, authenticate: { false })
+        let denied = BrowserCredentialStore(vault: vault, sharedVaultURL: shared, authenticate: { false })
         await denied.unlock()
         precondition(!denied.isUnlocked && vault.reads == 0)
-        let passwords = BrowserCredentialStore(vault: vault, authenticate: { true })
+        let passwords = BrowserCredentialStore(vault: vault, sharedVaultURL: shared, authenticate: { true })
         await passwords.unlock()
         var first = BrowserCredential(origin: "https://EXAMPLE.com:443/login", username: "one", password: "test-only-one")
         precondition(passwords.save(first))
@@ -81,23 +82,80 @@ struct BrowserStorageBehaviorTests {
         var imported = passwords.entries.first { $0.origin == "https://import.example" }!
         imported.password = UUID().uuidString
         precondition(passwords.save(imported))
-        let afterEdit = try Data(contentsOf: sourceFile)
-        precondition(afterEdit == sourceData)
+        let afterEdit = try JSONSerialization.jsonObject(with: Data(contentsOf: sourceFile)) as! [[String: String]]
+        precondition(afterEdit.first?["password"] == imported.password)
         passwords.delete(imported)
-        let afterDelete = try Data(contentsOf: sourceFile)
-        precondition(afterDelete == sourceData)
+        let afterDelete = try JSONSerialization.jsonObject(with: Data(contentsOf: sourceFile)) as! [[String: String]]
+        precondition(afterDelete.isEmpty)
+        try sourceData.write(to: sourceFile)
         vault.failWrites = true
         precondition(!passwords.importFile(sourceFile))
         precondition(!passwords.entries.contains { $0.origin == "https://import.example" })
         vault.failWrites = false
+        // A linked record must never silently become a Keychain-only edit.
+        precondition(passwords.importFile(sourceFile))
+        var staleEntry = passwords.entries.first { $0.origin == "https://import.example" }!
+        let renamedData = try JSONSerialization.data(withJSONObject: [["origin": "https://import.example", "username": "renamed", "password": UUID().uuidString]])
+        try renamedData.write(to: sourceFile)
+        let beforeConflict = vault.data
+        staleEntry.password = UUID().uuidString
+        precondition(!passwords.save(staleEntry), "renamed source must reject stale edit")
+        let afterConflict = try Data(contentsOf: sourceFile)
+        precondition(vault.data == beforeConflict && afterConflict == renamedData)
+        try FileManager.default.removeItem(at: sourceFile)
+        precondition(!passwords.save(staleEntry), "missing source must reject stale edit")
+        precondition(vault.data == beforeConflict)
+
+        // Nested/domain empty collections are valid and clear only shared rows.
+        let sharedVault = MemoryCredentialVault()
+        let live = BrowserCredentialStore(vault: sharedVault, sharedVaultURL: shared, authenticate: { true })
+        let sharedRows: [String: Any] = ["example.com": [["username": "one", "password": UUID().uuidString]]]
+        try JSONSerialization.data(withJSONObject: sharedRows).write(to: shared)
+        await live.unlock()
+        precondition(live.entries.count == 1 && live.entries[0].sourceBookmark == nil)
+        let monitor = Task { await live.monitorSharedVault() }
+        let sharedID = live.entries[0].id
+        live.refreshSharedVault()
+        precondition(live.entries[0].id == sharedID)
+        let emptyRows: [String: Any] = ["metadata": ["version": 1], "nested": ["example.com": []]]
+        try JSONSerialization.data(withJSONObject: emptyRows).write(to: shared)
+        let refreshDeadline = Date().addingTimeInterval(3)
+        while !live.entries.isEmpty && Date() < refreshDeadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        precondition(live.entries.isEmpty && live.errorMessage == nil, "visible monitor must apply empty nested vault")
+        let namedRows: [String: Any] = ["accounts": ["primary": [["origin": "https://example.com", "username": "named", "password": UUID().uuidString]]]]
+        try JSONSerialization.data(withJSONObject: namedRows).write(to: shared)
+        live.refreshSharedVault()
+        precondition(live.entries.count == 1)
+        let namedEmpty: [String: Any] = ["accounts": ["primary": []]]
+        try JSONSerialization.data(withJSONObject: namedEmpty).write(to: shared)
+        live.refreshSharedVault()
+        precondition(live.entries.isEmpty && live.errorMessage == nil, "recognized parent collection must permit empty named children")
+        try JSONSerialization.data(withJSONObject: ["unrelated": []]).write(to: shared)
+        live.refreshSharedVault()
+        precondition(live.errorMessage != nil, "unrecognized empty collection must not clear vault")
+        try Data("{invalid".utf8).write(to: shared)
+        live.refreshSharedVault()
+        precondition(live.errorMessage != nil)
+        try JSONSerialization.data(withJSONObject: ["unrelated": "data"]).write(to: shared)
+        live.refreshSharedVault()
+        precondition(live.errorMessage != nil, "unrelated JSON must not clear vault")
+        try JSONSerialization.data(withJSONObject: sharedRows).write(to: shared)
+        live.refreshSharedVault()
+        precondition(live.entries.count == 1)
+        try FileManager.default.removeItem(at: shared)
+        live.refreshSharedVault()
+        precondition(live.entries.isEmpty, "deleted shared vault must remove stale shared rows")
+        monitor.cancel()
+        await monitor.value
+        live.lock()
         vault.data = Data("bad-json".utf8)
-        let corrupted = BrowserCredentialStore(vault: vault, authenticate: { true })
+        let corrupted = BrowserCredentialStore(vault: vault, sharedVaultURL: shared, authenticate: { true })
         await corrupted.unlock()
         precondition(!corrupted.isUnlocked && !corrupted.save(second))
         precondition(vault.data == Data("bad-json".utf8))
 
         var completeAuth: CheckedContinuation<Bool, Never>?
-        let late = BrowserCredentialStore(vault: MemoryCredentialVault(), authenticate: {
+        let late = BrowserCredentialStore(vault: MemoryCredentialVault(), sharedVaultURL: shared, authenticate: {
             await withCheckedContinuation { completeAuth = $0 }
         })
         let unlock = Task { await late.unlock() }

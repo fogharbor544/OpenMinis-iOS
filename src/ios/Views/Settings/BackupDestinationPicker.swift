@@ -73,8 +73,11 @@ struct BackupDestinationPicker: View {
                 }
             }
             .sheet(isPresented: $showFolderPicker) {
-                BackupFolderPicker { url in
+                BackupFolderPicker(onPick: { url in
                     guard !isAddingFolder else { return }
+                    // The picker is the sheet's root controller, so UIKit does not
+                    // clear this SwiftUI binding when the user taps Open.
+                    showFolderPicker = false
                     isAddingFolder = true
                     Task { @MainActor in
                         defer { isAddingFolder = false }
@@ -86,7 +89,9 @@ struct BackupDestinationPicker: View {
                             errorText = error.localizedDescription
                         }
                     }
-                }
+                }, onCancel: {
+                    showFolderPicker = false
+                })
             }
             .onAppear(perform: reload)
         }

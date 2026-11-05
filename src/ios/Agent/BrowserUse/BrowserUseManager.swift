@@ -30,6 +30,10 @@ final class BrowserUseManager: NSObject, ObservableObject {
     @Published var secureInputSession: BrowserSecureInputSession?
     var secureInputRequester: String?
     var isSecureInputActive: Bool { secureInputProtected || secureInputSession != nil }
+    static weak var credentialSaveManager: BrowserUseManager?
+    /// Native save prompt shown after a login form submits. Holds the candidate
+    /// credential only in memory until the user accepts or dismisses it.
+    var credentialSavePrompt: BrowserCredentialSavePromptSession?
     private var secureCleanupNavigation: WKNavigation?
     private var secureCleanupTimeout: Task<Void, Never>?
     private var manualNavigationTimeout: Task<Void, Never>?
@@ -147,6 +151,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         webView.navigationDelegate = self
         webView.uiDelegate = self
         registerPrintHandler(on: webView)
+        registerCredentialSaveHandler(on: webView)
     }
 
     /// The user-agent string this tab's page requests are sent with. Lets the
@@ -159,6 +164,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         self.currentProfile = profile
         let vp = Self.resolveViewport(profile: profile, width: viewportWidth, height: viewportHeight)
         self.currentViewport = vp
+        configuration.userContentController.addUserScript(Self.credentialCaptureScript())
         let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: vp.width, height: vp.height), configuration: configuration)
         wv.customUserAgent = Self.resolveUA(profile: profile, customString: customString)
         wv.allowsBackForwardNavigationGestures = true
@@ -167,6 +173,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         webView.navigationDelegate = self
         webView.uiDelegate = self
         registerPrintHandler(on: webView)
+        registerCredentialSaveHandler(on: webView)
     }
 
     private static func resolveViewport(profile: UserAgentProfile,
@@ -206,6 +213,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // every page (minis:// and external http/https) at document start so a
         // print button works even if it fires before the page finishes loading.
         config.userContentController.addUserScript(printBridgeScript())
+        config.userContentController.addUserScript(credentialCaptureScript())
 
         let vp = resolveViewport(profile: profile, width: viewportWidth, height: viewportHeight)
 
@@ -275,6 +283,74 @@ final class BrowserUseManager: NSObject, ObservableObject {
         return WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true)
     }
 
+    nonisolated static let credentialSaveMessageHandlerName = "minisCredentialSave"
+
+    /// Detect a submitted login form and hand the candidate credential to the
+    /// native save prompt. This is the manual-login counterpart to the secure
+    /// input card, which only runs when the agent explicitly requests a secret.
+    nonisolated static func credentialCaptureScript() -> WKUserScript {
+        let js = """
+        (function() {
+            if (window.__minisCredentialSaveInstalled) return;
+            window.__minisCredentialSaveInstalled = true;
+            var lastPosted = "";
+            var lastPostedAt = 0;
+            function visible(el) {
+                return !!(el && el.getClientRects && el.getClientRects().length > 0);
+            }
+            function post(form) {
+                try {
+                    if (location.protocol !== 'https:') return;
+                    var scope = form instanceof Element ? form : document;
+                    var fields = Array.from(scope.querySelectorAll('input[type="password"]')).filter(function(el) {
+                        return visible(el) && !el.disabled && !el.readOnly &&
+                            el.autocomplete !== 'new-password' && el.value;
+                    });
+                    if (fields.length !== 1) return;
+                    var password = fields[0].value;
+                    if (!password || password.length > 1024) return;
+                    var inputs = Array.from(scope.querySelectorAll('input')).filter(function(el) {
+                        return !el.disabled && typeof el.value === 'string' && el.value.trim();
+                    });
+                    var user = inputs.find(function(el) {
+                        return (el.autocomplete || '').split(' ').includes('username');
+                    }) || inputs.find(function(el) {
+                        return visible(el) && ['text', 'email', 'tel'].includes(el.type) &&
+                            /^(username|user|login|account|email)$/i.test(el.name || el.id || '');
+                    }) || inputs.find(function(el) { return visible(el) && el.type === 'email'; })
+                       || inputs.find(function(el) { return visible(el) && el.type === 'text'; });
+                    var username = user && typeof user.value === 'string' ? user.value.trim().slice(0, 320) : '';
+                    var key = [location.origin, username, password].join(String.fromCharCode(10));
+                    var now = Date.now();
+                    if (key === lastPosted && now - lastPostedAt < 15000) return;
+                    lastPosted = key;
+                    lastPostedAt = now;
+                    window.webkit.messageHandlers.\(credentialSaveMessageHandlerName).postMessage({
+                        origin: location.origin,
+                        username: username,
+                        password: password
+                    });
+                } catch (e) {}
+            }
+            document.addEventListener('submit', function(e) {
+                post(e.target);
+            }, true);
+            document.addEventListener('click', function(e) {
+                var el = e.target instanceof Element ? e.target : null;
+                var button = el && el.closest('button, input[type="submit"], input[type="button"], [role="button"]');
+                if (!button) return;
+                var text = (button.innerText || button.value || '').trim();
+                var isSubmit = button.type === 'submit' ||
+                    /^(sign[ ]*in|log[ ]*in|continue|next|登录|登入|继续|下一步)$/i.test(text);
+                if (!isSubmit) return;
+                var form = button.form || button.closest('form') || document;
+                post(form);
+            }, true);
+        })();
+        """
+        return WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+    }
+
     /// Register (idempotently) the print message handler on a web view's content controller.
     /// Uses a weak proxy so the content controller doesn't retain the manager
     /// (controller → self → webView → configuration → controller would leak).
@@ -282,6 +358,50 @@ final class BrowserUseManager: NSObject, ObservableObject {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: Self.printMessageHandlerName)
         controller.add(WeakScriptMessageHandler(self), name: Self.printMessageHandlerName)
+    }
+
+    private func registerCredentialSaveHandler(on webView: WKWebView) {
+        let controller = webView.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: Self.credentialSaveMessageHandlerName)
+        controller.add(WeakScriptMessageHandler(self), name: Self.credentialSaveMessageHandlerName)
+    }
+
+    /// The page may call the bridge itself. Only WebKit's actual frame origin
+    /// establishes website ownership; currentURL may still describe an old page.
+    static func credentialOrigin(declared: String, scheme: String, host: String, port: Int) -> String? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        if port > 0 { components.port = port }
+        guard let actual = components.string.flatMap({ BrowserCredentialStore.origin(for: $0) }),
+              actual == BrowserCredentialStore.origin(for: declared) else { return nil }
+        return actual
+    }
+
+    private func handleCredentialSaveCandidate(_ message: WKScriptMessage) {
+        guard message.webView === webView, message.frameInfo.isMainFrame,
+              !isSecureInputActive,
+              credentialSavePrompt == nil,
+              Self.credentialSaveManager == nil,
+              let body = message.body as? [String: Any],
+              let rawOrigin = body["origin"] as? String,
+              let origin = Self.credentialOrigin(declared: rawOrigin,
+                  scheme: message.frameInfo.securityOrigin.protocol,
+                  host: message.frameInfo.securityOrigin.host,
+                  port: message.frameInfo.securityOrigin.port),
+              let rawUsername = body["username"] as? String,
+              let password = body["password"] as? String,
+              !password.isEmpty, password.count <= 1024 else { return }
+        let username = String(rawUsername.prefix(320))
+        guard !BrowserCredentialStore.hasCredential(
+            origin: origin, username: username, password: password
+        ) else { return }
+        let session = BrowserCredentialSavePromptSession(
+            manager: self, origin: origin, username: username, password: password
+        )
+        credentialSavePrompt = session
+        Self.credentialSaveManager = self
+        session.present()
     }
 
     /// Present the iOS system print dialog for the current page contents.
@@ -1967,6 +2087,9 @@ final class BrowserUseManager: NSObject, ObservableObject {
                                        viewportWidth: vp.width, viewportHeight: vp.height)
         newView.navigationDelegate = self
         newView.uiDelegate = self
+        registerPrintHandler(on: newView)
+        registerCredentialSaveHandler(on: newView)
+        credentialSavePrompt?.finish("cancelled: webview_replaced")
 
         // If there's a current URL, reload in the new webview
         let oldURL = webView.url
@@ -1993,6 +2116,9 @@ final class BrowserUseManager: NSObject, ObservableObject {
                                        viewportWidth: width, viewportHeight: height)
         newView.navigationDelegate = self
         newView.uiDelegate = self
+        registerPrintHandler(on: newView)
+        registerCredentialSaveHandler(on: newView)
+        credentialSavePrompt?.finish("cancelled: webview_replaced")
 
         let oldURL = webView.url
         webView = newView
@@ -2658,6 +2784,7 @@ extension BrowserUseManager: WKNavigationDelegate {
             BrowserResourceMonitor.shared.webContentProcessDidTerminate(tabId: tabId, url: url)
 
             self.secureInputSession?.finish("cancelled: web_content_terminated")
+            self.credentialSavePrompt?.finish("cancelled: web_content_terminated")
             self.isLoading = false
             let error = NSError(
                 domain: "BrowserUse",
@@ -2966,8 +3093,14 @@ final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
 extension BrowserUseManager: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController,
                               didReceive message: WKScriptMessage) {
-        guard message.name == Self.printMessageHandlerName else { return }
-        presentPrintDialog()
+        switch message.name {
+        case Self.printMessageHandlerName:
+            presentPrintDialog()
+        case Self.credentialSaveMessageHandlerName:
+            handleCredentialSaveCandidate(message)
+        default:
+            break
+        }
     }
 }
 

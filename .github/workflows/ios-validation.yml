@@ -18,10 +18,12 @@ jobs:
       - name: Current Bot and device repair contracts
         if: ${{ !cancelled() }}
         run: |
+          python3 src/ios/MinisTests/Standalone/run_agent_prompt_tests.py --require-swift
           python3 src/ios/MinisTests/Standalone/check_current_bot_contract.py
           python3 src/ios/MinisTests/Standalone/check_chat_settings_contracts.py
           python3 src/ios/MinisTests/Standalone/check_auxiliary_usage_sql.py
           python3 src/ios/MinisTests/Standalone/run_secure_input_tests.py
+          python3 src/ios/MinisTests/Standalone/run_credential_save_tests.py
           python3 src/ios/MinisTests/Standalone/run_browser_takeover_tests.py
       - name: Fresh product initialization and Swift syntax
         if: ${{ !cancelled() }}
@@ -106,7 +108,9 @@ jobs:
         run: python3 src/ios/MinisTests/Standalone/check_bot_memory_ui.py
       - name: Browser storage behavior tests
         if: ${{ !cancelled() }}
-        run: python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
+        run: |
+          python3 src/ios/MinisTests/Standalone/run_browser_storage_tests.py
+          python3 src/ios/MinisTests/Standalone/run_mount_resolution_tests.py
       - name: Schedule editing behavior tests
         if: ${{ !cancelled() }}
         run: python3 src/ios/MinisTests/Standalone/run_schedule_edit_tests.py

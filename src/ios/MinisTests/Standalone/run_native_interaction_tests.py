@@ -72,7 +72,7 @@ def main():
                 if item.suffix in {".png", ".json"}:
                     shutil.copy2(item, OUTPUT / item.name)
             assert not result["failures"], result["failures"]
-            assert len(result["cases"]) == 13
+            assert len(result["cases"]) == 15
             print(f"PASS: {len(result['cases'])} native secure-presentation fixture assertions; see result.json for limitations")
     finally:
         if booted_here:

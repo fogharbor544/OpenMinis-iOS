@@ -725,6 +725,7 @@ final class BrowserTabPool: ObservableObject {
             return .error("No tab with id \(id)")
         }
         tabs[idx].manager.secureInputSession?.finish("cancelled")
+        tabs[idx].manager.credentialSavePrompt?.finish("cancelled: tab_closed")
         // Don't save URL on explicit close — user intentionally closed it
         savedURLs.removeValue(forKey: id)
         tabs.remove(at: idx)
@@ -1530,6 +1531,7 @@ final class BrowserTabPool: ObservableObject {
         // slot in the registry, which counts live tabs directly (no separate
         // release call). Stash the last-known URL for the model.
         let deadURL = tabs.first(where: { $0.id == oldId })?.manager.currentURL ?? ""
+        tabs.first(where: { $0.id == oldId })?.manager.credentialSavePrompt?.finish("cancelled: tab_rebuilt")
         tabs.removeAll { $0.id == oldId }
         if selectedTabId == oldId { selectedTabId = tabs.first?.id ?? 0 }
 
@@ -1627,6 +1629,7 @@ final class BrowserTabPool: ObservableObject {
                     savedURLs[tab.id] = url
                 }
                 logger.info("Evicting idle tab \(tab.id) (idle \(String(format: "%.0f", idle))s, url=\(url.prefix(60)))")
+                tab.manager.credentialSavePrompt?.finish("cancelled: tab_evicted")
                 evicted += 1
                 return true
             }
@@ -1655,6 +1658,7 @@ final class BrowserTabPool: ObservableObject {
         if !url.isEmpty {
             savedURLs[id] = url
         }
+        tab.manager.credentialSavePrompt?.finish("cancelled: tab_evicted")
         tabs.remove(at: idx)
         if selectedTabId == id {
             selectedTabId = tabs.first?.id ?? 0
@@ -1679,6 +1683,7 @@ final class BrowserTabPool: ObservableObject {
             savedURLs[id] = url
         }
         tab.manager.stopLoading()
+        tab.manager.credentialSavePrompt?.finish("cancelled: tab_preempted")
         tabs.remove(at: idx)
         preemptedTabIds.insert(id)
         if selectedTabId == id {
@@ -1698,6 +1703,7 @@ final class BrowserTabPool: ObservableObject {
             if !url.isEmpty {
                 savedURLs[tab.id] = url
             }
+            tab.manager.credentialSavePrompt?.finish("cancelled: tab_evicted")
             evicted += 1
             return true
         }

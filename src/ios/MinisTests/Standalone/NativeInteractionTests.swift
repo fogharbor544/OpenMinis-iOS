@@ -79,6 +79,17 @@ import UIKit
 
         count = 0; ends = []
         window.isHidden = true
+        let bounded = BrowserSecurePresentation(preferredWindow: window,
+            waitingTimeoutNanoseconds: 100_000_000,
+            sourceIsValid: { true }, makeController: controller, onEnd: { ends.append($0) })
+        bounded.start()
+        let waitingExpired = await wait({ bounded.phase == .finished })
+        check(waitingExpired && count == 0 && ends == ["expired"], "save prompt waiting deadline frees request without window")
+        window.makeKeyAndVisible(); await pause()
+        check(count == 0, "expired pending prompt never appears later")
+
+        count = 0; ends = []
+        window.isHidden = true
         let cancelled = BrowserSecurePresentation(preferredWindow: window, sourceIsValid: { true },
             makeController: controller, onEnd: { ends.append($0) })
         cancelled.start(); cancelled.stop(); window.makeKeyAndVisible(); await pause()

@@ -20,6 +20,10 @@ with tempfile.TemporaryDirectory(prefix='minis-browser-tests-') as temp:
 @MainActor enum BiometricAuth {
     static func authenticate(reason: String) async -> Bool { false }
 }
+@MainActor enum AIChatViewModel {
+    static let minisSharedPersistentDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("minis-shared", isDirectory: true)
+}
 ''', encoding='utf-8')
     executable = temp / 'browser-tests'
     for language_version in ['5', '6']:

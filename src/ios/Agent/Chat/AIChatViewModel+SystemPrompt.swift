@@ -53,6 +53,25 @@ extension AIChatViewModel {
                                                                   tools: makeAgentTools())
     }
 
+    /// Full request prompt for initial dispatch and every model-group fallback.
+    /// Specialists keep their own capabilities; ordinary helpers inherit their parent's scope.
+    func agentSystemPrompt(for model: LLMModel, basePrompt: String? = nil) -> String {
+        var prompt = basePrompt ?? baseSystemPrompt
+        prompt += Self.modelPromptFragments(model)
+        if let sid = capabilitySessionId,
+           let fragment = SkillStore.shared.skillPromptFragment(for: sid) {
+            prompt += "\n\n" + fragment
+        }
+        if let sid = capabilitySessionId,
+           let fragment = MCPStore.shared.systemPromptSnippet(for: sid) {
+            prompt += "\n\n" + fragment
+        }
+        if let fragment = botMemoryFragment() { prompt += "\n\n" + fragment }
+        // Keep the current memory state authoritative after all dynamic context.
+        prompt += memoryStatusFragment
+        return prompt
+    }
+
     var baseSystemPrompt: String {
         (helperConfig != nil ? helperIdentitySection : SystemPromptBuilder.identitySection(name: sessionId.flatMap { BotWorkspaceStore.shared.bot(forSession: $0)?.name } ?? "OpenMinis"))
             + botProfileInstructions
@@ -74,13 +93,12 @@ extension AIChatViewModel {
             // then "let's keep waiting" and the turn ended. Rewritten borrowing
             // Hermes Agent's execution-discipline phrasing (act immediately instead
             // of describing intentions / keep working until complete / never end a
-            // turn with a promise of future action), plus an HONEST off-ramp —
-            // Minis has no in-app scheduler (see 'Scheduled tasks'), so the only
-            // truthful alternatives are poll-now or tell-the-user-nothing-runs.
-            + "Execution discipline for long-running or dispatched work: make tool calls immediately instead of describing intentions, and keep working until the task is complete. "
-            + "Within a turn, `delay` is your wait mechanism — to follow up on something still running, chain delay-then-check calls at a task-appropriate interval until you have the result or hit a sensible retry cap. For a check that should happen AFTER this turn ends, register it by running `minis-scheduled create …` via shell_execute (see the CLI list) — it fires a new turn later, best effort while the app is alive. "
-            + "NEVER end a turn with a promise of future action: 'I'll keep monitoring', 'will sync the result later', and ending right after a single still-running status check with 'let's keep waiting' are all the same violation — once your turn ends, NOTHING runs until the user's next message. "
-            + "If polling to completion is genuinely not worth blocking the turn, close honestly instead: either register a `minis-scheduled` follow-up (say so, with its id) or state that you will only learn the outcome when the user next messages; for anything that must fire even if the app is killed, point them to an Apple Shortcuts automation per 'Scheduled tasks' later in this prompt.\n"
+            // turn with a promise of future action). Existing callbacks and
+            // scheduled prompts are real follow-ups; ordinary shell work has no automatic callback.
+            + "Execution discipline for long-running work: make tool calls immediately instead of describing intentions, and keep working until the task is complete or an accepted asynchronous task is awaiting its callback. "
+            + "For ordinary shell work without an automatic callback, use task-appropriate `delay`-then-check calls within this turn until you have the result or reach a sensible retry cap. "
+            + "For an accepted background subagent_task or bot_task, running or queued work continues independently and its result returns automatically as a new message while the app runtime is alive. Do other useful work, then end your turn when there is nothing else to do; do not poll repeatedly, duplicate the task, or create a schedule just to receive its result. "
+            + "Never promise monitoring or a later action unless an actual callback or scheduled prompt is registered. For ordinary shell work needing a check after this turn, register `minis-scheduled create …` via shell_execute and report its id, or explain that no automatic follow-up is registered. Neither callbacks nor in-app schedules guarantee execution after the app is killed; see 'Scheduled tasks' for Apple Shortcuts automation.\n"
             + "- file_read: Read file contents (faster than cat).\n"
             + "- file_write: Create new files or overwrite existing files (faster than echo/tee).\n"
             + "- file_edit: Edit existing files with exact string replacement (old_string → new_string). Preferred over file_write for modifications — always file_read first.\n"
@@ -95,8 +113,9 @@ extension AIChatViewModel {
             + ((isHelper || !Self.toolEnabled(.agents)) ? "" :
                "- subagent_task: " + (isCommander ? "General helper work only; when the user specifies a Bot or a specialist Bot matches the task, use bot_task instead. Never impersonate that Bot with a helper. " : "") + "Delegate a self-contained task to a sub agent that runs its own tool loop in an isolated hidden session, and inspect or stop the ones you started. Full contract in the tool schema. Two things it does not say: the `<agent_callback>` result and progress messages are written by the system, not typed by the user; and while a sub agent runs the user sees it in the tool bar and can watch or stop it.\n")
             + ((isHelper || !Self.toolEnabled(.agents)) ? "" : Self.subAgentRosterSection(sessionId: sessionId))
-            + "- memory_write: Manage scoped long-term entries when available.\n"
-            + "- memory_get: Recall memories with keyword search. Check memory at the start of new topics to leverage past knowledge.\n"
+            + (!memoryEnabled ? "" :
+               "- memory_write: Manage scoped long-term entries.\n"
+               + "- memory_get: Recall relevant scoped memories with keyword search when needed.\n")
             // [T-user-ask-prompt-consolidated] The only user_ask text in the
             // system prompt, and only when the tool is in this run (switch on,
             // not a sub agent). Everything else travels with the tool itself.
@@ -172,7 +191,7 @@ extension AIChatViewModel {
             + "- Default: do not narrate routine, low-risk tool calls — just call the tool directly.\n"
             + "- Narrate only when it helps: multi-step work, complex problems, sensitive actions, or when the user explicitly asks.\n"
             + "- Keep narration brief and value-dense; avoid repeating obvious steps.\n"
-            + "- When a tool exists for an action, use it directly instead of explaining what you plan to do or asking the user to confirm.\n"
+            + "- For an action already authorized by the user's request, use the available tool directly instead of only describing it or asking for redundant confirmation. Follow approval requirements for other actions.\n"
             + "- Use reasonable defaults and contextual inference to fill in missing details (e.g. 'tonight' means today, 'remind me' implies creating a reminder immediately). Only ask for clarification when genuinely ambiguous.\n\n"
             + "Tone and style:\n"
             + "- Reply in the language that best matches the user's input. Only switch languages when the user explicitly asks.\n"
@@ -253,8 +272,9 @@ extension AIChatViewModel {
         guard botMemoryOwner != nil else {
             return "\nLong-term memory is unavailable in this conversation. Use a Bot or group to save and recall memory."
         }
-        return botMemoryPolicy + ((memoryEnabled && botMemoryAvailable)
-            ? "\nScoped memory is enabled; explicit rules and relevant history are loaded. Use memory_get for additional context."
-            : "\nMemory is disabled or its owner was deleted. Do not read or write long-term memory.")
+        guard memoryEnabled && botMemoryAvailable else {
+            return "\nMemory is disabled or its owner was deleted. Do not read or write long-term memory."
+        }
+        return botMemoryPolicy + "\nScoped memory is enabled; explicit rules and relevant history are loaded. Use memory_get for additional context."
     }
 }

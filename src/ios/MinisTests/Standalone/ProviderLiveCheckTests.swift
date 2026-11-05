@@ -337,11 +337,11 @@ check("the reason goes on the existing fallback trail",
       groupFn.contains("reason: ProviderAvailabilityRules.reason(hit.problem))") && groupFn.contains("fallbackReasons.append(trailLine)"))
 check("exhaustion uses the existing groupExhaustedError with the trail",
       groupFn.contains("throw groupExhaustedError(\n                        fallbackTrail: fallbackReasons,"))
-check("moving on rebuilds the provider and the model-specific prompt fragments, like the error fallbacks",
-      groupFn.contains("currentProvider = await makeAgentProvider(for: nextEntry)\n                    var rebuiltPrompt = baseSystemPrompt")
-      && groupFn.components(separatedBy: "nextEntry.model.capabilityPromptFragment").count - 1 == 4)
+check("moving on rebuilds the provider and full scoped prompt, like the error fallbacks",
+      groupFn.contains("currentProvider = await makeAgentProvider(for: nextEntry)\n                    currentSystemPrompt = agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)")
+      && groupFn.components(separatedBy: "agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)").count - 1 == 4)
 check("the walk records each member it moves to (triedEntries)",
-      groupFn.contains("tried: triedEntries)") && groupFn.contains("triedEntries.insert(nextEntryId)\n                    currentEntryId = nextEntryId\n                    currentProvider = await makeAgentProvider(for: nextEntry)\n                    var rebuiltPrompt"))
+      groupFn.contains("tried: triedEntries)") && groupFn.contains("triedEntries.insert(nextEntryId)\n                    currentEntryId = nextEntryId\n                    currentProvider = await makeAgentProvider(for: nextEntry)\n                    currentSystemPrompt = agentSystemPrompt"))
 if let checkR = retryFn.range(of: "if let hit = providerProblem(forEntryId: checkedEntryId)"),
    let sendR = retryFn.range(of: "try await currentProvider.streamAgentMessage(") {
     check("streamWithAutoRetry checks before each attempt's request", checkR.lowerBound < sendR.lowerBound)
@@ -359,7 +359,7 @@ check("each provider object's model and provider are remembered when it is built
       factory.contains("noteProviderIdentity(for: entry)  // [T-provider-live-check]\n        let provider = await Self.makeAgentProvider("))
 check("after a fallback the loop's limits move to the new model (activeModel)",
       loop.contains("provider = await makeAgentProvider(for: newEntry)\n                // [T-provider-live-check]")
-      && loop.contains("                activeModel = newEntry.model\n                userSystemPrompt = baseSystemPrompt"))
+      && loop.contains("                activeModel = newEntry.model\n                userSystemPrompt = agentSystemPrompt(for: newEntry.model)"))
 check("the check reads the config only: instance(for:) is a lookup over the instances, no I/O",
       storeSrc.contains("return config.instances.first { $0.id == id }"))
 check("removeInstance is untouched by this change (still cleans entries, group members, emptied groups)",

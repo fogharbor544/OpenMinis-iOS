@@ -22,7 +22,10 @@ def source():
     # Check both initial and fallback prompts, not only the scope helper itself.
     loop = read("Agent/Chat/AIChatViewModel+AgentLoop.swift")
     assert "helperConfig?.parentSessionId ?? sessionId" not in loop
-    assert loop.count("if let sid = capabilitySessionId,") == 4
+    prompt = read("Agent/Chat/AIChatViewModel+SystemPrompt.swift")
+    assert "var userSystemPrompt = agentSystemPrompt(for: activeModel)" in loop
+    assert "userSystemPrompt = agentSystemPrompt(for: newEntry.model)" in loop
+    assert prompt.count("if let sid = capabilitySessionId,") == 2
     export = read("Agent/Backup/BackupExporter.swift")
     hydrate = read("Agent/Sync/V2/ChatStoreSyncHydrators.swift")
     assert "exportAgents(dataDir:" in export

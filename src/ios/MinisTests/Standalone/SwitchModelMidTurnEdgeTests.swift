@@ -197,10 +197,15 @@ check("no fallback setBinding ignores pendingModelSwitch (unguarded: \(unguarded
 
 print("\n▶️  C. source: fallback prompt rebuild uses the same capability scope as setup")
 if let apply = body(of: "func applyFallbackSwitch()", in: vm).map(code) {
-    check("setup keys skills on capabilitySessionId",
-          vm.contains("if let sid = capabilitySessionId,\n           let skillFragment = SkillStore.shared.skillPromptFragment(for: sid)"))
-    check("applyFallbackSwitch uses the same key for skills/MCP",
-          apply.contains("capabilitySessionId") && !apply.contains("helperConfig?.parentSessionId ?? sessionId"))
+    check("setup uses the shared scoped composer",
+          vm.contains("var userSystemPrompt = agentSystemPrompt(for: activeModel)"))
+    check("applyFallbackSwitch uses the same scoped composer",
+          apply.contains("userSystemPrompt = agentSystemPrompt(for: newEntry.model)"))
+    if let composer = body(of: "func agentSystemPrompt(", in: vm).map(code) {
+        check("the shared composer keys skills and MCP on capabilitySessionId",
+              composer.components(separatedBy: "capabilitySessionId").count - 1 == 2
+              && !composer.contains("helperConfig?.parentSessionId ?? sessionId"))
+    } else { check("shared prompt composer found", false) }
 } else { check("applyFallbackSwitch found", false) }
 
 print("\n▶️  D. invariants the next-request switch depends on")
@@ -227,13 +232,15 @@ check("resolve cache key includes configRevision",
       factory.contains("configRevision: store.configRevision"))
 
 let prefixBuilders = [
-    ("loop setup", vm, "var userSystemPrompt = baseSystemPrompt"),
-    ("applyFallbackSwitch", vm, "userSystemPrompt = baseSystemPrompt\n                if let capFragment = newEntry.model.capabilityPromptFragment"),
-    ("streamWithGroupFallback rebuild", fb, "var rebuiltPrompt = baseSystemPrompt\n                if let capFragment = nextEntry.model.capabilityPromptFragment"),
+    ("loop setup", vm, "var userSystemPrompt = agentSystemPrompt(for: activeModel)"),
+    ("applyFallbackSwitch", vm, "userSystemPrompt = agentSystemPrompt(for: newEntry.model)"),
+    ("streamWithGroupFallback rebuild", fb, "currentSystemPrompt = agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)"),
 ]
 for (name, text, marker) in prefixBuilders {
-    check("\(name) starts the prompt with base + capability fragment", text.contains(marker))
+    check("\(name) uses shared full prompt composition", text.contains(marker))
 }
+check("shared composition starts with base + model fragments",
+      vm.contains("var prompt = basePrompt ?? baseSystemPrompt\n        prompt += Self.modelPromptFragments(model)"))
 check("loop head swap uses the same fragment helper order (capability, then behaviour)",
       vm.contains("if let cap = model.capabilityPromptFragment { s += \"\\n\\n\" + cap }\n        if let behavior = model.agentBehaviorPromptFragment { s += \"\\n\\n\" + behavior }"))
 

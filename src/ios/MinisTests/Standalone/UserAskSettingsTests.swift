@@ -186,8 +186,8 @@ check("no 'cannot ask' fragment any more (switch off and sub agents get no user_
 check("tool description and schema come from one place",
       ext.contains("description: UserAskPromptText.toolDescription,")
       && ext.contains("\"questions\": AgentToolParam(type: .array, description: \"Required. 1-4 question objects, each with `type` and `question`.\""))
-check("general tool-call style lines are the original text (no user_ask additions)",
-      sysPrompt.contains("+ \"- When a tool exists for an action, use it directly instead of explaining what you plan to do or asking the user to confirm.\\n\"")
+check("general tool-call style respects authorization without duplicating user_ask guidance",
+      sysPrompt.contains("+ \"- For an action already authorized by the user's request, use the available tool directly instead of only describing it or asking for redundant confirmation. Follow approval requirements for other actions.\\n\"")
       && sysPrompt.contains("Only ask for clarification when genuinely ambiguous.\\n\\n\""))
 check("deferred mode is explained only by the tool result (no system prompt paragraph)",
       !ext.contains("userAskDeferred ? \"\"\"") && !ext.contains("In this run user_ask does not wait"))

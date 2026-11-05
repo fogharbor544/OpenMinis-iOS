@@ -493,3 +493,10 @@ Do not use the quota-blocked private remote for this task.
 - Preserve prior uncommitted prompt-alignment, browser and backup edits; Windows has no Swift/Xcode.
 
 - 2026-11-05 repair status: all nine code fixes implemented; available portable checks passed and independent review completed. Native compile/runtime validation remains pending (Windows lacks Swift/Xcode).
+
+
+## 2026-11-06 restore upstream backup destination flow
+- Scope: restore iOS Add Backup Destination to upstream; retain current agents/configuration/memory/chat backup and restore.
+- [x] Inspect local history and compare upstream HEAD (1a71df0, confirmed by ls-remote).
+- [x] Restore destination picker, registration and shared folder-add/reactivation implementation. Retain independent cold-launch resolver and its existing test/CI wiring.
+- [x] Verify upstream parity, unchanged agent backup wiring, 7 settings contract tests, current Bot source contracts, fresh initialization and diff whitespace. Swift/Xcode/device validation unavailable on Windows.

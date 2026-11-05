@@ -530,3 +530,14 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Final independent read-only review found no Critical/Important defects in this change; no new findings or extra fixes required.
 - Global isolation guard with POSIX keys: 59 allowed, 9 unexplained in other pre-existing tests, 2 stale. Original Windows run fails due path mismatch as well. This is not a green global test suite; no unrelated cleanup was made.
 - Implementation and available targeted verification finished. No commit/push/cloud build or IPA; native Swift behavior and iOS build/device acceptance remain unverified.
+
+
+## 2026-11-06 backup destination rollback
+- Read repository guidance, recent history, upstream source and existing agent backup baseline.
+- Confirmed current upstream remote HEAD equals local upstream/main. No fetch/merge required.
+- Windows has no known Swift/Xcode; native build/FileProvider/device validation must be reported separately.
+
+- Restored three complete files from upstream/main and the folder-add/reactivation sections of MountedFoldersManager; removed pending/async addition helpers.
+- PASS: upstream source parity (three files plus two mount sections), unchanged existing resolver, unchanged agent exporter/importer/archive/category UI; check_current_bot_contract.py, 7 check_chat_settings_contracts.py tests, check_fresh_install.py, git diff --check.
+- Before/after parity check failed before rollback and passed afterward. Initial exploration used a private-method marker for public activate(entry:) and failed with ValueError; corrected the section marker before any edit.
+- No Swift compiler or Xcode found; native tests/build and FileProvider/device acceptance NOT RUN. No commit, push or remote workflow dispatch. Historical review annotated to distinguish this requested rollback from its earlier repair status.

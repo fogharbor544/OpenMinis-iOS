@@ -90,6 +90,106 @@ import Foundation
         precondition(cleared.allSatisfy { $0.status == "deleted" && $0.content.isEmpty && $0.evidence.isEmpty && $0.grants.isEmpty })
         do { _ = try store.save(preference); fatalError("Automatically recreated forgotten source") }
         catch BotMemoryError.invalid { }
+        try checkCategoryEditors(store)
         print("PASS: combined document editing, stable order and reload, provenance/grants/pins retention, private additions, concurrent-write refusal, secret rejection, bulk sharing and forgotten-source suppression")
+    }
+
+    @MainActor private static func checkCategoryEditors(_ store: BotMemoryStore) throws {
+        let owner = "bot:category-editors"
+        var fixed = BotMemoryEntry(owner: owner, content: "Keep replies brief", category: "preference",
+                                   scope: "style", evidence: "User rule", pinned: true, grants: ["bot:reader"])
+        fixed.documentOrder = 4
+        let savedFixed = try store.save(fixed)
+        var ordinary = BotMemoryEntry(owner: owner, content: "Uses SwiftUI", category: "fact",
+                                      scope: "project", evidence: "User fact", automatic: true, pinned: true,
+                                      grants: ["bot:reader"])
+        ordinary.documentOrder = 5
+        let savedOrdinary = try store.save(ordinary)
+        var event = BotMemoryEntry(owner: owner, content: "Decided to ship category editors", category: "event",
+                                  scope: "delivery", sourceSession: "chat", sourceMessage: "turn",
+                                  evidence: "User decision", grants: ["bot:reader"])
+        event.eventKind = "decision"
+        event.sourceAssistantMessageID = "reply"
+        let savedEvent = try store.save(event)
+        precondition(savedFixed.memorySection == .fixed)
+        precondition(savedOrdinary.memorySection == .ordinary, "Automatic pins are not explicit fixed memories")
+        precondition(savedEvent.memorySection == .facts, "The fact tab presents event records")
+        var legacyFixedEvent = savedEvent
+        legacyFixedEvent.pinned = true
+        precondition(legacyFixedEvent.memorySection == .fixed, "Legacy fixed entries belong to exactly one tab")
+
+        // An unrelated automatic addition must not prevent saving the open fixed editor.
+        let fixedBaseline = try store.documentEntries(owner: owner).filter { $0.memorySection == .fixed }
+        let automaticAddition = try store.save(BotMemoryEntry(owner: owner, content: "Prefers metric units", category: "preference",
+                                                              scope: "units", evidence: "User preference", automatic: true))
+        let beforeFixed = try store.documentEntries(owner: owner)
+        try store.saveDocument(owner: owner, text: "", baseline: fixedBaseline,
+                               fixedEdits: [savedFixed.id: "Use concise replies"], section: .fixed)
+        var document = try store.documentEntries(owner: owner)
+        precondition(document.filter { $0.memorySection != .fixed } == beforeFixed.filter { $0.memorySection != .fixed })
+        precondition(document.first { $0.id == savedFixed.id }?.grants.isEmpty == true)
+        precondition(store.lastSaved == automaticAddition, "Saving fixed memories preserves the unrelated addition's Undo banner")
+
+        // Ordinary text equal to a fixed rule must not consume that rule's identity.
+        let ordinaryBaseline = document.filter { $0.memorySection == .ordinary }
+        let outsideOrdinary = document.filter { $0.memorySection != .ordinary }
+        try store.saveDocument(owner: owner, text: BotMemoryStore.documentText(ordinaryBaseline) + "\n\nUse concise replies",
+                               baseline: ordinaryBaseline, section: .ordinary)
+        document = try store.documentEntries(owner: owner)
+        precondition(document.filter { $0.memorySection != .ordinary } == outsideOrdinary)
+        precondition(document.contains { $0.id != savedFixed.id && $0.content == "Use concise replies" && $0.memorySection == .ordinary })
+        let retainedOrdinary = document.first { $0.id == savedOrdinary.id }!
+        precondition(retainedOrdinary.content == savedOrdinary.content && retainedOrdinary.grants == savedOrdinary.grants)
+        precondition(retainedOrdinary.createdAt == savedOrdinary.createdAt && retainedOrdinary.automatic && retainedOrdinary.pinned)
+        precondition(store.lastSaved == nil, "Saving the addition's own category clears its old Undo snapshot")
+
+        let factBaseline = document.filter { $0.memorySection == .facts }
+        let outsideFacts = document.filter { $0.memorySection != .facts }
+        do {
+            try store.saveDocument(owner: owner, text: "", baseline: factBaseline,
+                                   eventEdits: [savedEvent.id: "password=not-for-memory"], section: .facts)
+            fatalError("Accepted a secret in a category editor")
+        } catch BotMemoryError.invalid { }
+        let afterInvalid = try store.documentEntries(owner: owner)
+        precondition(afterInvalid == document, "Rejected category edits are atomic")
+        try store.saveDocument(owner: owner, text: "", baseline: factBaseline,
+                               eventEdits: [savedEvent.id: "Decided to ship\n\nCategory editors verified"], section: .facts)
+        document = try store.documentEntries(owner: owner)
+        let changedEvent = document.first { $0.id == savedEvent.id }!
+        precondition(document.filter { $0.memorySection != .facts } == outsideFacts)
+        precondition(changedEvent.eventKind == savedEvent.eventKind && changedEvent.sourceMessage == savedEvent.sourceMessage)
+        precondition(changedEvent.sourceAssistantMessageID == "reply" && changedEvent.grants == savedEvent.grants)
+        precondition(changedEvent.createdAt == savedEvent.createdAt)
+
+        // Each category's clear operation leaves all remaining categories byte-for-byte equivalent.
+        for section in [BotMemorySection.facts, .ordinary, .fixed] {
+            let baseline = document.filter { $0.memorySection == section }
+            let untouched = document.filter { $0.memorySection != section }
+            try store.saveDocument(owner: owner, text: "", baseline: baseline, section: section)
+            document = try store.documentEntries(owner: owner)
+            precondition(document == untouched)
+        }
+        let tombstones = try store.entries().filter { $0.owner == owner }
+        precondition(tombstones.allSatisfy { $0.status == "deleted" && $0.content.isEmpty && $0.grants.isEmpty })
+
+        // A new entry in the edited category still invalidates its stale baseline.
+        _ = try store.save(BotMemoryEntry(owner: owner, content: "New ordinary note", category: "fact", scope: "new", evidence: ""))
+        do {
+            try store.saveDocument(owner: owner, text: "Stale draft", baseline: [], section: .ordinary)
+            fatalError("Overwrote an update in the selected category")
+        } catch BotMemoryError.invalid { }
+        let afterConflict = try store.documentEntries(owner: owner)
+        precondition(afterConflict.count == 1 && afterConflict[0].content == "New ordinary note")
+        precondition(store.lastSaved == afterConflict[0], "Rejected saves preserve the new memory's Undo banner")
+        try store.saveDocument(owner: owner, text: "", baseline: afterConflict, section: .ordinary)
+        precondition(store.lastSaved == nil, "Deleting the recent memory clears its Undo banner")
+
+        let otherOwner = try store.save(BotMemoryEntry(owner: "bot:other-category-editor", content: "Use short reports",
+                                                      category: "preference", scope: "style", evidence: ""))
+        try store.saveDocument(owner: owner, text: "Fresh document", baseline: [])
+        precondition(store.lastSaved == otherOwner, "Whole-document saves also preserve another owner's Undo banner")
+        try store.forget(id: otherOwner.id, owner: otherOwner.owner)
+        precondition(store.lastSaved == nil, "The preserved Undo action can still forget its own entry")
+        print("PASS: category-isolated edits/deletions, concurrent unrelated additions, scoped Undo state, event provenance, private fixed edits, secret rejection and same-category conflict refusal")
     }
 }

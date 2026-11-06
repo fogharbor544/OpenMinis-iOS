@@ -3,6 +3,11 @@ import SwiftUI
 import SQLite3
 import CryptoKit
 
+enum BotMemorySection: CaseIterable, Identifiable, Hashable {
+    case fixed, ordinary, facts
+    var id: Self { self }
+}
+
 struct BotMemoryEntry: Identifiable, Codable, Equatable {
     var id = UUID().uuidString
     var owner: String
@@ -25,6 +30,10 @@ struct BotMemoryEntry: Identifiable, Codable, Equatable {
     var sourceAssistantMessageID: String? = nil
 
     var isFixedMemory: Bool { pinned && !automatic }
+    var memorySection: BotMemorySection {
+        if isFixedMemory { return .fixed }
+        return category == "event" ? .facts : .ordinary
+    }
 }
 
 enum BotMemoryError: LocalizedError {
@@ -311,9 +320,13 @@ private extension BotMemoryStore {
 
     /// The individual edits preserve record IDs. Events retain provenance and grants;
     /// changed fixed text is private until the user explicitly shares it again.
+    /// With a section, baseline and edits cover that section only; nil edits the full document.
     func saveDocument(owner: String, text: String, baseline: [BotMemoryEntry], eventEdits: [String: String] = [:],
-                      fixedEdits: [String: String] = [:]) throws {
-        let current = try documentEntries(owner: owner)
+                      fixedEdits: [String: String] = [:], section: BotMemorySection? = nil) throws {
+        let document = try documentEntries(owner: owner)
+        // Category editors compare and replace only their own records. Concurrent
+        // changes in another category are preserved, including all metadata.
+        let current = document.filter { section == nil || $0.memorySection == section }
         guard current == baseline else {
             throw BotMemoryError.invalid("记忆已有更新，未覆盖你的草稿。请复制草稿后重新打开编辑。")
         }
@@ -376,7 +389,8 @@ private extension BotMemoryStore {
             retained.insert(entry.id)
             result.append(entry)
         }
-        guard Self.documentText(result).count <= 200_000 else {
+        let untouched = document.filter { section != nil && $0.memorySection != section }
+        guard Self.documentText(result + untouched).count <= 200_000 else {
             throw BotMemoryError.invalid("文档过长，请精简后保存。")
         }
         let all = try entries().filter { $0.owner == owner }
@@ -396,7 +410,9 @@ private extension BotMemoryStore {
             for entry in result { try write(entry) }
             try execute("COMMIT")
         } catch { try? execute("ROLLBACK"); throw error }
-        lastSaved = nil
+        if let savedID = lastSaved?.id, current.contains(where: { $0.id == savedID }) {
+            lastSaved = nil
+        }
         revision += 1
     }
 

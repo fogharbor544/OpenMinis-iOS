@@ -1,4 +1,4 @@
-// Isolated simulator fixtures: shipping secure presentation coordinator,
+// Isolated simulator fixtures: shipping secure presentation and admission,
 // synthetic lifecycle notifications, no live website or credentials.
 import SwiftUI
 import UIKit
@@ -43,6 +43,20 @@ import UIKit
         func check(_ condition: Bool, _ name: String) {
             cases.append(name); if !condition { failures.append(name) }
         }
+        var admissionOwner: SecureInputAdmissionFixture? = SecureInputAdmissionFixture()
+        let admission = admissionOwner!.makeAdmission()
+        check(admission(), "visible foreground interactive chat can begin secure input")
+        admissionOwner?.botConversationVisible = false
+        check(!admission(), "hiding chat after dispatch rejects request at admission")
+        admissionOwner?.botConversationVisible = true
+        admissionOwner?.programmaticTurnOrigin = .scheduled
+        check(!admission(), "scheduled turn cannot acquire secure input ownership")
+        admissionOwner?.programmaticTurnOrigin = .userAskAnswer
+        check(admission(), "foreground response to deferred question stays interactive")
+        admissionOwner?.programmaticSilentTurn = true
+        check(!admission(), "silent turn cannot acquire secure input ownership")
+        admissionOwner = nil
+        check(!admission(), "released chat owner cannot begin secure input")
         let other = UIWindow(windowScene: scene)
         other.rootViewController = UIViewController(); other.makeKeyAndVisible(); window.makeKeyAndVisible()
         check(BrowserSecurePresentation.presenter(preferredWindow: other) === other.rootViewController, "request-owned non-key window preferred")
@@ -112,6 +126,20 @@ import UIKit
         check(afterTransition && count == 1, "transition completion retries once")
         NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
         check(transition.phase == .finished && ends == ["cancelled: background"], "displayed card cancels on background event")
+        root.dismiss(animated: false); await pause()
+
+        count = 0; ends = []
+        let resumable = BrowserSecurePresentation(preferredWindow: window, timeoutNanoseconds: nil,
+            cancelOnBackground: false, sourceIsValid: { true },
+            makeController: controller, onEnd: { ends.append($0) })
+        resumable.start(); _ = await wait({ resumable.phase == .awaitingUser })
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        check(resumable.phase == .awaitingUser && ends.isEmpty, "secure-input webpage survives background")
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        await pause()
+        check(count == 1 && ends.isEmpty, "foreground does not duplicate secure-input webpage")
+        resumable.stop()
+        check(resumable.phase == .finished && ends.isEmpty, "return to chat dismisses without ending request")
         root.dismiss(animated: false); await pause()
 
         count = 0; ends = []

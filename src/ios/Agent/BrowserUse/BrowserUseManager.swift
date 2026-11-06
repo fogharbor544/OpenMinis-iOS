@@ -525,6 +525,10 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 guard !Task.isCancelled else {
                     continuation.resume(returning: .error("Secure input cancelled.")); return
                 }
+                if let canStartInline = input.secureInputCanStartInline, !canStartInline() {
+                    continuation.resume(returning: .error(AppLocalized("Secure input was not started. Open this conversation in the foreground and ask the Bot to request it again. Background and scheduled runs cannot start a new secure input request.")))
+                    return
+                }
                 let session = BrowserSecureInputSession(manager: self, origin: origin, requester: requester,
                     purpose: String(purpose.prefix(240)), selector: selector, kind: kind) { status in
                     continuation.resume(returning: BrowserActionResult(text: "安全输入状态：\(status)。未返回任何秘密值。",
@@ -535,7 +539,11 @@ final class BrowserUseManager: NSObject, ObservableObject {
                 self.secureInputProtected = true
                 self.secureInputSession = session
                 self.lastScreenshot = nil
-                session.present()
+                if let blockID = input.secureInputBlockID {
+                    session.startInline(blockID: blockID)
+                } else {
+                    session.present()
+                }
             }
         }, onCancel: {
             Task { @MainActor [weak self] in self?.secureInputSession?.finish("cancelled") }

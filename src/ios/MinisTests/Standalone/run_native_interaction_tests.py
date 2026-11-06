@@ -1,4 +1,4 @@
-"""Exercise shipping secure presentation in a scene-based simulator fixture."""
+"""Exercise shipping secure presentation and inline admission in a simulator fixture."""
 from pathlib import Path
 import json
 import platform
@@ -20,6 +20,28 @@ def run(*args, **kwargs):
 
 def capture(*args, timeout=60):
     return subprocess.check_output(args, text=True, timeout=timeout).strip()
+
+
+def admission_fixture_source():
+    # Execute the shipping callback against an in-memory owner. Do not build
+    # the real chat VM or touch its database, preferences or credential store.
+    tools = (ROOT / "Agent/Chat/AIChatViewModel+ConcurrentTools.swift").read_text(encoding="utf-8")
+    callback = tools.split("browserInput?.secureInputCanStartInline =", 1)[1].split(
+        "\n            }\n            let isSecureInput", 1
+    )[0].strip()
+    assert callback.startswith("{ [weak self]") and callback.endswith("}")
+    return """
+@MainActor
+final class SecureInputAdmissionFixture {
+    enum Origin: Equatable { case scheduled, userAskAnswer }
+    var botConversationVisible = true
+    var programmaticTurnOrigin: Origin?
+    var programmaticSilentTurn = false
+    func makeAdmission() -> (@MainActor () -> Bool) {
+        return CALLBACK
+    }
+}
+""".replace("CALLBACK", callback)
 
 
 def main():
@@ -52,7 +74,7 @@ def main():
             passwords = (ROOT / "Agent/BrowserUse/BrowserPasswords.swift").read_text(encoding="utf-8")
             presentation = passwords.split("// BEGIN BrowserSecurePresentation", 1)[1].split("// END BrowserSecurePresentation", 1)[0]
             driver = app.parent / "BrowserSecurePresentation.swift"
-            driver.write_text("import UIKit\n" + presentation, encoding="utf-8")
+            driver.write_text("import UIKit\n" + presentation + admission_fixture_source(), encoding="utf-8")
             run(swiftc, "-swift-version", "5", "-sdk", sdk, "-target", f"{arch}-apple-ios16.0-simulator",
                 str(driver),
                 str(ROOT / "MinisTests/Standalone/NativeInteractionTests.swift"), "-o", str(app / "InteractionValidation"), timeout=180)
@@ -72,7 +94,7 @@ def main():
                 if item.suffix in {".png", ".json"}:
                     shutil.copy2(item, OUTPUT / item.name)
             assert not result["failures"], result["failures"]
-            assert len(result["cases"]) == 15
+            assert len(result["cases"]) == 24
             print(f"PASS: {len(result['cases'])} native secure-presentation fixture assertions; see result.json for limitations")
     finally:
         if booted_here:

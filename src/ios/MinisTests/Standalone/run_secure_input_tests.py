@@ -57,3 +57,26 @@ check(password.value===''); check(code.value===''); check(ordinary.value===secre
 console.log(`PASS: ${checks} production-JS assertions: native field fill, origin/field rejection, masking, input events, pagehide and cleanup erasure, Boolean-only return.`);
 """.replace("SCRIPT", json.dumps(script)).replace("CLEANUP", json.dumps(cleanup))
 subprocess.run(["node", "-e", program], check=True)
+
+# Portable routing/privacy contracts; native lifecycle assertions live in
+# BrowserSecureSessionTests and NativeInteractionTests (require iOS).
+chat = (root / "Agent/Chat/AIChatViewModel+ConcurrentTools.swift").read_text(encoding="utf-8")
+view = (root / "Views/Chat/AssistantBlockView.swift").read_text(encoding="utf-8")
+actions = (root / "Agent/BrowserUse/BrowserUseActions.swift").read_text(encoding="utf-8")
+session = source.split("final class BrowserSecureInputSession:", 1)[1].split("struct BrowserSecureInputCard:", 1)[0]
+lifecycle = session.split("private func observeLifecycle()", 1)[1].split("func closeWebPage()", 1)[0]
+assert "secureInputBlockID = messages[msgIdx].blocks[blockIdx].id" in chat
+assert "if helperConfig == nil" in chat, "subagents without chat cells must retain native presentation"
+assert "session.startInline(blockID: blockID)" in manager
+assert "session.blockID == block.id" in view and "BrowserSecureInputCard(session: session)" in view
+assert "secureInputBlockID" not in actions.split("static func parse(from json:", 1)[1], "model must not supply routing identity"
+assert 'finish("cancelled")' not in lifecycle, "backgrounding must not end the pending request"
+assert "self.shielded = true; self.reveal = false" in lifecycle
+assert "self.store.lock()" in lifecycle
+assert "timeoutNanoseconds: nil, cancelOnBackground: false" in session
+assert 'secret = ""; username = ""; reveal = false' in session
+assert 'callback?("reference=\\(id.uuidString); \\(status)")' in session
+assert "if !pageNeedsCleanup" in session, "a page opened manually still needs cleanup"
+assert 'didEnterBackgroundNotification)) { _ in session.finish' not in source
+assert "Codable" not in session and "persist" not in lifecycle
+print("PASS: 14 source contracts for inline routing, resumable lifecycle and status-only completion (not native runtime tests).")

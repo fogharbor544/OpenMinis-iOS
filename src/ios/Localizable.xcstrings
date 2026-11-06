@@ -286279,7 +286279,99 @@
         }
       }
     }
-  }
+  },
+    "Open website to continue login" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open website to continue login"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开网页继续登录"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟網頁繼續登入"
+          }
+        }
+      }
+    },
+    "Back to chat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to chat"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回聊天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回聊天"
+          }
+        }
+      }
+    },
+    "Switching apps keeps this request. Sensitive values stay in memory and are not added to chat history." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switching apps keeps this request. Sensitive values stay in memory and are not added to chat history."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切换应用不会取消请求。敏感值仅保留在内存中，不写入聊天记录。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切換 App 不會取消請求。敏感值僅保留在記憶體中，不寫入聊天記錄。"
+          }
+        }
+      }
+    },
+    "Secure input was not started. Open this conversation in the foreground and ask the Bot to request it again. Background and scheduled runs cannot start a new secure input request." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secure input was not started. Open this conversation in the foreground and ask the Bot to request it again. Background and scheduled runs cannot start a new secure input request."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未发起安全输入。请在前台打开此会话，让 Bot 重新请求。后台和定时任务不能发起新的安全输入请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未發起安全輸入。請在前景開啟此對話，讓 Bot 重新請求。背景和排程任務不能發起新的安全輸入請求。"
+          }
+        }
+      }
+    }
 },
   "version" : "1.0"
 }

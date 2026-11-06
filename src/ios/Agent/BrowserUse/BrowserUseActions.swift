@@ -132,6 +132,11 @@ struct BrowserActionInput {
     var secretKind: String? = nil
     var purpose: String? = nil
     var toolTitle: String? = nil
+    /// Native routing only; never parsed from model arguments or persisted.
+    var secureInputBlockID: UUID? = nil
+    /// Recheck the owning chat after browser/cookie waits, before creating a
+    /// new inline request. Existing requests never use this admission gate.
+    var secureInputCanStartInline: (@MainActor () -> Bool)? = nil
 
     enum ScrollDirection: String {
         case up, down

@@ -11,6 +11,32 @@ def source(path):
 
 
 class BrowserTakeoverTests(unittest.TestCase):
+    def test_hidden_main_secure_input_is_rejected_before_global_ownership(self):
+        tools = source("Agent/Chat/AIChatViewModel+ConcurrentTools.swift")
+        admission = tools.split("browserInput?.secureInputCanStartInline =", 1)[1].split("let isSecureInput", 1)[0]
+        for condition in ("[weak self]", "self.botConversationVisible", "UIApplication.shared.applicationState == .active",
+                          "self.programmaticTurnOrigin == nil", "self.programmaticTurnOrigin == .userAskAnswer",
+                          "!self.programmaticSilentTurn"):
+            self.assertIn(condition, admission)
+        manager = source("Agent/BrowserUse/BrowserUseManager.swift")
+        request = manager.split("private func requestSecureInput", 1)[1].split("func finishSecureInput", 1)[0]
+        self.assertLess(request.index("!canStartInline()"), request.index("BrowserSecureInputSession(manager:"))
+        self.assertLess(request.index("!canStartInline()"), request.index("Self.secureInteractionManager = self"))
+        self.assertIn("continuation.resume(returning: .error", request.split("!canStartInline()", 1)[1])
+        actions = source("Agent/BrowserUse/BrowserUseActions.swift")
+        self.assertNotIn("secureInputCanStartInline", actions.split("static func parse(from json:", 1)[1])
+        session = source("Agent/BrowserUse/BrowserPasswords.swift").split("final class BrowserSecureInputSession:", 1)[1]
+        self.assertNotIn("secureInputCanStartInline", session, "existing requests must survive hiding/backgrounding")
+
+    def test_secure_input_browser_entry_is_not_covered_by_automation_overlay(self):
+        sheet = source("Agent/BrowserUse/BrowserSheetView.swift")
+        self.assertIn("if isAgentBrowsingInSheet && manager?.secureInputSession == nil {", sheet)
+        self.assertIn('Button(AppLocalized("Open website to continue login"))', sheet)
+        # Removing the visual obstruction must not unlock browser navigation
+        # or takeover while secrets or cleanup are still active.
+        self.assertIn(".allowsHitTesting(!isAgentBrowsingInSheet && !pool.hasSecureInput)", sheet)
+        self.assertIn("onTakeover: pool.isTakeoverRequested || pool.hasSecureInput ? nil", sheet)
+
     def test_browser_observation_uses_current_step_and_address_row_controls(self):
         sheet = source("Agent/BrowserUse/BrowserSheetView.swift")
         address_row = sheet.split("private var addressRow:", 1)[-1].split("private var ", 1)[0]

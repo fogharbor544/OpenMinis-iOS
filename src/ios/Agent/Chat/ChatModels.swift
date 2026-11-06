@@ -627,7 +627,14 @@ final class AssistantBlock: Identifiable, ObservableObject {
     /// Streaming file content for file_write tool (live content as it arrives).
     @Published var streamingFileContent: String?
     /// Whether a thinking block is expanded (persisted across cell reuse).
-    @Published var isThinkingExpanded: Bool = false
+    @Published var isThinkingExpanded: Bool = false {
+        didSet {
+            guard oldValue != isThinkingExpanded else { return }
+            // The model also changes while its cell is offscreen. Invalidate
+            // independently of SwiftUI onChange and cell reuse.
+            NotificationCenter.default.post(name: .thinkingBlockToggled, object: id)
+        }
+    }
     /// True once the user has manually tapped this thinking block's header.
     /// While this is false the view is allowed to auto-expand on stream start
     /// and auto-collapse on stream end; once the user takes control we leave

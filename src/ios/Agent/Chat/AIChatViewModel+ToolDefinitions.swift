@@ -109,7 +109,7 @@ extension AIChatViewModel {
                     "selector": AgentToolParam(type: .string, description: "CSS selector for targeting elements (click, type, get_text, scroll, hover, find_elements). For scroll: specify a scrollable container to scroll (e.g. 'div.timeline'); if omitted, auto-detects the best scrollable element."),
                     "text": AgentToolParam(type: .string, description: "Text to type (for type action)"),
                     "secret_kind": AgentToolParam(type: .string, description: "secure_input only: native secret category; PIN and OTP are never saved.", enumValues: ["password", "pin", "otp"]),
-                    "purpose": AgentToolParam(type: .string, description: "secure_input only: explain why this website needs the secret, without including the secret."),
+                    "purpose": AgentToolParam(type: .string, description: "secure_input only: explain why this website needs the secret, without including the secret. This opens a resumable card in chat; the user enters the value directly for the website. New main-chat requests require that conversation to be open in the foreground during an interactive turn; background and scheduled turns must ask the user to open the conversation and request login again. Only status is returned, never the value. Do not ask the user to send it as a chat reply."),
                     "coordinate_x": AgentToolParam(type: .integer, description: "X coordinate for click (alternative to selector)"),
                     "coordinate_y": AgentToolParam(type: .integer, description: "Y coordinate for click (alternative to selector)"),
                     "direction": AgentToolParam(type: .string, description: "Scroll direction", enumValues: ["up", "down"]),

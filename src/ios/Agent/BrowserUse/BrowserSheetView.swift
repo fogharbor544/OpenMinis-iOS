@@ -51,6 +51,8 @@ struct BrowserSheetView: View {
                             VStack(spacing: 16) {
                                 Label("安全输入中", systemImage: "lock.shield").font(.headline)
                                 Text("请在原生安全输入卡片完成操作。")
+                                Button(AppLocalized("Open website to continue login")) { manager.secureInputSession?.present() }
+                                    .frame(minHeight: 44)
                             }.frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         if manager.secureInputProtected && manager.secureInputSession == nil && manager.loadError == nil {
@@ -80,7 +82,10 @@ struct BrowserSheetView: View {
                         }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
-                    if isAgentBrowsingInSheet {
+                    // secure_input holds tab.inUse while awaiting the user.
+                    // Keep its native reopen button reachable; navigation and
+                    // takeover remain restricted by their existing guards.
+                    if isAgentBrowsingInSheet && manager?.secureInputSession == nil {
                         AgentBrowsingOverlay(
                             currentStep: pool.currentAgentStep,
                             showsAutomationBorder: !pool.isTakeoverRequested && !pool.hasSecureInput,

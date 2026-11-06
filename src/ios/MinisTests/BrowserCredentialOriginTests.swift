@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Minis
 
 final class BrowserCredentialOriginTests: XCTestCase {
@@ -162,6 +163,45 @@ final class BrowserPasswordFileTests: XCTestCase {
 }
 
 final class BrowserSecureSessionTests: XCTestCase {
+    @MainActor
+    func testInlineRequestSurvivesBackgroundAndClearsValuesOnlyWhenFinished() {
+        let manager = BrowserUseManager()
+        let shared = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        let store = BrowserCredentialStore(vault: BrowserTestVault(), sharedVaultURL: shared, authenticate: { false })
+        var statuses: [String] = []
+        let session = BrowserSecureInputSession(manager: manager, origin: "https://example.com",
+            requester: "Synthetic Bot", purpose: "Test", selector: "#password", kind: .password,
+            store: store) { statuses.append($0) }
+        defer { session.finish("cancelled") }
+        manager.secureInputSession = session
+        manager.secureInputProtected = true
+        BrowserUseManager.secureInteractionManager = manager
+        let blockID = UUID()
+        session.startInline(blockID: blockID)
+        let secret = UUID().uuidString
+        session.secret = secret; session.reveal = true
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        XCTAssertTrue(session.shielded)
+        XCTAssertFalse(session.reveal)
+        XCTAssertEqual(session.secret, secret)
+        XCTAssertTrue(statuses.isEmpty)
+        XCTAssertTrue(BrowserSecureInputCenter.shared.session === session)
+        XCTAssertTrue(manager.isSecureInputActive)
+        session.closeWebPage()
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertFalse(session.shielded)
+        XCTAssertEqual(session.blockID, blockID)
+        XCTAssertTrue(statuses.isEmpty)
+        session.finish("cancelled")
+        XCTAssertTrue(session.secret.isEmpty)
+        XCTAssertNil(BrowserSecureInputCenter.shared.session)
+        XCTAssertNil(manager.secureInputSession)
+        XCTAssertFalse(manager.isSecureInputActive)
+        XCTAssertEqual(statuses.count, 1)
+        XCTAssertFalse(statuses[0].contains(secret))
+    }
+
     @MainActor
     func testCancelIsOneShotAndReleasesNativeValuesWithoutReturningThem() {
         let manager = BrowserUseManager()

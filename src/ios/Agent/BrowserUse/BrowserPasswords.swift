@@ -657,7 +657,8 @@ final class BrowserSecurePresentation {
     private let sourceIsValid: () -> Bool
     private let makeController: () -> UIViewController
     private let onEnd: (String) -> Void
-    private let timeoutNanoseconds: UInt64
+    private let timeoutNanoseconds: UInt64?
+    private let cancelOnBackground: Bool
     private let waitingTimeoutNanoseconds: UInt64?
     private var waitingTimeout: Task<Void, Never>?
     private var retry: Task<Void, Never>?
@@ -666,11 +667,13 @@ final class BrowserSecurePresentation {
     private var lastDiagnostic: String?
     private var presentationStartedAt: Date?
 
-    init(preferredWindow: UIWindow?, timeoutNanoseconds: UInt64 = 180_000_000_000,
+    init(preferredWindow: UIWindow?, timeoutNanoseconds: UInt64? = 180_000_000_000,
          waitingTimeoutNanoseconds: UInt64? = nil,
+         cancelOnBackground: Bool = true,
          sourceIsValid: @escaping () -> Bool, makeController: @escaping () -> UIViewController,
          onEnd: @escaping (String) -> Void) {
         self.waitingTimeoutNanoseconds = waitingTimeoutNanoseconds
+        self.cancelOnBackground = cancelOnBackground
         self.preferredWindow = preferredWindow; self.timeoutNanoseconds = timeoutNanoseconds
         self.sourceIsValid = sourceIsValid; self.makeController = makeController; self.onEnd = onEnd
     }
@@ -719,7 +722,7 @@ final class BrowserSecurePresentation {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    if note.name == UIApplication.didEnterBackgroundNotification && self.phase != .waitingForWindow {
+                    if note.name == UIApplication.didEnterBackgroundNotification && self.phase != .waitingForWindow && self.cancelOnBackground {
                         self.end("cancelled: background")
                     } else { self.attempt() }
                 }
@@ -770,7 +773,7 @@ final class BrowserSecurePresentation {
                 controller.dismiss(animated: false); return
             }
             guard controller.presentingViewController != nil else { self.end("cancelled: presentation_failed"); return }
-            guard UIApplication.shared.applicationState == .active, self.sourceIsValid() else {
+            guard (!self.cancelOnBackground || UIApplication.shared.applicationState == .active), self.sourceIsValid() else {
                 self.end("cancelled: presentation_interrupted"); return
             }
             self.waitingTimeout?.cancel(); self.waitingTimeout = nil
@@ -800,6 +803,13 @@ final class BrowserSecurePresentation {
 }
 // END BrowserSecurePresentation
 
+/// Only the active native request is published; no history or encoded value.
+@MainActor
+final class BrowserSecureInputCenter: ObservableObject {
+    static let shared = BrowserSecureInputCenter()
+    @Published var session: BrowserSecureInputSession?
+}
+
 // Secrets exist only in this native session; no Codable, tool payload or history field.
 @MainActor
 final class BrowserSecureInputSession: ObservableObject {
@@ -815,6 +825,7 @@ final class BrowserSecureInputSession: ObservableObject {
     let selector: String
     let kind: Kind
     let manager: BrowserUseManager
+    private(set) var blockID: UUID?
     @Published var secret = ""
     @Published var username = ""
     @Published var reveal = false
@@ -829,6 +840,8 @@ final class BrowserSecureInputSession: ObservableObject {
     private var completion: ((String) -> Void)?
     private var presentation: BrowserSecurePresentation?
     private var ended = false
+    private var pageNeedsCleanup = false
+    private var observers: [NSObjectProtocol] = []
 
     init(manager: BrowserUseManager, origin: String, requester: String, purpose: String,
          selector: String, kind: Kind, store: BrowserCredentialStore? = nil, completion: @escaping (String) -> Void) {
@@ -837,10 +850,41 @@ final class BrowserSecureInputSession: ObservableObject {
         self.purpose = purpose; self.selector = selector; self.kind = kind; self.completion = completion
     }
 
+    func startInline(blockID: UUID) {
+        guard !ended else { return }
+        self.blockID = blockID
+        shielded = UIApplication.shared.applicationState != .active
+        observeLifecycle()
+        BrowserSecureInputCenter.shared.session = self
+        NotificationCenter.default.post(name: .thinkingBlockToggled, object: blockID)
+    }
+
+    private func observeLifecycle() {
+        guard observers.isEmpty else { return }
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didBecomeActiveNotification,
+                     UIApplication.didEnterBackgroundNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if note.name == UIApplication.didBecomeActiveNotification { self.shielded = false }
+                    else { self.shielded = true; self.reveal = false }
+                    if note.name == UIApplication.didEnterBackgroundNotification { self.store.lock() }
+                }
+            })
+        }
+    }
+
+    func closeWebPage() {
+        presentation?.stop(); presentation = nil
+    }
+
     /// Agent requests may wait without holding any secret; manual fills never wait.
     func present(from presenter: UIViewController? = nil) {
         guard presentation == nil, !ended else { return }
+        observeLifecycle()
+        pageNeedsCleanup = true
         let flow = BrowserSecurePresentation(preferredWindow: presenter?.viewIfLoaded?.window ?? manager.webView.window,
+            timeoutNanoseconds: nil, cancelOnBackground: false,
             sourceIsValid: { [weak self] in
                 guard let self else { return false }
                 return BrowserCredentialStore.origin(for: self.manager.webView.url?.absoluteString ?? "") == self.origin
@@ -864,6 +908,7 @@ final class BrowserSecureInputSession: ObservableObject {
         defer { busy = false }
         // Lock before crossing into WebKit; JS exceptions must never surface their arguments.
         manager.secureInputProtected = true
+        pageNeedsCleanup = true
         do {
             let result: Bool
             if useSavedAccount {
@@ -925,14 +970,101 @@ final class BrowserSecureInputSession: ObservableObject {
     func finish(_ status: String) {
         guard !ended else { return }
         ended = true
-        let wasPresented = presentation?.hasPresented ?? false
         presentation?.stop(); presentation = nil
+        observers.forEach(NotificationCenter.default.removeObserver); observers.removeAll()
         secret = ""; username = ""; reveal = false; shielded = true; store.lock()
+        if BrowserSecureInputCenter.shared.session === self { BrowserSecureInputCenter.shared.session = nil }
         manager.secureInputSession = nil
-        if !wasPresented { manager.secureInputProtected = false }
+        // No page value was exposed if the request ended before filling.
+        if !pageNeedsCleanup { manager.secureInputProtected = false }
         manager.finishSecureInput()
+        if let blockID { NotificationCenter.default.post(name: .thinkingBlockToggled, object: blockID) }
         let callback = completion; completion = nil
         callback?("reference=\(id.uuidString); \(status)")
+    }
+}
+
+/// Chat card and optional webpage share the same memory-only session.
+struct BrowserSecureInputCard: View {
+    @ObservedObject var session: BrowserSecureInputSession
+
+    var body: some View {
+        BrowserSecureInputForm(session: session)
+            .accessibilityHidden(session.shielded)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(UIColor.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .privacySensitive()
+            .overlay { if session.shielded { Color(UIColor.systemBackground).overlay(Label("安全输入已遮蔽", systemImage: "lock.fill")) } }
+            .background(GeometryReader { geometry in
+                Color.clear.onChange(of: geometry.size.height) { _ in
+                    remeasure()
+                }
+            })
+            // Do not rely on geometry alone: the cell may still constrain it
+            // to its previous height when fields or feedback first change.
+            .onChange(of: session.filled) { _ in remeasure() }
+            .onChange(of: session.feedback) { _ in remeasure() }
+            .onChange(of: session.busy) { _ in remeasure() }
+            .accessibilityIdentifier("browserSecureInputCard")
+    }
+
+    private func remeasure() {
+        guard let blockID = session.blockID else { return }
+        NotificationCenter.default.post(name: .thinkingBlockToggled, object: blockID)
+    }
+}
+
+private struct BrowserSecureInputForm: View {
+    @ObservedObject var session: BrowserSecureInputSession
+    var showsWebPageButton = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("安全输入 · " + session.kind.label, systemImage: "lock.shield").font(.headline)
+            Text(session.origin).font(.subheadline).textSelection(.enabled)
+            Text("请求 Bot：" + session.requester)
+            Text("用途：" + session.purpose)
+            Text("输入由原生通道交给此网站；模型只收到状态。完成后刷新网页并清空输入框，保留登录状态。")
+                .font(.footnote).foregroundStyle(.secondary)
+            Text(AppLocalized("Switching apps keeps this request. Sensitive values stay in memory and are not added to chat history."))
+                .font(.footnote).foregroundStyle(.secondary)
+            if !session.filled {
+                Text(session.kind.label).font(.subheadline.weight(.medium))
+                Group {
+                    if session.reveal { TextField(session.kind.label, text: $session.secret) }
+                    else { SecureField(session.kind.label, text: $session.secret) }
+                }
+                .textContentType(session.kind == .otp ? .oneTimeCode : .password)
+                .textFieldStyle(.roundedBorder)
+                .disabled(session.busy)
+                Toggle("显示输入", isOn: $session.reveal)
+                Button("提交到网页") { Task { await session.fill() } }
+                    .disabled(session.secret.isEmpty || session.busy).frame(minHeight: 44)
+            } else if session.kind == .password {
+                Toggle("我已在网页中确认登录成功", isOn: $session.confirmedLogin)
+                TextField("账号（用于区分此网站的密码）", text: $session.username)
+                    .disabled(session.store.isUnlocked)
+                if session.store.isUnlocked {
+                    Button(session.updateExisting ? "确认更新密码" : "确认保存密码") { session.save() }
+                        .disabled(!session.confirmedLogin).frame(minHeight: 44)
+                } else {
+                    Button("保存密码") { Task { await session.prepareSave() } }
+                        .disabled(!session.confirmedLogin || session.busy).frame(minHeight: 44)
+                }
+                Button("暂不保存") { session.finish("filled_not_saved") }.disabled(session.busy).frame(minHeight: 44)
+            } else {
+                Button("完成，不保存") { session.finish("filled") }.disabled(session.busy).frame(minHeight: 44)
+            }
+            if showsWebPageButton {
+                Button(AppLocalized("Open website to continue login")) { session.present() }.frame(minHeight: 44)
+            }
+            Button("取消", role: .cancel) { session.finish("cancelled") }.frame(minHeight: 44)
+            if session.busy { ProgressView() }
+            if let feedback = session.feedback { Text(feedback).font(.footnote).foregroundStyle(.secondary) }
+        }
+        .textInputAutocapitalization(.never).autocorrectionDisabled()
     }
 }
 
@@ -946,49 +1078,20 @@ private struct BrowserSecureInputView: View {
                     BrowserLoadErrorOverlay(manager: session.manager)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("安全输入 · " + session.kind.label, systemImage: "lock.shield").font(.headline)
-                        Text(session.origin).font(.subheadline).textSelection(.enabled)
-                        Text("请求 Bot：" + session.requester)
-                        Text("用途：" + session.purpose)
-                        Text("输入由原生通道交给此网站；模型只收到状态。完成后刷新网页并清空输入框，保留登录状态。")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        if !session.filled {
-                            if session.reveal { TextField(session.kind.label, text: $session.secret) }
-                            else { SecureField(session.kind.label, text: $session.secret) }
-                            Toggle("显示输入", isOn: $session.reveal)
-                            Button("提交到网页") { Task { await session.fill() } }
-                                .disabled(session.secret.isEmpty || session.busy).frame(minHeight: 44)
-                        } else if session.kind == .password {
-                            Toggle("我已在网页中确认登录成功", isOn: $session.confirmedLogin)
-                            TextField("账号（用于区分此网站的密码）", text: $session.username)
-                                .disabled(session.store.isUnlocked)
-                            if session.store.isUnlocked {
-                                Button(session.updateExisting ? "确认更新密码" : "确认保存密码") { session.save() }
-                                    .disabled(!session.confirmedLogin).frame(minHeight: 44)
-                            } else {
-                                Button("保存密码") { Task { await session.prepareSave() } }
-                                    .disabled(!session.confirmedLogin || session.busy).frame(minHeight: 44)
-                            }
-                            Button("暂不保存") { session.finish("filled_not_saved") }.frame(minHeight: 44)
-                        } else {
-                            Button("完成，不保存") { session.finish("filled") }.frame(minHeight: 44)
-                        }
-                        if let feedback = session.feedback { Text(feedback).font(.footnote).foregroundStyle(.secondary) }
-                    }
-                    .textInputAutocapitalization(.never).autocorrectionDisabled().padding()
+                    BrowserSecureInputForm(session: session, showsWebPageButton: false).padding()
                 }.frame(maxHeight: 330).background(.regularMaterial)
             }
             .navigationTitle("安全登录").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) {
-                Button("取消") { session.finish("cancelled") }
+                if session.blockID != nil {
+                    Button(AppLocalized("Back to chat")) { session.closeWebPage() }
+                } else {
+                    Button("取消") { session.finish("cancelled") }
+                }
             } }
         }
         .privacySensitive()
         .overlay { if session.shielded { Color(UIColor.systemBackground).ignoresSafeArea().overlay(Label("安全输入已遮蔽", systemImage: "lock.fill")) } }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in session.shielded = true; session.reveal = false }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in session.shielded = false }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in session.finish("cancelled") }
     }
 }
 

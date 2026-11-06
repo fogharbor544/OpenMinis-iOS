@@ -733,7 +733,17 @@ extension AIChatViewModel {
                 toolSuccess = false
                 break
             }
-            let browserInput = BrowserActionInput.parse(from: argsJson)
+            var browserInput = BrowserActionInput.parse(from: argsJson)
+            if helperConfig == nil, browserInput?.action == .secureInput,
+               msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                browserInput?.secureInputBlockID = messages[msgIdx].blocks[blockIdx].id
+                browserInput?.secureInputCanStartInline = { [weak self] in
+                    guard let self else { return false }
+                    let interactiveOrigin = self.programmaticTurnOrigin == nil || self.programmaticTurnOrigin == .userAskAnswer
+                    return self.botConversationVisible && UIApplication.shared.applicationState == .active
+                        && interactiveOrigin && !self.programmaticSilentTurn
+                }
+            }
             let isSecureInput = browserInput?.action == .secureInput
             var browserResult: BrowserActionResult
             if let input = browserInput {

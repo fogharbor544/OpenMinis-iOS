@@ -80,10 +80,10 @@ import Foundation
         notes.append("listed=\(packages.map { $0.url.lastPathComponent })")
         // `contentsOfDirectory` resolves the `/var` symlink to `/private/var`,
         // so compare resolved paths rather than the exact URLs `save` returned.
-        func resolvedPath(_ url: URL) -> String { url.resolvingSymlinksInPath().path }
-        notes.append("listedPaths=\(packages.map { resolvedPath($0.url) })")
+        notes.append("listedPaths=\(packages.map { $0.url.resolvingSymlinksInPath().path })")
         check("newest-first list filtered to .minisbak regular files") {
-            packages.map(resolvedPath) == [second, first].map(resolvedPath)
+            packages.map { $0.url.resolvingSymlinksInPath().path }
+                == [second, first].map { $0.resolvingSymlinksInPath().path }
         }
         check("sizes come from file metadata") { packages.map(\.size) == [13, 12] }
 

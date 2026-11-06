@@ -1,14 +1,14 @@
 # OpenMinis
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/Platforms-iOS-lightgrey.svg)](#beta-programme)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS-lightgrey.svg)](#building-from-source)
 
 **Your private, on-device AI agent.**
 
 OpenMinis brings leading models — Claude, GPT, Gemini and more — into a native
-mobile experience, and gives them a real computer to work with: a full Linux
-shell running on your device, browser automation, extensible skills, persistent
-memory, and deep system integration.
+iOS app and gives them a real computer to work with: a sandboxed Alpine Linux
+shell, browser automation, extensible skills, scoped memory, device
+integrations and deep file access.
 
 It is free, and fully open source.
 
@@ -16,6 +16,10 @@ It is free, and fully open source.
 where a product's advantage lies. The best agent emerges from a tight feedback
 loop with the people who use it — their expectations and their reports are
 what converge on the product.**
+
+This repository is the actively developed `fogharbor544/OpenMinis-iOS` fork.
+It is iOS-only; the Android client has been removed, and development happens
+directly on this repository's `main`.
 
 ![Minis on iOS — deep research, chat, agent runtime, integrations, iCloud sync and granular permissions](assets/screenshots.png)
 
@@ -28,10 +32,18 @@ what converge on the product.**
 | **Bring your own model** | Claude, GPT, Gemini and other providers, via your own API keys or account sign-in. |
 | **A real Linux shell** | A sandboxed Alpine Linux environment runs on-device — the agent can install packages, run scripts, and work with real files. |
 | **Device integration** | Health, Calendar, Reminders, Contacts, HomeKit, Bluetooth, Clipboard, Media, Alarms and more, exposed to the agent as tools. |
-| **Browser automation** | The agent can browse and interact with the web on your behalf. |
-| **Skills & memory** | Extensible skills plus persistent memory across sessions. |
-| **Workspaces** | Organise work into separate contexts, addressable via `minis://workspace/`. |
+| **Browser automation** | The agent can browse and interact with the web; bookmarks and Keychain-backed passwords are managed in-app. |
+| **Bots & groups** | Bot-first home navigation, bounded group rounds, per-Bot configuration and scoped long-term memory. |
+| **Skills & MCP** | On-demand skills, external MCP connectors, a catalog of built-in capabilities and execution-time permission controls. |
+| **Workspaces** | Session working files at `/var/minis/workspace/`, addressable as `minis://workspace/...`; shared and external folders can be mounted. |
+| **Schedules & Shortcuts** | Unified in-app task management, iOS Shortcuts, a share extension and a widget. |
+| **Sync, backup & restore** | Optional iCloud sync, plus local `.minisbak` snapshots with optional encryption and category selection. |
 | **Native offloads** | Heavy or platform-specific work is handed to native code instead of the sandbox. |
+
+The bundled in-app guide is the authoritative user-facing feature reference:
+[`src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md`](src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md).
+Implementation scope and verification limits are recorded in
+[`src/ios/IOS_FEATURES.md`](src/ios/IOS_FEATURES.md).
 
 ---
 
@@ -46,7 +58,7 @@ A few things people actually use it for:
 - **Turn group chatter into tasks** — pull messages from a Telegram group, extract
   bugs and action items, deduplicate them, and file them into Apple Reminders.
 - **Mount your Obsidian vault** — research, clean up and write Markdown notes back
-  into the vault as a normal workspace.
+  into the vault as a mounted folder.
 - **Share anything into a calendar event** — send a page or message to Minis via the
   iOS Share Sheet and it creates the event, time and place included.
 
@@ -101,36 +113,61 @@ than committed as binaries.
 
 **→ See [BUILDING.md](BUILDING.md) for the full first-build guide.**
 
-The short version:
+The short version, from a macOS host with Go 1.25+, Xcode's Metal Toolchain
+(`xcodebuild -downloadComponent MetalToolchain`) and the other tools listed in
+`BUILDING.md`:
 
 ```sh
 git clone https://github.com/fogharbor544/OpenMinis-iOS.git
 cd OpenMinis-iOS
 
-# iOS  — needs Go 1.25+ and Xcode's Metal Toolchain
-#        (xcodebuild -downloadComponent MetalToolchain)
-#        order matters: FFmpeg links against LAME
+# Required: the Xcode project references this ignored build configuration.
+# Leave values empty unless the corresponding feature needs them.
+cp src/ios/Configs/ProviderCustomization.xcconfig.example \
+   src/ios/Configs/ProviderCustomization.xcconfig
+
+# Order matters: FFmpeg links against LAME. These scripts build device arm64.
 ./deps/build_lame.sh && ./deps/build_ffmpeg.sh
 ./deps/build_ish.sh && ./deps/prepare_alpine_rootfs.sh
 ./deps/build_rclone_ios.sh
+
 open src/ios/Minis.xcodeproj
 ```
 
-`BUILDING.md` covers the toolchain requirements, the build-time customization
-templates, and a troubleshooting section for the failure modes you are most
-likely to hit.
+To build without opening Xcode:
+
+```sh
+xcodebuild -project src/ios/Minis.xcodeproj -scheme Minis \
+  -configuration Debug -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
+`BUILDING.md` covers the toolchain requirements, build-time customization and
+troubleshooting. Native dependencies are built for iOS devices; simulator
+builds require simulator-architecture dependencies. On macOS, run
+`./scripts/ios-unit-tests.sh` for the isolated XCTest host, or a targeted
+standalone fixture such as
+`python3 src/ios/MinisTests/Standalone/check_fresh_install.py`. The
+[`iOS validation`](.github/workflows/ios-validation.yml) workflow runs portable
+source checks and Swift fixtures; its optional `full_build` dispatch produces
+an unsigned IPA.
 
 ---
 
 ## Repository layout
 
 ```
-src/ios/          iOS app (Swift / SwiftUI) + share, widget and file-provider extensions
-src/shared/       Assets and specifications shared across platforms
+src/ios/          iOS app (Swift 6 / SwiftUI), extensions, resources and tests
+src/shared/       Cross-platform specifications, CLI docs and regression fixtures
 deps/             Native dependency build scripts and vendored sources
-docs/specs/       Architecture and interface specifications
-scripts/          Rootfs preparation and developer tooling
+docs/             Architecture specs, design decisions and working notes
+scripts/          Developer, localization and isolated iOS test tooling
+assets/           Screenshots and branding
 ```
+
+The project-level `AGENTS.md` is a local, ignored agent-instruction file. The
+tracked planning and decision records are `task_plan.md`, `findings.md` and
+`progress.md`.
 
 ---
 
@@ -142,9 +179,13 @@ terms, is in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 **The sandbox** — the heart of the product:
 
-- **[iSH](https://github.com/ish-app/ish)** (GPLv3) — Linux usermode emulation on
-  iOS. We run [an ARM64 fork](https://github.com/OpenMinis/ish-arm64).
+- **[iSH](https://github.com/OpenMinis/ish-arm64)** (GPLv3, ARM64 fork) — Linux
+  usermode emulation on iOS.
 - **[Alpine Linux](https://alpinelinux.org)** — the minirootfs the sandbox boots.
+- **[rclone](https://github.com/rclone/rclone)** (MIT) — optional remote backup
+  destinations.
+- **[Tailscale](https://github.com/tailscale/tailscale)** (BSD-3-Clause) — the
+  optional embedded network node.
 
 **Media & text** — [FFmpeg](https://ffmpeg.org) (LGPL-2.1+),
 [LAME](https://lame.sourceforge.io) (LGPL), [cppjieba](https://github.com/yanyiwu/cppjieba) (MIT),
@@ -171,12 +212,13 @@ licenses are listed in
 
 ## Community
 
-- **Community**: [fogharbor544/OpenMinis-iOS](https://github.com/fogharbor544/OpenMinis-iOS)
+- **Repository**: [fogharbor544/OpenMinis-iOS](https://github.com/fogharbor544/OpenMinis-iOS)
 - **Issues**: Bug reports, feature requests and discussion via
   [GitHub Issues](https://github.com/fogharbor544/OpenMinis-iOS/issues)
 
-Development happens directly on `main` in this repository, so it **does not
-take pull requests** — there is nowhere for them to land. Issues are the way
-to shape the product, and [AwesomeMinis](https://github.com/OpenMinis/AwesomeMinis)
-and [MinisSkills](https://github.com/OpenMinis/MinisSkills) both do take
-contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Development happens directly on `main` in this fork, so it **does not take pull
+requests**. [AwesomeMinis](https://github.com/OpenMinis/AwesomeMinis) and
+[MinisSkills](https://github.com/OpenMinis/MinisSkills) both take contributions;
+see [CONTRIBUTING.md](CONTRIBUTING.md) for the issue-reporting checklist.
+Its "public mirror" paragraph describes the upstream project's workflow and
+does not govern this fork.

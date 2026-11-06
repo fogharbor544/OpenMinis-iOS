@@ -2,7 +2,7 @@ import Foundation
 import FileProvider
 import UIKit
 
-/// Watches the App Group `MinisFileProvider/{shared,skills,memory}/` subtrees and
+/// Watches the App Group `MinisFileProvider/{shared,skills,Backups}/` subtrees and
 /// signals the FileProvider extension whenever directory contents change.
 ///
 /// Why this exists: iSH shell commands and the in-app FileBrowserView both write
@@ -29,7 +29,7 @@ final class AppGroupChangeWatcher {
 
     private struct Watch {
         let url: URL
-        let rootKey: String           // "shared" | "skills" | "memory"
+        let rootKey: String           // "shared" | "skills" | "Backups"
         let relativePath: String      // path inside the root, "" for root itself
         let source: DispatchSourceFileSystemObject
         var childNames: Set<String>   // baseline for new/deleted subdir detection
@@ -51,7 +51,7 @@ final class AppGroupChangeWatcher {
         let roots: [(URL, String)] = [
             (AIChatViewModel.minisSharedPersistentDir, "shared"),
             (AIChatViewModel.minisSkillsPersistentDir, "skills"),
-            (AIChatViewModel.minisMemoryPersistentDir, "memory"),
+            (BackupDelivery.backupsDirectory, BackupDelivery.backupsDirectoryName),
         ]
 
         for (rootURL, rootKey) in roots {
@@ -84,7 +84,7 @@ final class AppGroupChangeWatcher {
             }
             // Signal all three roots + the working set to nudge Files app
             // to re-enumerate after we missed events while suspended.
-            for rootKey in ["shared", "skills", "memory"] {
+            for rootKey in SharedFolderVisibility.allFolderNames {
                 self.scheduleSignal(itemID: NSFileProviderItemIdentifier(rootKey))
             }
             self.scheduleSignal(itemID: .workingSet)
@@ -265,7 +265,7 @@ final class AppGroupChangeWatcher {
         // The directory where the change happened.
         scheduleSignal(itemID: itemIdentifier(rootKey: rootKey, relativePath: relativePath))
         // Each ancestor up to and including the rootKey itself ("shared",
-        // "skills", "memory"). We do NOT signal `.rootContainer` here —
+        // "skills", "Backups"). We do NOT signal `.rootContainer` here —
         // its listing is just the three fixed top-level dirs and is
         // unaffected by writes inside them.
         var rel = relativePath

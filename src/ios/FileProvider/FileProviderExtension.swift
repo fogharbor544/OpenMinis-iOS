@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 import os.log
 
 /// Replicated File Provider extension that exposes MinisFileProvider/ to the system Files app.
-/// Structure: Minis → { memory, skills, shared }
+/// Structure: Minis → { shared, skills, Backups }
 /// Uses the modern NSFileProviderReplicatedExtension protocol (iOS 16+).
 final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
@@ -22,7 +22,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     }
 
     /// The three top-level subdirectories exposed via the FileProvider.
-    static let topLevelSubdirs = ["memory", "skills", "shared"]
+    static let topLevelSubdirs = SharedFolderVisibility.allFolderNames
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain

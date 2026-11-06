@@ -422,7 +422,7 @@ Skill 是一个带 `SKILL.md` 的目录，可包含脚本、参考资料和素�
 | `/var/minis/browser/` | 浏览器截图与提取结果 |
 | `/var/minis/shared/` | 跨会话共享文件、文档、数据集 |
 | `/var/minis/skills/` | Skills |
-| `/var/minis/memory/` | 共享目录；当前 Bot/群组的 SQLite 记忆通过资料页和记忆工具管理 |
+| `/var/minis/memory/` | 仅保留旧文件兼容，不再提供目录入口；当前 Bot/群组的 SQLite 记忆通过资料页和记忆工具管理 |
 | `/var/minis/mounts/<name>/` | 用户挂载的外部文件夹 |
 | `/var/minis/mcp-servers/` | MCP 配置与日志 |
 
@@ -436,11 +436,15 @@ Skill 是一个带 `SKILL.md` 的目录，可包含脚本、参考资料和素�
 
 - `Shared`：对应 `/var/minis/shared`，Files 中可读写。
 - `Skills`：对应 `/var/minis/skills`，Files 中只读。
-- `Memory`：对应 `/var/minis/memory`，Files 中只读。
+- `Backups`：本机 `.minisbak` 备份文件，Files 中可读写；不挂载到 Agent 的 Linux 环境。
 
-Minis 应用自身始终可以读写这三处；只读限制只针对 Files App。
+Minis 应用自身可以管理这些目录；Skills 的只读限制只针对 Files App。
 
-`Shared Folders` 详情页还可以切换该目录是否在 Files 中显示；隐藏只影响 Files App 的可见性，不影响 Agent 的访问。
+`Shared Folders → Backup Folder` 可查看备份文件名、大小和修改时间，点击文件进入恢复检查，也可通过菜单分享或删除备份。删除前会确认，只删除本机选中的文件，不删除当前聊天和记忆、备份历史或其他目的地上的副本。支持下拉刷新。
+
+旧 `memory` 文件保留在磁盘上，但不再显示在共享文件夹、Files App 根目录和聊天 `@` 文件候选中。真正的“共享记忆”仍从 `设置 → Storage → 共享记忆` 管理。
+
+`Shared Folders` 中可以切换目录是否在 Files 中显示；隐藏后仍可在应用内管理。Shared 和 Skills 的 Agent 访问也不受影响。
 
 ### 挂载外部文件夹
 

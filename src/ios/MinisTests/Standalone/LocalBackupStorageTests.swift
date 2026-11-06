@@ -101,10 +101,44 @@ import Foundation
             _ = try LocalBackupStorage(directory: blocked).packages()
         }
 
+        // Deletion is confined to finished regular packages in this store.
+        let outside = root.appendingPathComponent("outside.minisbak")
+        try Data("outside backup".utf8).write(to: outside)
+        expectFailure("a package outside the store cannot be deleted") { try storage.delete(outside) }
+        check("outside package is preserved") { fm.fileExists(atPath: outside.path) }
+        let nested = directory.appendingPathComponent("folder.minisbak/nested.minisbak")
+        try Data().write(to: nested)
+        expectFailure("a nested package cannot be deleted") { try storage.delete(nested) }
+        expectFailure("a directory cannot be deleted") {
+            try storage.delete(directory.appendingPathComponent("folder.minisbak"))
+        }
+        expectFailure("a symbolic link cannot be deleted") {
+            try storage.delete(directory.appendingPathComponent("link.minisbak"))
+        }
+        check("a rejected link leaves its target intact") { try Data(contentsOf: first) == Data("first backup".utf8) }
+        expectFailure("an unrelated file cannot be deleted") {
+            try storage.delete(directory.appendingPathComponent("notes.txt"))
+        }
+        check("rejected entries are preserved") {
+            let linkTarget = try fm.destinationOfSymbolicLink(atPath: directory.appendingPathComponent("link.minisbak").path)
+            return fm.fileExists(atPath: nested.path)
+                && fm.fileExists(atPath: directory.appendingPathComponent("notes.txt").path)
+                && !linkTarget.isEmpty
+        }
+        try storage.delete(second)
+        check("confirmed deletion removes only the selected backup") {
+            let preserved = try Data(contentsOf: first)
+            let remaining = try storage.packages()
+            return !fm.fileExists(atPath: second.path)
+                && preserved == Data("first backup".utf8)
+                && remaining.count == 1
+        }
+        expectFailure("a missing backup reports a deletion error") { try storage.delete(second) }
+
         for note in notes { print("NOTE: \(note)") }
         for failure in failures { print(failure) }
         if failures.isEmpty {
-            print("PASS: local directory creation, persistence, collision preservation, newest-first restore list, filtering and errors")
+            print("PASS: local directory creation, persistence, collision preservation, newest-first restore list, filtering, confined deletion and errors")
         } else {
             print("FAIL: \(failures.count) local backup storage assertions")
             exit(1)

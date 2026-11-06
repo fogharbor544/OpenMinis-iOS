@@ -403,7 +403,6 @@ extension AIChatView {
             case .attachments: return "paperclip"
             case .shared:      return "folder.badge.person.crop"
             case .skills:      return "sparkles"
-            case .memory:      return "brain.head.profile"
             case .mount:       return "externaldrive"
             }
         }

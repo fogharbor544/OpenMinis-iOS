@@ -3,7 +3,7 @@
 //  MinisApp
 //
 //  Shared storage for which top-level subdirs of the FileProvider
-//  (shared / skills / memory) should appear in the iOS Files app.
+//  (shared / skills / Backups) should appear in the iOS Files app.
 //  Both the main app process and the FileProvider extension read this.
 //
 //  Backing store: App Group UserDefaults (`group.com.fogharbor544.minis`) so
@@ -21,7 +21,7 @@ import Foundation
 enum SharedFolderVisibility {
     /// The three top-level FileProvider subdirs we expose.
     /// Must match FileProviderExtension.topLevelSubdirs.
-    static let allFolderNames: [String] = ["shared", "skills", "memory"]
+    static let allFolderNames: [String] = ["shared", "skills", "Backups"]
 
     private static let appGroupID = "group.com.fogharbor544.minis"
     private static let userDefaultsKeyPrefix = "fileProviderVisible."
@@ -35,6 +35,8 @@ enum SharedFolderVisibility {
     /// Whether the given folder name (e.g. "shared") is currently visible in Files.
     /// Defaults to `true` if no explicit value has been set.
     static func isVisible(_ name: String) -> Bool {
+        // Keep legacy files on disk without exposing an obsolete memory entry.
+        if name == "memory" { return false }
         let key = userDefaultsKeyPrefix + name
         // If the key doesn't exist, default to visible.
         if store.object(forKey: key) == nil {

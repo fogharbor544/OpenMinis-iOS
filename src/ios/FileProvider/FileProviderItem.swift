@@ -70,7 +70,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
             return [.allowsReading]
         }
         if isTopLevelSubdir {
-            // shared/ — allow adding sub-items but not rename/delete of the dir itself
+            // Writable fixed roots allow adding items, but cannot be renamed/deleted.
             return [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
         }
         return [.allowsReading, .allowsWriting, .allowsRenaming, .allowsReparenting,

@@ -81,7 +81,14 @@ def main():
             print(f"PASS: {len(result['cases'])} shipping-avatar native assertions and 6 moving/picker/gallery snapshots; see result.json for limits")
     finally:
         if booted_here:
-            subprocess.run(["xcrun", "simctl", "shutdown", udid], check=False, timeout=30)
+            # Shutdown is best effort. Under Python 3.15 a wedged simctl can
+            # raise TimeoutExpired here, which would replace an already
+            # successful assertion run with a cleanup failure.
+            try:
+                subprocess.run(["xcrun", "simctl", "shutdown", udid],
+                               check=False, capture_output=True, timeout=30)
+            except Exception as shutdown_error:
+                print(f"NOTE: simulator shutdown skipped: {type(shutdown_error).__name__}")
 
 
 if __name__ == "__main__":

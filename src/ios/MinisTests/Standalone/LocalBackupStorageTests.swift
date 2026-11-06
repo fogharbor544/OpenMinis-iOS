@@ -16,7 +16,8 @@ import Foundation
 
         func check(_ label: String, _ body: () throws -> Bool) {
             do {
-                if !try body() { failures.append("FAIL \(label)") }
+                let passed = try body()
+                if !passed { failures.append("FAIL \(label)") }
             } catch {
                 failures.append("THREW \(label): \(error.localizedDescription)")
             }

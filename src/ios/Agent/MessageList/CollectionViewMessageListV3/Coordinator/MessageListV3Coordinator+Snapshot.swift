@@ -315,6 +315,14 @@ extension CollectionViewMessageListV3.Coordinator {
                                     cell.clearCachedHeight()
                                 }
                                 layout.invalidateHeight(at: i)
+                                // A prior expanded measurement may also have
+                                // become the precalc fallback. Drop it before
+                                // UIKit measures the collapsed row again.
+                                layout.clearPrecalcHeight(at: i)
+                                if let vm = self.vm {
+                                    layout.setEstimatedHeight(Self.estimateItemHeight(item, messages: vm.messages,
+                                                                                     width: cv.bounds.width), at: i)
+                                }
                                 var snap = snapshot
                                 snap.reconfigureItems([item])
                                 self.dataSource?.apply(snap, animatingDifferences: false)
@@ -797,7 +805,7 @@ extension CollectionViewMessageListV3.Coordinator {
                             // session reload — hits instead of re-measuring
                             // through the near-O(n^2) sizeThatFits path.
                             if !isGrowing, let attrStr = block.cachedAttributedString {
-                                let textWidth = max(cvWidth - 32, 100)
+                                let textWidth = max(AssistantReplyLayout.availableWidth(cvWidth) - 32, 100)
                                 let key = HeightCacheKey(
                                     content: block.content,
                                     width: textWidth,

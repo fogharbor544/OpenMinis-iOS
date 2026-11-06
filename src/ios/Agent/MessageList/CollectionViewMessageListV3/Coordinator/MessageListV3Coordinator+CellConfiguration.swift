@@ -119,6 +119,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 cell.backgroundColor = .clear
                 let config = UIHostingConfiguration {
                     BridgedAssistantHeaderV3(message: message, maxWidth: width)
+                        .padding(.trailing, AssistantReplyLayout.trailingInset)
                         .transaction { $0.disablesAnimations = true }
                         .environmentObject(vm)
                 }.minSize(width: 0, height: 0).margins(.all, 0)
@@ -149,6 +150,7 @@ extension CollectionViewMessageListV3.Coordinator {
                         maxWidth: width
                     )
                     }
+                    .padding(.trailing, AssistantReplyLayout.trailingInset)
                     .transaction { $0.disablesAnimations = true }
                     .environmentObject(vm)
                     .environment(\.chatSearchHighlights, vm.chatSearch.highlights)
@@ -173,6 +175,7 @@ extension CollectionViewMessageListV3.Coordinator {
                         isExpanded: expanded,
                         maxWidth: width
                     )
+                    .padding(.trailing, AssistantReplyLayout.trailingInset)
                     .transaction { $0.disablesAnimations = true }
                 }.minSize(width: 0, height: 0).margins(.all, 0)
                 cell.applyContentConfiguration(config)
@@ -190,6 +193,7 @@ extension CollectionViewMessageListV3.Coordinator {
                         maxWidth: width,
                         retryLogKey: vm.retryLogKey
                     )
+                    .padding(.trailing, AssistantReplyLayout.trailingInset)
                     .transaction { $0.disablesAnimations = true }
                     .environmentObject(vm)
                     .environment(\.chatSearchHighlights, vm.chatSearch.highlights)
@@ -351,7 +355,8 @@ extension CollectionViewMessageListV3.Coordinator {
         /// Text below `firstSeedMinChars` is cheap to build twice and keeps
         /// the measured path. The text column is the block's frame inside
         /// BridgedAssistantBlockV3 (16 pt padding each side, capped at
-        /// `maxWidth`), and AssistantBlockView adds 2 pt above and below.
+        /// `maxWidth`), inside the assistant-only trailing gutter.
+        /// AssistantBlockView adds 2 pt above and below.
         private func firstDisplaySeed(for item: MessageListItem, messages: [ChatMessage],
                                       collectionWidth: CGFloat, maxWidth: CGFloat) -> CGFloat? {
             guard case .assistantBlock(let msgId, let blockId) = item,
@@ -359,7 +364,7 @@ extension CollectionViewMessageListV3.Coordinator {
                   let block = messages[msgIdx].blocks.first(where: { $0.id == blockId }),
                   case .text = block.kind,
                   block.content.count >= Self.firstSeedMinChars else { return nil }
-            var textWidth = collectionWidth - 32
+            var textWidth = AssistantReplyLayout.availableWidth(collectionWidth) - 32
             if maxWidth > 0 { textWidth = min(textWidth, maxWidth) }
             #if DEBUG
             let seedStart = CACurrentMediaTime()

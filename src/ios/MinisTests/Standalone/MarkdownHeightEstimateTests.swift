@@ -156,9 +156,9 @@ for line in out.split(separator: "\n") where line.hasPrefix("RESULT") {
 }
 
 print("\n2. Wiring")
-check("estimateTextBlockHeight follows the renderer basis (16.5 x scale, width - 32) through MarkdownHeightEstimate",
+check("estimateTextBlockHeight excludes the assistant gutter and padding with the renderer font basis",
       listSrc.contains("let base = FontSettings.shared.scaledMessage(16.5)")
-      && listSrc.contains("let textWidth = max(width - 32, 100)")
+      && listSrc.contains("let textWidth = max(AssistantReplyLayout.availableWidth(width) - 32, 100)")
       && listSrc.contains("return estimate.height(of: content)"))
 check("the old half-em line model is gone", !listSrc.contains("let cpl = tw / (scale * 0.5)"))
 check("line heights come from the real fonts (system, PingFang), cached per size",

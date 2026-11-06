@@ -155,7 +155,10 @@ extension CollectionViewMessageListV3.Coordinator {
             case .assistantBlock(let mid, let bid):
                 let block = msg(mid)?.blocks.first(where: { $0.id == bid })
                 let n = block?.content.count ?? 0
-                return "b:\(mid.uuidString):\(bid.uuidString):\(n)"
+                // A completed thinking block keeps the same text when it folds.
+                // Never seed its collapsed row with an expanded measurement.
+                let thinkingState = block?.kind == .thinking ? ":k\(block?.isThinkingExpanded == true ? 1 : 0)" : ""
+                return "b:\(mid.uuidString):\(bid.uuidString):\(n)\(thinkingState)"
             case .toolGroup(let mid, let first):
                 // Identity only — the list uses `itemContentKey`, which adds
                 // the group's counts and expanded state.
@@ -275,7 +278,7 @@ extension CollectionViewMessageListV3.Coordinator {
                 switch block.kind {
                 case .text:
                     if let attrStr = block.cachedAttributedString {
-                        let textWidth = max(width - 32, 100)
+                        let textWidth = max(AssistantReplyLayout.availableWidth(width) - 32, 100)
                         // [T-ios-longreply-boundingRect-watchdog] CTFramesetter instead
                         // of NSAttributedString.boundingRect. estimateItemHeight runs
                         // in prefetch/scroll-back for every not-yet-measured cell;
@@ -302,7 +305,7 @@ extension CollectionViewMessageListV3.Coordinator {
                     guard block.isThinkingExpanded, !block.content.isEmpty else {
                         return headerH
                     }
-                    let innerWidth = max(width - 24, 100)         // 12pt horizontal pad each side
+                    let innerWidth = max(AssistantReplyLayout.availableWidth(width) - 24, 100) // 12pt horizontal pad each side
                     let innerLineHeight: CGFloat = 13 * 1.4 + 3   // .lineSpacing(3) on 13pt font
                     let lines = block.content.split(separator: "\n", omittingEmptySubsequences: false)
                     var textH: CGFloat = 0
@@ -363,14 +366,15 @@ extension CollectionViewMessageListV3.Coordinator {
             // (EmptyView).
             guard !content.isEmpty else { return 0 }
             // [T-scroll-estimate-fidelity] Follow the renderer's own layout
-            // (base 16.5 × the user's message scale, text width = width − 32,
+            // (base 16.5 × the user's message scale, text width = available
+            // assistant width − 32 for the block's own horizontal padding,
             // +12 — the same basis as the cachedAttributedString path) instead
             // of the old half-em-per-character line model, which under-sized
             // CJK replies by 25–46% and made them jump mid-fling as they were
             // measured. See MarkdownHeightEstimate. `scale` / `lineHeight` are
             // the old model's inputs, kept for the call sites.
             let base = FontSettings.shared.scaledMessage(16.5)
-            let textWidth = max(width - 32, 100)
+            let textWidth = max(AssistantReplyLayout.availableWidth(width) - 32, 100)
             let metrics = Self.estimateLineMetrics(base)
             let estimate = MarkdownHeightEstimate(
                 textWidth: textWidth, baseFontSize: base,

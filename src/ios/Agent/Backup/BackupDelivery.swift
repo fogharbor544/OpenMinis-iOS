@@ -46,6 +46,20 @@ struct LocalBackupStorage: Sendable {
             return $0.url.lastPathComponent < $1.url.lastPathComponent
         }
     }
+
+    /// Only delete a completed, regular package directly inside this store.
+    func delete(_ packageURL: URL) throws {
+        guard packageURL.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+                == directory.resolvingSymlinksInPath().standardizedFileURL,
+              packageURL.pathExtension.lowercased() == "minisbak" else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        let values = try packageURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try FileManager.default.removeItem(at: packageURL)
+    }
 }
 // END LocalBackupStorage
 
@@ -114,15 +128,9 @@ enum BackupDelivery {
     ///   3. Semantically, a delivery destination should not reuse the
     ///      "agent-visible shared workspace" concept at all.
     ///
-    /// Files-app visibility does NOT require registering this name with the
-    /// FileProvider: `FileProviderEnumerator` lists whatever is on disk under
-    /// `providerRoot` and only filters names it knows about
-    /// (`FileProviderEnumerator.swift:147-157` passes unknown entries through
-    /// unchanged, deliberately "so future additions are safe"). Leaving it out
-    /// of `topLevelSubdirs` is therefore correct AND desirable: that list also
-    /// drives the Shared Folders visibility toggles and the rename/delete
-    /// blocks, none of which should apply to a backups folder the user may well
-    /// want to clear out.
+    /// Shared Folders exposes this directory for package management and Files
+    /// visibility. The FileProvider protects the fixed directory itself while
+    /// allowing users to delete individual packages. It is never shell-mounted.
     @discardableResult
     static func moveToVisibleStorage(_ packageURL: URL) throws -> URL {
         let dest = try LocalBackupStorage(directory: backupsDirectory).save(packageURL)

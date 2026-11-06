@@ -2,7 +2,7 @@
 //  MountDetailView.swift
 //  MinisApp
 //
-//  Unified detail page for both "Shared Folders" (shared/skills/memory) and
+//  Unified detail page for agent shared folders (shared/skills) and
 //  "Mount External Folders" (user-picked external directories). Provides:
 //   - Header card with display name, source, linux path, status
 //   - Editable name field (external mounts only)
@@ -54,7 +54,7 @@ struct MountDetailContext: Equatable {
     /// For shared folders: the UserDefaults key / subdir name.
     let sharedFolderName: String?
     let initialVisibleInFiles: Bool
-    /// Read-only badge for shared folders (skills/memory are read-only from Files).
+    /// Read-only badge for shared folders (skills are read-only from Files).
     let isReadOnlyFromFiles: Bool
 }
 

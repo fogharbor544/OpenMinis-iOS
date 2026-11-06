@@ -15,13 +15,12 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
     enum Scope: Int, Comparable {
         // Raw values double as the *default* sort order when no query is
         // active, so the case order here is the user-facing priority:
-        // skills > attachments > mount > shared > workspace > memory.
+        // skills > attachments > mount > shared > workspace.
         case skills = 0
         case attachments
         case mount
         case shared
         case workspace
-        case memory
 
         static func < (l: Self, r: Self) -> Bool { l.rawValue < r.rawValue }
 
@@ -32,7 +31,6 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
             case .mount:       return "mount"
             case .shared:      return "shared"
             case .workspace:   return "workspace"
-            case .memory:      return "memory"
             }
         }
 
@@ -47,7 +45,6 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
             case .mount:       return 400
             case .shared:      return 300
             case .workspace:   return 200
-            case .memory:      return 100
             }
         }
     }
@@ -86,7 +83,7 @@ struct FileMentionEntry: Identifiable, Equatable, Hashable {
 ///   3. Otherwise a fresh scan is scheduled:
 ///        a. Session-scoped dirs (workspace, attachments) synchronously on a
 ///           background queue — published first so the menu opens fast.
-///        b. Shared dirs (shared, skills, memory) — published next.
+///        b. Shared dirs (shared, skills) — published next.
 ///        c. Each active external mount scanned with bounded depth (3) — each
 ///           one published as it finishes, so heavy iCloud mounts don't block.
 ///   4. `entries` is a `@Published` snapshot the UI observes; dedup is applied
@@ -250,7 +247,7 @@ final class FileMentionIndex: ObservableObject {
             #endif
             self.publish(token: token, newEntries: sessionResults, layer: "session", done: false)
 
-            // Layer 2 — shared / skills / memory.
+            // Layer 2 — shared / skills.
             let sharedResults = Self.scanRoots(sharedRoots, maxDepth: Int.max, remaining: &remaining)
             #if DEBUG
             let skillEntries = sharedResults.filter { $0.scope == .skills }
@@ -429,9 +426,9 @@ final class FileMentionIndex: ObservableObject {
 
     // MARK: - Root discovery (main actor)
 
-    /// Session-scoped roots. Browser/offloads/memory/skills intentionally excluded
+    /// Session-scoped roots. Browser/offloads/skills intentionally excluded
     /// from session scope since browser snapshots aren't user-authored files and
-    /// offloads/memory/skills are handled via their global roots.
+    /// Skills are handled via their global root; legacy memory is not indexed.
     private static func sessionRoots(sessionId: String?) -> [ScanRoot] {
         guard let sid = sessionId, !sid.isEmpty else { return [] }
         return [
@@ -462,12 +459,6 @@ final class FileMentionIndex: ObservableObject {
                 scope: .skills,
                 hostURL: AIChatViewModel.minisSkillsPersistentDir,
                 linuxPrefix: AIChatViewModel.minisSkillsLinuxDir,
-                mountName: nil
-            ),
-            ScanRoot(
-                scope: .memory,
-                hostURL: AIChatViewModel.minisMemoryPersistentDir,
-                linuxPrefix: AIChatViewModel.minisMemoryLinuxDir,
                 mountName: nil
             ),
         ]

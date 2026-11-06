@@ -2,7 +2,7 @@
 //  MemoryManagementView.swift
 //  MinisApp
 //
-//  Settings-level memory management: unified file list with edit/delete.
+//  Settings-level navigation to owner-scoped SQLite memory documents.
 //
 
 import SwiftUI

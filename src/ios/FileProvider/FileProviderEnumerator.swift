@@ -53,10 +53,18 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         // bug. Instead, replay every current item via `didUpdate` and finish
         // with the new anchor: iOS dedups by itemIdentifier and refreshes
         // metadata for items that already existed, while picking up newly-
-        // appeared ones. We can't report deletions this way, but in-app
+        // appeared ones. We can't infer arbitrary deletions this way, but in-app
         // deletions go through `deleteItem` (which signals directly) and
         // external deletions are handled by the AppGroupChangeWatcher's
         // periodic foreground reconciliation.
+        // These removals are known even without an item history. Explicitly
+        // invalidate cached roots when a folder is hidden or retired on upgrade.
+        if containerItemIdentifier == .rootContainer || recursive {
+            let hiddenRoots = (SharedFolderVisibility.allFolderNames + ["memory"])
+                .filter { !SharedFolderVisibility.isVisible($0) }
+                .map { NSFileProviderItemIdentifier($0) }
+            observer.didDeleteItems(withIdentifiers: hiddenRoots)
+        }
         observer.didUpdate(items)
         observer.finishEnumeratingChanges(upTo: currentAnchor, moreComing: false)
     }
@@ -145,15 +153,8 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         // lives on disk; it just doesn't appear in the Files app until the
         // user re-enables the toggle.
         if containerItemIdentifier == .rootContainer {
-            let visible = SharedFolderVisibility.visibleFolderNames
             contents = contents.filter { url in
-                // Only filter known top-level names; unknown entries (if any)
-                // are passed through unchanged so future additions are safe.
-                let name = url.lastPathComponent
-                if SharedFolderVisibility.allFolderNames.contains(name) {
-                    return visible.contains(name)
-                }
-                return true
+                SharedFolderVisibility.isVisible(url.lastPathComponent)
             }
         }
 
@@ -181,13 +182,8 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         // non-recursive path so hidden top-level subdirs don't leak into the
         // working set when iOS Files enumerates recursively.
         if dirURL.standardized.path == rootURL.standardized.path {
-            let visible = SharedFolderVisibility.visibleFolderNames
             contents = contents.filter { url in
-                let name = url.lastPathComponent
-                if SharedFolderVisibility.allFolderNames.contains(name) {
-                    return visible.contains(name)
-                }
-                return true
+                SharedFolderVisibility.isVisible(url.lastPathComponent)
             }
         }
 

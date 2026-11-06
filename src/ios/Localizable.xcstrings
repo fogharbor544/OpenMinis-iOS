@@ -1,6 +1,121 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Manage local backups in Minis/Backups. Tap a backup to review it for restore, or use its menu to share or delete it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage local backups in Minis/Backups. Tap a backup to review it for restore, or use its menu to share or delete it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理 Minis/Backups 中的本机备份。点击备份可查看恢复信息，也可通过菜单分享或删除。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理 Minis/Backups 中的本機備份。點選備份可查看還原資訊，也可透過選單分享或刪除。"
+          }
+        }
+      }
+    },
+    "No local backups yet. Create a backup in Backup & Restore." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No local backups yet. Create a backup in Backup & Restore."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有本机备份。请在“备份与恢复”中创建备份。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "還沒有本機備份。請在「備份與還原」中建立備份。"
+          }
+        }
+      }
+    },
+    "Deleting backup…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleting backup…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在删除备份…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在刪除備份…"
+          }
+        }
+      }
+    },
+    "Backup actions for %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Backup actions for %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "备份 %@ 的操作"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "備份 %@ 的操作"
+          }
+        }
+      }
+    },
+    "“%@” will be permanently deleted from this device. This cannot be undone. Your current chats and memories, backup history, and copies on other destinations are kept." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” will be permanently deleted from this device. This cannot be undone. Your current chats and memories, backup history, and copies on other destinations are kept."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将从本机永久删除“%@”，此操作无法撤销。当前聊天和记忆、备份历史以及其他目的地上的副本会保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將從本機永久刪除「%@」，此操作無法復原。目前的聊天與記憶、備份歷史以及其他目的地上的副本會保留。"
+          }
+        }
+      }
+    },
     "Choose a backup from Minis ▸ Backups to restore. Newest backups appear first." : {
       "extractionState" : "manual",
       "localizations" : {

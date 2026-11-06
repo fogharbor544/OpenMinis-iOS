@@ -439,3 +439,52 @@ User explicitly requests combined document memory reading/editing, and direct ta
 - Updated assistant first-display seed, snapshot text precalc, cached/plain Markdown estimates and thinking estimate to use reduced available width. Existing internal gutters, regular cap and split-row architecture preserved.
 - Updated the two adjacent Swift source guards and bundled guide. No new tests that merely mirror padding were added.
 - Geometry/source inspection passed for 320/375/393/414/844/1024/1366pt list widths. Native visual acceptance remains unavailable on this Windows host.
+
+## 2026-11-07 Bot memory categories
+- Current BotMemoryView has fixed/history; history combines every non-fixed entry. The editor always loads ordinary text plus fixed and event entry editors, and saveDocument checks/replaces the whole owner document.
+- Existing categories: preference/fact/convention/experience/event. Fixed status is pinned && !automatic. UI-only hiding is insufficient: category-scoped save must preserve other records exactly.
+- Asked user whether facts means event records (decision/delivery/verification) or category=fact. No data mapping change before clarification.
+- Initial git status clean. Native SwiftUI and Swift compiler not available on Windows; use portable checks plus queued native fixtures.
+
+- User confirmed facts means event records, label 事实记忆. Shared BotMemorySection classifies explicit fixed entries first, then event facts, then ordinary categories. No persisted type migration.
+- Reader uses three tabs and filters shared content/search by the same section. Sheet item captures the selected section; draft and save baseline contain only that section.
+- Scoped document save compares only that section and writes/deletes only selected records; whole-document callers retain their original behavior. Added native fixture cases for category isolation and concurrent updates; not executed on Windows.
+
+- Final source review: category saves match/delete against scoped current records only; unrelated records are not rewritten. Whole-document size validation still includes preserved categories; whole-document menu operations remain explicit and unchanged.
+- PASS: grammar parses of both modified app Swift files and the expanded native fixture; current Bot source contracts; category selection/editor/save wiring inspection; 13 new English/Simplified/Traditional Chinese entries with every pre-existing catalog entry unchanged; diff whitespace. These are source/grammar checks, not runtime evidence.
+
+## 2026-11-07 category editor review
+- Reviewing the current uncommitted category/editor changes. Scope includes category matching, scoped persistence, existing whole-document operations, sheet state and regression fixtures. No app/test repair authorized by the review request.
+
+### Category editor review result
+- P2: saveDocument scopes the baseline/mutations, but still unconditionally clears global lastSaved at BotMemoryStore.swift:413. If automatic ordinary/event review finishes while a fixed editor is open, the newly allowed fixed save preserves that new row but clears its Remembered/Undo banner. BotWorkspaceView.swift:204/692 gates the banner on lastSaved. Previous whole-document baseline would reject this concurrent same-owner addition. Preserve lastSaved when its entry is outside the edited scope; add a regression to the existing category fixture, which currently performs this sequence without checking lastSaved. Source-confirmed; no native runtime reproduction.
+- No other actionable defect found in category membership, scoped row deletion/writes, secret rejection, event identity/grants preservation or catalog changes. Whole-document menu operations remain explicitly documented; not classified as a new defect.
+
+## 2026-11-07 category editor review repair
+- Use the actual current transaction record IDs to decide whether to clear lastSaved. This preserves other categories/owners without relying on potentially stale metadata in the lastSaved snapshot. Cleanup remains after COMMIT, so rejected/failed saves preserve the notification.
+
+- Fixed: after COMMIT, saveDocument clears lastSaved only when its ID is present in the transaction current records. Unrelated categories/owners keep the exact snapshot; early exits and failures retain it.
+- Existing native fixture now asserts unrelated automatic-addition retention, cleanup on own-category save/deletion, retention on baseline rejection, retention for another owner during whole-document save and successful Undo afterward. Native execution remains pending.
+
+## 2026-11-07 Poki automation research
+- Requested sources: https://github.com/JosssphZhou/poki and https://github.com/carrotciallo/poki-for-linux.
+- Research scope: source-backed iOS integration feasibility; no app implementation or runtime validation yet.
+- 已确认两仓库实际控制的是 iPhone，Mac/Linux 是运行自动化协议栈的主机。用户明确目标是同一台 iPhone 上的其他 App，不是电脑。
+- 固定调研快照：poki 7ee03e3426db8a7b118a987e1dff7f74bef91124；poki-for-linux c2e90ae58b75a159445877a5f28638acc9f1c9ad（默认 linux-port）。两者 AGPL-3.0-only；底层 Rust idevice + CoreDevice/AX/HID，不能先验按 WDA/XCTest 假定。
+- Linux README 声称支持真实设备 USB/Wi-Fi、需要 Developer Mode + UI Automation + DDI；这属于维护者实测声明，本机未复现。
+- 重要修正：不能把“iOS 公开 SDK 没有通用跨 App 点击 API”推成“非越狱设备上绝对不可做”。idevice 已有 iOS 嵌入使用者，StikDebug 通过配对文件、loopback VPN 和原生 FFI 创建开发者隧道。该事实证明连接路径可行，尚未证明 Poki AX/HID 在同机后台端到端成立。
+- StikDebug 最新 PAIRING.md 还声明 iOS/iPadOS 27+ 支持设备端配对；此为额外候选路径，不能把始终需要首次电脑当作绝对条件。
+- Apple 安全文档确认沙箱/entitlement 限制；需将稳定公开能力与开发者协议实验能力分开判断。
+- Deepened on-device candidate with pinned StikDebug 9d7a917c7d698ed6d393ee3dc1a8ff1feba773fe: JITEnableContext.swift:387-449 reads RemotePairing file, connects to configured device IP, calls tunnel_create_rppairing, and obtains adapter/RSD handles. This is stronger evidence than a README alone.
+- Poki pins idevice 89702099f4d7552f704f93b4526756abda319ceb, matching the idevice revision inspected. Its Rust library is MIT; Poki wrapper/AX parser/interaction orchestration are AGPL-3.0-only. Do not conflate library and wrapper licensing.
+- Main technical gaps for same-phone integration: iOS static library + C ABI, own-device network transport, DDI/media/HID availability, switching target app with background agent continuity, serialization across Bots, screenshots and cancellation outcomes.
+- 本地关键约束：BrowserUseOffloadBridge.swift:159-165 已明确 shell 可跨聊天并发，不能沿用旧 sandbox summary 的串行假设。同机 UI 只有一块前台屏幕，必须单独建立全局设备操作 owner/lease。
+- MCP screenshot 不是开箱即用：Poki 返回 MCP image content；当前 minis-mcp-cli call 将完整 result JSON 打印到 shell stdout，shell_execute 把它作为文本，现有视觉输入通过 read_image/browser 原生分支。桥接方案需图片落盘并接 read_image，不能声称“填 URL 就完整可用”。
+- 当前 app 已有 BGContinuedProcessingTask、audio/location 后台机制；仍需实际验证切走到其他 App 后的 agent+Rust+模型请求链，不能声称现有增强后台已解决同机控制。
+- 当前 src/shared/cli/a11y-cli.md 是待定历史草稿，写明 iOS 不提供普通 OS accessibility client 命令，不能据此否认开发者配对协议实验路线；也不能把草稿中的旧 Android 状态当作当前 fork 事实。报告将明确现状无此功能，并补充研究范围内的新候选路径。
+- 初步结论：有依据支持投入最小同机 PoC；没有依据宣称可直接接入或已实现稳定控制。Linux port 解决的是主机兼容性，不是 iOS 自控能力。
+
+### Poki research final findings
+- Added docs/ios-poki-automation-feasibility-2026-11-07.md with pinned source links, capability map, current-fork integration boundaries and A-F hardware acceptance gates.
+- Recommended candidate: native Swift/C ABI/Rust static library + idevice + AX/DVT/CoreDevice HID through an authorized same-device developer tunnel. StikDebug establishes the connection half; Poki establishes host-driven automation half. Their combined same-phone background loop remains unverified.
+- No app implementation or tests executed; existing user code changes preserved. Report distinguishes on-device experimental automation, host-assisted control of the phone and limited public intent workflows.

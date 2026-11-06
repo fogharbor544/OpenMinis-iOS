@@ -601,3 +601,40 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - PASS: 7-width geometry/source verification; assistant/user separation and background/render/measurement wiring; updated source guards; 5 whole Swift grammar parses; changed MarkdownHeightEstimate test wiring section parses; diff whitespace.
 - Initial parser check reported errors in MarkdownHeightEstimateTests.swift. Confirmed identical error positions/types in HEAD and current (pre-existing nested multiline-string parser limitation), then parsed changed wiring section successfully. No unrelated source repair performed.
 - NOT RUN: Swift behavior fixtures, iOS build, actual small-phone/landscape/iPad/Dynamic Type/VoiceOver/light/dark UI inspection. No swiftc or xcodebuild on Windows. No commit or push.
+
+## 2026-11-07 Bot memory category work started
+- Inspected actual memory reader/editor and transactional document writer; requested clarification about facts/event naming.
+- Two guessed regression filenames do not exist; locating actual tracked runners instead. No app changes yet.
+
+- Implemented category reader and isolated editors/save scope; added 13 trilingual strings, manual guidance and superseding BOT_MEMORY decision note. User confirmed the event/facts interpretation.
+- Extended existing BotMemoryDocumentTests (already in macOS CI) for scoped mutations; reviewing and running portable checks next.
+
+- Completed source review and targeted portable validation: 3 Swift grammar parses; existing current-Bot source contracts; category sheet/filter/save wiring; catalog JSON and unchanged existing translations; diff whitespace. No native behavior results claimed.
+- NOT RUN: BotMemoryDocumentTests Swift behavior fixture, check_bot_memory_ui iOS SDK type-check, Xcode build, simulator/device and Dynamic Type/VoiceOver visual acceptance: swiftc/xcodebuild unavailable on this Windows host. Existing macOS CI already runs the extended fixture. No commit, branch or push.
+
+## 2026-11-07 category editor review started
+- Confirmed change set and read current AGENTS, implementation, tests and new memory decision note.
+
+- Review complete: one P2 scoped-save notification/Undo-state finding. No app/test repairs made.
+- PASS during review: 3 changed Swift grammar parses, current Bot source contracts, valid JSON and 13 trilingual additions with pre-existing catalog entries unchanged, diff whitespace. Native Swift behavior fixture, iOS SDK type-check/build and UI acceptance NOT RUN (Windows lacks swiftc/xcodebuild).
+
+## 2026-11-07 category editor review repair started
+- Confirmed the unconditional lastSaved reset and the existing concurrent-addition fixture. Prior uncommitted category changes preserved.
+
+- Repair implemented; updated bundled manual and appended same-day memory decision clarification. Prior category work preserved; no branch/commit/push.
+- PASS: grammar parsing of the 2 modified Swift files, reset-ID scope and post-COMMIT placement inspection, current Bot source contracts and diff whitespace.
+- NOT RUN: Swift behavior regressions, iOS SDK type-check, Xcode build and simulator/device UI. swiftc/xcodebuild unavailable on this Windows host. No runtime pass claimed.
+
+## 2026-11-07 Poki automation research started
+- Read current instructions, RTK and research/planning skills; preserved existing uncommitted memory work.
+- Workstreams: upstream desktop automation, Linux port, current iOS integration, Apple platform boundaries. Run directly without subagents.
+- GitHub plugin successfully fetched repository metadata/trees and pinned source files. Exa search returned five official Apple sources.
+- RTK rewrote regex alternation/pipes through cmd and caused broken commands; use rtk proxy or Python for affected searches. No repository data was lost.
+- One local Python read-only search hit Windows GBK output encoding on an emoji; switched PYTHONIOENCODING=utf-8 for subsequent reads.
+- SideStore/LocalDevVPN guessed URL was invalid; canonical primary repository found as jkcoxson/LocalDevVPN.
+
+### Poki research delivered
+- Reviewed pinned upstream/Linux source plus pinned idevice and StikDebug; Apple documentation covers sandbox, App Intents, ReplayKit and continued processing.
+- Created docs/ios-poki-automation-feasibility-2026-11-07.md. PASS: UTF-8/whitespace/fenced-block validation, all 8 relative source references exist, scoped git diff --check.
+- NOT RUN: Poki/Linux suites, Rust iOS build, Swift/Xcode build, actual pairing/VPN/AX/HID/screenshot/background device checks; cargo/rustc/swiftc/xcodebuild not found on this Windows host.
+- Exa GNU license-page fetch unavailable; used repository license text and avoided a definitive legal conclusion. Optional device/setup questions remain pending. No branch/commit/push or application source edits.

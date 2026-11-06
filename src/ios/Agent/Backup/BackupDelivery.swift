@@ -4,6 +4,51 @@ import UniformTypeIdentifiers
 
 private let logger = AppLogger(category: "Backup")
 
+// BEGIN LocalBackupStorage
+/// Completed packages kept outside the agent's shared workspace.
+struct LocalBackupStorage: Sendable {
+    let directory: URL
+
+    struct Package: Identifiable, Sendable {
+        var id: URL { url }
+        let url: URL
+        let size: Int64
+        let modified: Date
+    }
+
+    func save(_ packageURL: URL) throws -> URL {
+        let fm = FileManager.default
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        var destination = directory.appendingPathComponent(packageURL.lastPathComponent)
+        if fm.fileExists(atPath: destination.path) {
+            destination = directory.appendingPathComponent(
+                "\(packageURL.deletingPathExtension().lastPathComponent)-\(UUID().uuidString).\(packageURL.pathExtension)")
+        }
+        try fm.moveItem(at: packageURL, to: destination)
+        return destination
+    }
+
+    func packages() throws -> [Package] {
+        let fm = FileManager.default
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey,
+        ]
+        return try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys),
+                                          options: [.skipsHiddenFiles]).compactMap { url -> Package? in
+            guard url.pathExtension.lowercased() == "minisbak" else { return nil }
+            let values = try url.resourceValues(forKeys: keys)
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
+            return Package(url: url, size: Int64(values.fileSize ?? 0),
+                           modified: values.contentModificationDate ?? .distantPast)
+        }.sorted {
+            if $0.modified != $1.modified { return $0.modified > $1.modified }
+            return $0.url.lastPathComponent < $1.url.lastPathComponent
+        }
+    }
+}
+// END LocalBackupStorage
+
 /// Hands a finished `.minisbak` package to the user
 /// (docs/backup-restore-design.md §6.2 path 1).
 ///
@@ -80,11 +125,7 @@ enum BackupDelivery {
     /// want to clear out.
     @discardableResult
     static func moveToVisibleStorage(_ packageURL: URL) throws -> URL {
-        let dir = backupsDirectory
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dest = dir.appendingPathComponent(packageURL.lastPathComponent)
-        try? FileManager.default.removeItem(at: dest)
-        try FileManager.default.moveItem(at: packageURL, to: dest)
+        let dest = try LocalBackupStorage(directory: backupsDirectory).save(packageURL)
         logger.info("[Backup] package delivered to \(backupsDirectoryName)/\(dest.lastPathComponent)")
         return dest
     }

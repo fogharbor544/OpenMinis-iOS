@@ -1,6 +1,125 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Choose a backup from Minis ▸ Backups to restore. Newest backups appear first." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a backup from Minis ▸ Backups to restore. Newest backups appear first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 Minis ▸ Backups 中选择要恢复的备份，最新备份排在前面。"
+          }
+        }
+      }
+    },
+    "Loading backups…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading backups…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取备份…"
+          }
+        }
+      }
+    },
+    "Minis ▸ Backups" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minis ▸ Backups"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minis ▸ Backups"
+          }
+        }
+      }
+    },
+    "No backups yet. Create a backup on the Backup tab, or import a backup file." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No backups yet. Create a backup on the Backup tab, or import a backup file."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无备份。请在“备份”页创建备份，或导入备份文件。"
+          }
+        }
+      }
+    },
+    "Saved in Minis ▸ Backups." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved in Minis ▸ Backups."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存到 Minis ▸ Backups。"
+          }
+        }
+      }
+    },
+    "Start Backup creates this folder automatically and saves each backup here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start Backup creates this folder automatically and saves each backup here."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点击“开始备份”会自动创建此文件夹，并将每次备份保存到其中。"
+          }
+        }
+      }
+    },
+    "To restore a backup from another device, choose its .minisbak file from Files." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To restore a backup from another device, choose its .minisbak file from Files."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要恢复其他设备上的备份，请从“文件”中选择对应的 .minisbak 文件。"
+          }
+        }
+      }
+    },
   "No additional source information": {
     "localizations": {
       "en": {

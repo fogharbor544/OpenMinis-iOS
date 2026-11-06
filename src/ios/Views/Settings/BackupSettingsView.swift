@@ -5,9 +5,8 @@ private let logger = AppLogger(category: "Backup")
 /// Minimal user-facing entry point for creating a backup package
 /// (docs/backup-restore-design.md §6.2 path 1).
 ///
-/// Pick categories, optionally set a passphrase, export, then hand the package
-/// to the share sheet / "Save to Files". Restore lives in `BackupRestoreView`,
-/// linked from here.
+/// Pick categories, optionally set a passphrase, and save in Minis / Backups.
+/// Sharing a copy is optional. Restore reads the same folder.
 struct BackupSettingsView: View {
     /// True when hosted inside `BackupAndRestoreView`, which owns the
     /// navigation title. Without this the child would overwrite the
@@ -65,59 +64,18 @@ struct BackupSettingsView: View {
     /// Whether to encrypt. Defaults OFF, so the common case — back up, keep the
     /// file — takes no passphrase and nothing to forget.
     ///
-    /// The trade-off is stated rather than hidden: with encryption off the
-    /// package carries no credentials (secrets.json is base64, an encoding, not
-    /// protection), and the footer says so whenever Providers is selected. A
-    /// user who wants their API keys to travel turns this on.
+    /// Credentials are included either way; the footer explains that a
+    /// passphrase protects them when encryption is enabled.
     @AppStorage("backup.encrypt") private var encryptBackup: Bool = false
 
     @State private var isExporting = false
-    @State private var statusText = ""
     @State private var errorText: String?
     @State private var result: BackupExporter.Summary?
     @State private var shareURL: URL?
-    /// True when the local package was deleted after every destination
-    /// received a verified copy — the result section changes shape.
-    @State private var localCopyRemoved = false
     @State private var showShare = false
     @State private var showSaveToFiles = false
-
-    /// §6.2 path 2 — mounted folders this backup is also delivered into.
-    /// Mirrored into @State so toggling redraws; the source of truth stays in
-    /// `BackupDestinations` (UserDefaults).
-    @State private var destinationIds: [UUID] = []
-    /// Per-destination outcome of the last export.
-    @State private var deliveryResults: [BackupDestinations.DeliveryResult] = []
-    /// Set when a just-picked destination fails its writability probe.
-    @State private var destinationWarning: String?
-    @State private var showAddDestination = false
     @ObservedObject private var history = BackupHistory.shared
     @ObservedObject private var runController = BackupRunController.shared
-    @ObservedObject private var transfer = BackupTransferStatus.shared
-    /// [T-ios-backup-transient-success] True once this view instance has shown
-    /// the current finished transfer to the user.
-    ///
-    /// `onAppear` also fires when returning from a pushed detail (history
-    /// record, destination), and clearing the card then would delete it mid-
-    /// visit — the user taps a row, comes back, and the result they were
-    /// reading is gone. Set when the rows are first displayed here, so the
-    /// clear on a LATER visit (fresh view instance, flag back to false) still
-    /// happens while a same-visit return is left alone.
-    @State private var didPresentFinishedTransfer = false
-    /// Configured rclone remotes, mirrored for redraw.
-    @State private var remotes: [RcloneRemoteStore.Remote] = []
-    /// Server destination whose detail screen should be pushed. Drives an
-    /// explicit navigationDestination so the row can be tappable without a
-    /// NavigationLink drawing a chevron next to the row's switch.
-    ///
-    /// Holds the remote's NAME rather than the struct: navigationDestination
-    /// wants Hashable, and making a shared model type conform just to satisfy
-    /// a navigation detail is the wrong direction. Re-looking the remote up on
-    /// push also means the pushed screen sees current data rather than a copy
-    /// captured when the row was tapped.
-    @State private var openedRemoteName: String?
-    /// Folder destination whose detail screen should be pushed — see above.
-    @State private var openedFolderId: UUID?
 
     /// [T-backup-device-name-setting] Working copy of the user's device name.
     ///
@@ -253,7 +211,13 @@ struct BackupSettingsView: View {
                 }
             }
 
-            destinationSection
+            Section {
+                Label("Minis ▸ Backups", systemImage: "folder.fill")
+            } header: {
+                Text("Backup Folder")
+            } footer: {
+                Text("Start Backup creates this folder automatically and saves each backup here.")
+            }
 
             if !embedded {
                 Section {
@@ -320,13 +284,8 @@ struct BackupSettingsView: View {
                 // The start-time requirements gate STARTING only. Applying
                 // them while running would disable the button mid-run and
                 // leave no way to stop the backup from this screen.
-                // A destination is now a REQUIREMENT, not a nice-to-have. With
-                // none configured the package would only ever reach the app's
-                // own sandbox, where it dies with the app it exists to
-                // protect — that is not a backup, so the button says so
-                // instead of producing one.
                 .disabled(!runController.isRunning
-                          && (selected.isEmpty || !passphraseValid || !hasDestination))
+                          && (selected.isEmpty || !passphraseValid))
                 // List aligns a row's separator to its first Text's leading
                 // edge. These rows centre their content, so the text starts
                 // mid-row and the separator under "Exporting sessions…" only
@@ -342,17 +301,7 @@ struct BackupSettingsView: View {
                     // Same centred-row separator fix as the buttons above:
                     // without the guide these hint rows inherit a mid-card
                     // separator start.
-                    if !hasDestination {
-                        // First, because it is the requirement a new user is
-                        // most likely to be missing — the categories arrive
-                        // already selected.
-                        Text("Add a storage destination to continue.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .multilineTextAlignment(.center)
-                            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                    } else if selected.isEmpty {
+                    if selected.isEmpty {
                         Text("Choose at least one thing to include.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -376,7 +325,15 @@ struct BackupSettingsView: View {
                     }
                 }
 
-                transferRows
+                if runController.isRunning {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(runController.statusText.isEmpty
+                             ? AppLocalized("Working…") : runController.statusText)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 if let errorText {
                     Text(errorText)
@@ -400,31 +357,7 @@ struct BackupSettingsView: View {
                                        : "Excluded (too large)",
                                        value: "\(result.skippedFiles) file(s)")
                     }
-                    // [T-backup-share-when-undelivered] Offer Share / Save only
-                    // when the user still has to move the package themselves.
-                    //
-                    // Two conditions, and both matter:
-                    //
-                    //  * `shareURL != nil` — the local file must still exist.
-                    //    It is deleted once every destination reports a
-                    //    VERIFIED copy, and a button that opens a share sheet
-                    //    on a missing file is worse than no button.
-                    //
-                    //  * `deliveryResults.isEmpty` — nothing carried it away.
-                    //    This is the half that was missing. A run WITH
-                    //    destinations that partially failed keeps its local
-                    //    copy, so the old `shareURL != nil` test showed both
-                    //    buttons — exactly the "已经选了备份位置，这两个按钮
-                    //    不该出现" the report describes. Reading the results
-                    //    rather than `hasDestination` is deliberate: what
-                    //    matters is whether THIS run had somewhere to go, not
-                    //    whether a destination happens to be configured now.
-                    //
-                    // A failed delivery is not left without an exit: the
-                    // per-destination rows below name what went wrong, and the
-                    // footer states the local copy was kept, so the package is
-                    // still reachable from Files (Minis ▸ Backups).
-                    if shareURL != nil, deliveryResults.isEmpty {
+                    if shareURL != nil {
                         Button {
                             showShare = true
                         } label: {
@@ -436,130 +369,16 @@ struct BackupSettingsView: View {
                             Label("Save to Files…", systemImage: "folder")
                         }
                     }
-
-                    // Per-destination outcome. Reported individually rather
-                    // than as one combined status: "2 of 3 saved" is only
-                    // actionable if the user can see WHICH one failed.
-                    ForEach(deliveryResults) { r in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Image(systemName: r.succeeded
-                                  ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(r.succeeded ? .green : .orange)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(r.folderName)
-                                if let error = r.error {
-                                    Text(error)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .font(.footnote)
-                    }
                 } header: {
                     Text("Backup Ready")
                 } footer: {
-                    if localCopyRemoved {
-                        Text("Delivered to all \(deliveryResults.count) destination(s) and verified. The copy on this iPhone was removed to save space.")
-                    } else if deliveryResults.isEmpty {
-                        Text("Saved in Minis ▸ Backups. Use Save to Files to copy it to iCloud Drive, a connected server, or another cloud provider.")
-                    } else {
-                        let ok = deliveryResults.filter(\.succeeded).count
-                        // The local copy is stated explicitly so a user whose
-                        // NAS was offline can see the backup still exists.
-                        Text("Saved in Minis ▸ Backups, and copied to \(ok) of \(deliveryResults.count) selected folder(s).")
-                    }
+                    Text("Saved in Minis ▸ Backups. Use Save to Files to copy it to iCloud Drive, a connected server, or another cloud provider.")
                 }
             }
         }
         .modifier(StandaloneTitle(title: AppLocalized("Backup"),
                                  active: !embedded))
-        .onAppear {
-            // [T-ios-backup-transient-success] Clear a previous run's finished
-            // transfer rows on the way IN, not on the way out.
-            //
-            // `BackupTransferStatus` is a process-wide singleton and nothing
-            // ever called `reset()`, so a successful run's 100% / size /
-            // duration card stayed on screen for the life of the app — every
-            // later visit to Backup opened onto a stale result. Clearing here
-            // means the card is fully visible for as long as the user is
-            // watching the backup finish (this view does not re-appear while
-            // they sit on it), and simply is not there next time they come
-            // back. The same facts remain in Backup History.
-            //
-            // Why not `onDisappear`: this screen is a Form inside a
-            // UIKit-backed NavigationView, so pushing a history record or a
-            // destination detail fires `onDisappear` on it too — clearing
-            // there would yank the card out from under a user who just tapped
-            // into the run they were reading about, and it would be gone when
-            // they came back. `onAppear` fires in that return case as well,
-            // but by then the visit that produced the result has ended, which
-            // is exactly when the card has stopped being useful.
-            //
-            // Guarded so this only ever drops a SETTLED, SUCCESSFUL transfer:
-            // a run in flight, and any run with a failed destination, are left
-            // untouched (see clearIfSettledAndSuccessful).
-            //
-            // `didPresentFinishedTransfer` keeps a same-visit return from a
-            // pushed detail from counting as "next time" — see its declaration.
-            if !didPresentFinishedTransfer {
-                transfer.clearIfSettledAndSuccessful()
-            }
-            // Any rows still standing after the clear above belong to THIS
-            // visit from here on: either a live run, or a finished one that
-            // was deliberately kept (a failure). Marking them presented is
-            // what makes a return from a pushed detail leave them alone.
-            if !transfer.destinations.isEmpty { didPresentFinishedTransfer = true }
-            loadSelectedCategories()
-            destinationIds = BackupDestinations.selectedIds
-            remotes = RcloneRemoteStore.remotes
-            // rclone's config is in-memory only, so it must be rebuilt each
-            // time this screen appears (and after a relaunch).
-            RcloneRemoteStore.syncToRclone()
-        }
-        // Destination rows push their details through these hidden links
-        // rather than wrapping the row in a visible NavigationLink, which would
-        // draw a disclosure chevron immediately left of the row's toggle.
-        //
-        // NavigationLink(isActive:) rather than navigationDestination(item:):
-        // the app target is iOS 16 and that modifier is 17+.
-        .background {
-            NavigationLink(isActive: Binding(
-                get: { openedRemoteName != nil },
-                set: { if !$0 { openedRemoteName = nil } }
-            )) {
-                // Resolved on push. If the remote vanished (removed by a swipe
-                // while this was open) show nothing rather than a stale
-                // snapshot of a destination that no longer exists.
-                if let name = openedRemoteName,
-                   let r = RcloneRemoteStore.remotes.first(where: { $0.name == name }) {
-                    BackupDestinationDetailView(target: .remote(r)) {
-                        remotes = RcloneRemoteStore.remotes
-                    }
-                }
-            } label: { EmptyView() }
-                .opacity(0)
-
-            NavigationLink(isActive: Binding(
-                get: { openedFolderId != nil },
-                set: { if !$0 { openedFolderId = nil } }
-            )) {
-                if let id = openedFolderId,
-                   let folder = BackupDestinations.eligibleFolders.first(where: { $0.id == id }) {
-                    BackupDestinationDetailView(target: .folder(folder)) {
-                        destinationIds = BackupDestinations.selectedIds
-                    }
-                }
-            } label: { EmptyView() }
-                .opacity(0)
-        }
-        .sheet(isPresented: $showAddDestination) {
-            BackupDestinationPicker {
-                destinationIds = BackupDestinations.selectedIds
-                remotes = RcloneRemoteStore.remotes
-                destinationWarning = nil
-            }
-        }
+        .onAppear { loadSelectedCategories() }
         .sheet(isPresented: $showShare) {
             if let shareURL {
                 BackupShareSheet(url: shareURL)
@@ -579,28 +398,8 @@ struct BackupSettingsView: View {
 
     // MARK: - Validation
 
-    /// A passphrase is now unconditionally required.
-    ///
-    /// §3.3 made it conditional on credentials being included; credentials are
-    /// no longer optional, so the condition collapsed. The exporter enforces
-    /// this too — this only stops the user reaching a button that would fail.
-    /// Whether anywhere outside this app's sandbox has been configured to
-    /// receive the backup.
-    ///
-    /// Deliberately "configured", not "enabled": a user who toggles their only
-    /// destination off for one run is making a temporary choice about that
-    /// run, and disabling the whole screen underneath them would be a
-    /// surprise. Having none at all is the state that makes a backup
-    /// pointless, and that is what this gates.
-    private var hasDestination: Bool {
-        !remotes.isEmpty || !BackupDestinations.eligibleFolders.isEmpty
-    }
-
     private var passphraseValid: Bool {
-        // A passphrase is required ONLY when encryption is on. With it off the
-        // package simply ships without credentials, which is a legitimate
-        // choice — blocking it made "Start Backup" permanently un-tappable for
-        // anyone who left encryption off (the default).
+        // Encryption is optional; when enabled, require a matching passphrase.
         guard encryptBackup else { return true }
         return !passphrase.isEmpty && passphrase == confirmPassphrase
     }
@@ -630,78 +429,6 @@ struct BackupSettingsView: View {
         // old string — but we can't tell those apart, so prefer the user's
         // explicit selection as saved.
         if !stored.isEmpty { selected = stored }
-    }
-
-    /// Backup runs, newest first — the live one plus the past month.
-    ///
-    /// Sits under the button because that is where the user's attention already
-    /// is after tapping it. Before this, a finished run's per-destination
-    /// results lived in view state and vanished on dismissal, so "did last
-    /// night's backup reach the NAS?" had no answer.
-    /// Per-destination upload progress, and the cleanup outcome afterwards.
-    ///
-    /// Sending the package is usually the longest part of a backup and used to
-    /// report nothing at all — the screen said "Copying to destinations…" for
-    /// the whole transfer, so a slow link and a stalled one looked identical.
-    @ViewBuilder
-    private var transferRows: some View {
-        // Reading `tick` here is what subscribes this section to the
-        // once-a-second redraw; the clock-derived figures below would
-        // otherwise only move when the byte counter did.
-        let _ = transfer.tick
-        ForEach(transfer.destinations) { d in
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Image(systemName: d.error != nil ? "exclamationmark.triangle.fill"
-                          : d.finishedAt != nil ? "checkmark.circle.fill"
-                          : "arrow.up.circle")
-                        .foregroundStyle(d.error != nil ? .orange
-                                         : d.finishedAt != nil ? .green : .blue)
-                    Text(d.name).font(.callout)
-                    Spacer()
-                    Text("\(Int(d.fraction * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                if d.error == nil {
-                    ProgressView(value: d.fraction)
-                }
-                // Bytes / rate / elapsed / remaining — the four numbers that
-                // together answer "is this working, and how long more?".
-                if let error = d.error {
-                    Text(error).font(.caption).foregroundStyle(.orange)
-                } else {
-                    Text(transferDetail(d))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.vertical, 2)
-        }
-
-        if let note = transfer.cleanupNote {
-            Label {
-                Text(note).font(.caption)
-            } icon: {
-                Image(systemName: "sparkles").foregroundStyle(.green)
-            }
-            .foregroundStyle(.secondary)
-        }
-
-    }
-
-    private func transferDetail(_ d: BackupTransferStatus.Destination) -> String {
-        let sent = ByteCountFormatter.string(fromByteCount: d.bytesSent, countStyle: .file)
-        let total = ByteCountFormatter.string(fromByteCount: d.totalBytes, countStyle: .file)
-        let elapsed = BackupTransferStatus.durationText(d.elapsed)
-        if d.finishedAt != nil {
-            return AppLocalized("\(total) in \(elapsed)")
-        }
-        let rate = BackupTransferStatus.rateText(d.bytesPerSecond)
-        if let remaining = d.remaining {
-            return AppLocalized("\(sent) of \(total) · \(rate) · \(elapsed) elapsed · about \(BackupTransferStatus.durationText(remaining)) left")
-        }
-        return AppLocalized("\(sent) of \(total) · \(elapsed) elapsed")
     }
 
     /// Whether this record is the interrupted run whose staging is still on
@@ -820,193 +547,6 @@ struct BackupSettingsView: View {
         }
     }
 
-    // MARK: - Destinations (§6.2 path 2)
-
-    /// Lets the user send every backup to one or more mounted folders.
-    ///
-    /// No networking lives behind this: an SMB / AFP / WebDAV / cloud folder
-    /// mounted in Files and authorised in Minis is just a directory, and
-    /// iOS's FileProvider does the protocol work. That is why the same list
-    /// covers a NAS and iCloud Drive without either being special-cased.
-    @ViewBuilder
-    private var destinationSection: some View {
-        let eligible = BackupDestinations.eligibleFolders
-        Section {
-            // Network drives added in-app (SMB / WebDAV / SFTP / S3 / FTP).
-            // Listed first: a user who went to the trouble of typing in a
-            // server address is more invested in it than in a folder they
-            // happened to pick from Files.
-            ForEach(remotes) { r in
-                // Toggle enables/disables delivery; the row itself opens the
-                // details. Disabling keeps the server and its credential, so
-                // skipping one destination for a while costs nothing to undo.
-                // A NavigationLink used to sit INSIDE the Toggle's label, which
-                // drew the link's disclosure chevron wedged between the text
-                // and the switch. Pinched there it read as a stray glyph rather
-                // than "there is more behind this row" — the position a
-                // chevron needs to mean that is the trailing edge, and the
-                // switch already owns it.
-                //
-                // The row is still tappable: navigation moves to an explicit
-                // hidden link driven by state, so the label area pushes the
-                // detail view and the switch keeps its own hit area.
-                HStack(spacing: 12) {
-                    Image(systemName: RcloneBackendCatalog.backend(for: r.backend)?.icon
-                          ?? "externaldrive.connected.to.line.below")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(Color.blue, in: Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(r.name)
-                        Text("\(r.backend.uppercased()) · /\(r.path)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    // Claims the gap between the text and the switch, so the
-                    // whole left side of the row opens the details.
-                    Spacer(minLength: 8)
-                        .contentShape(Rectangle())
-                    Toggle("", isOn: Binding(
-                        get: { r.enabled },
-                        set: { on in
-                            RcloneRemoteStore.setEnabled(r.name, on)
-                            remotes = RcloneRemoteStore.remotes
-                        }
-                    ))
-                    .labelsHidden()
-                    .fixedSize()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { openedRemoteName = r.name }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        RcloneRemoteStore.remove(name: r.name)
-                        remotes = RcloneRemoteStore.remotes
-                    } label: {
-                        Label("Remove", systemImage: "trash")
-                    }
-                }
-            }
-
-            if eligible.isEmpty && remotes.isEmpty {
-                // Empty is the NORMAL starting state, so this reads as the
-                // next step rather than a problem to fix.
-                //
-                // It used to say the backup "is saved on this device", which
-                // offered the one outcome a backup must never have: the
-                // package lands in the app's own sandbox, so it dies with the
-                // app it is meant to protect — uninstall, a wiped device or a
-                // lost phone takes the backup with it. Presenting that as a
-                // working fallback invited the user to consider themselves
-                // backed up when nothing had left the device.
-                Text("No destinations yet — add one to back up.")
-                    .foregroundStyle(.secondary)
-            } else if !eligible.isEmpty {
-                // Same badge treatment as the category rows above, so the two
-                // lists read as one screen rather than two styles.
-                ForEach(eligible) { folder in
-                    // Same shape as the server rows above — no NavigationLink
-                    // inside the Toggle, so no chevron pinched against the
-                    // switch.
-                    HStack(spacing: 12) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 28, height: 28)
-                            .background(Color.indigo, in: Circle())
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(folder.name)
-                            Text(folder.sourceDisplayName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                            .contentShape(Rectangle())
-                        Toggle("", isOn: destinationBinding(for: folder))
-                            .labelsHidden()
-                            .fixedSize()
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { openedFolderId = folder.id }
-                    .swipeActions(edge: .trailing) {
-                        // Removes it from THIS list only. The underlying mount
-                        // survives, because the user may also have added it for
-                        // the agent and deleting that from here would be a
-                        // surprise.
-                        Button(role: .destructive) {
-                            BackupDestinations.forget(folder.id)
-                            destinationIds = BackupDestinations.selectedIds
-                        } label: {
-                            Label("Remove", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-            // ONE entry point. Two buttons ("Add Folder" / "Add Server")
-            // asked the user to know which mechanism they wanted before they
-            // knew what was on offer — and a server they had already set up
-            // was invisible until they guessed correctly. The picker shows
-            // saved servers first and offers both ways to add a new one.
-            Button {
-                showAddDestination = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(Color.green, in: Circle())
-                    Text("Add Backup Destination…")
-                }
-            }
-
-            if let destinationWarning {
-                Text(destinationWarning)
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            }
-        } header: {
-            Text("Backup Destinations")
-        } footer: {
-            if eligible.isEmpty {
-                Text("Add a folder to also copy each backup there — including a server connected in the Files app (SMB, WebDAV) or a cloud provider.")
-            } else {
-                Text("Each new backup is also copied to the selected folders — including servers connected in the Files app (SMB, WebDAV) and cloud providers. A folder that is offline is reported and skipped; the local copy is always kept.")
-            }
-        }
-    }
-
-    private func destinationBinding(for folder: MountedFolderEntry) -> Binding<Bool> {
-        Binding(
-            get: { destinationIds.contains(folder.id) },
-            set: { on in
-                destinationWarning = nil
-                if on {
-                    // Probe before accepting the choice. A mount can be listed
-                    // and authorised but still unwritable right now — the share
-                    // is offline, or the provider dropped the scope. Finding
-                    // that out here beats finding out at the end of a
-                    // multi-hundred-MB export.
-                    if let root = MountedFoldersManager.shared.resolvedURL(for: folder.id) {
-                        if !MountedFoldersManager.probeWritable(at: root) {
-                            destinationWarning = String(
-                                format: AppLocalized("“%@” isn't writable right now. It may need to be reconnected in the Files app."),
-                                folder.name)
-                            return
-                        }
-                    } else {
-                        destinationWarning = String(
-                            format: AppLocalized("“%@” isn't available right now. Open it once in the Files app, then try again."),
-                            folder.name)
-                        return
-                    }
-                }
-                BackupDestinations.toggle(folder.id, on: on)
-                destinationIds = BackupDestinations.selectedIds
-            })
-    }
-
     // MARK: - Export
 
     /// - Parameter resuming: continue the interrupted run instead of starting a
@@ -1017,8 +557,6 @@ struct BackupSettingsView: View {
         errorText = nil
         result = nil
         shareURL = nil
-        deliveryResults = []
-        localCopyRemoved = false
         defer { isExporting = false }
 
         let options = BackupExporter.Options(
@@ -1057,6 +595,8 @@ struct BackupSettingsView: View {
         defer { BackupRunController.shared.finished(token: token) }
 
         do {
+            try FileManager.default.createDirectory(at: BackupDelivery.backupsDirectory,
+                                                    withIntermediateDirectories: true)
             // [review I5] Hold a background assertion so switching apps
             // mid-export doesn't get the process suspended ~30s later.
             let summary = try await BackupBackgroundAssertion.run("BackupExport") {
@@ -1071,7 +611,6 @@ struct BackupSettingsView: View {
                     // left"); the history log replaces the previous one instead
                     // of stacking a new row every second.
                     Task { @MainActor in
-                        statusText = text
                         BackupRunController.shared.update(status: text)
                         BackupHistory.shared.log(runId, text, isTransient: transient)
                     }
@@ -1080,81 +619,18 @@ struct BackupSettingsView: View {
             // Out of tmp/ before anything else: iOS can purge that directory,
             // and the share sheet may be dismissed and re-opened later.
             let stable = try BackupDelivery.moveToVisibleStorage(summary.packageURL)
-            result = summary
+            var savedSummary = summary
+            savedSummary.packageURL = stable
+            result = savedSummary
             shareURL = stable
-
-            // §6.2 path 2. Runs AFTER the local copy is safely in place, so a
-            // dead network share can never cost the user the backup itself.
-            // Guard covers BOTH kinds of destination — checking only the
-            // folder selection silently skipped delivery for a user whose
-            // sole destination was a server.
-            if !BackupDestinations.selectedIds.isEmpty
-                || !RcloneRemoteStore.enabledRemotes.isEmpty {
-                statusText = AppLocalized("Copying to destinations…")
-                let packageBytes = (try? FileManager.default.attributesOfItem(
-                    atPath: stable.path)[.size] as? Int64) ?? summary.totalBytes
-                let names = BackupDestinations.selectedFolders.map(\.name)
-                    + RcloneRemoteStore.enabledRemotes.map(\.name)
-                // Mirror transfer events into this run's record. The live rows
-                // disappear when the run ends, so without this the log jumped
-                // from "Export complete" straight to a finished backup with no
-                // trace of the upload — which is where most of the time goes.
-                BackupTransferStatus.shared.logSink = { text, transient in
-                    Task { @MainActor in
-                        BackupHistory.shared.log(runId, text, isTransient: transient)
-                    }
-                }
-                BackupHistory.shared.log(runId, String(
-                    localized: "Sending \(ByteCountFormatter.string(fromByteCount: packageBytes, countStyle: .file)) to \(names.count) destination(s)…"))
-                BackupTransferStatus.shared.begin(names: names, totalBytes: packageBytes)
-                // [T-ios-backup-transient-success] This run's result belongs to
-                // the visit the user is in right now. Marking it presented here
-                // means opening a history record mid-run and coming back does
-                // NOT count as the "next visit" that clears the finished rows;
-                // only actually leaving and returning does.
-                didPresentFinishedTransfer = true
-                deliveryResults = await BackupDestinations.deliver(
-                    packageURL: stable, backupId: summary.backupId)
-                BackupTransferStatus.shared.end()
-                // The sink stays connected past this point on purpose: the
-                // local-copy cleanup note below is emitted after delivery and
-                // belongs in the record too.
-            }
-
-            // The local package is a fallback, not an archive. Once every
-            // enabled destination has a VERIFIED copy, keeping a third one on
-            // the phone just spends the user's storage — 236 MB per run adds
-            // up fast. Any failure (or having no destinations at all) keeps
-            // it, so the backup always exists somewhere.
-            if !deliveryResults.isEmpty, deliveryResults.allSatisfy(\.succeeded) {
-                let freed = (try? FileManager.default.attributesOfItem(
-                    atPath: stable.path)[.size] as? Int64) ?? 0
-                try? FileManager.default.removeItem(at: stable)
-                shareURL = nil
-                localCopyRemoved = true
-                logger.info("[Backup] local copy removed after all destinations verified")
-                // Say so in the UI as well. Deleting the local package is the
-                // right call once every destination has a verified copy, but
-                // silently is the wrong way to do it: the user has no way to
-                // tell "cleaned up" from "the backup is gone".
-                BackupTransferStatus.shared.noteCleanup(String(
-                    localized: "Local copy removed — \(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)) freed on this iPhone"))
-            } else if !deliveryResults.isEmpty {
-                BackupTransferStatus.shared.noteCleanup(String(
-                    localized: "Local copy kept — not every destination was verified"))
-            }
-            // Detached only now that the cleanup note has been recorded.
-            BackupTransferStatus.shared.logSink = nil
+            BackupHistory.shared.log(runId, AppLocalized("Saved in Minis ▸ Backups."))
 
             BackupHistory.shared.finish(
                 runId,
                 totalBytes: summary.totalBytes,
                 skippedFiles: summary.skippedFiles,
                 packageName: stable.lastPathComponent,
-                destinations: deliveryResults.map {
-                    .init(name: $0.folderName, succeeded: $0.succeeded, detail: $0.error,
-                          kind: $0.kind, path: $0.remotePath)
-                },
+                destinations: [],
                 // Turn each skipped path into something recognisable. Paths are
                 // `chats/<sessionId>/…`, and the title map was captured during
                 // the export so a conversation deleted later still resolves.
@@ -1166,8 +642,7 @@ struct BackupSettingsView: View {
                                  sessionTitle: sid.flatMap { summary.sessionTitles[$0] })
                 })
 
-            statusText = ""
-            logger.info("[Backup] user export complete bytes=\(summary.totalBytes) delivered=\(deliveryResults.filter(\.succeeded).count)/\(deliveryResults.count)")
+            logger.info("[Backup] user export saved locally bytes=\(summary.totalBytes)")
         } catch is CancellationError {
             // The user pressed Stop. That is an ACTION they took, not a failure
             // that happened to them — reporting it in red as an error (with

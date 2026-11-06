@@ -617,13 +617,14 @@ iCloud Sync 是持续的多设备同步，不是备份快照；它也不快照�
 - 可设置单文件大小上限；超过上限的文件只记录，不打包。
 - 可加密整包。口令无法找回；没有口令无法恢复。
 - 未加密备份包含 API Key、OAuth Token 和环境变量值，任何人拿到文件都能读取。
-- 目标可保存到 `Minis ▸ Backups`、Files、iCloud Drive、外接存储，或 Files 中已连接的服务器。
-- 还可在 `Add Server` 中直接添加 SMB/Windows 共享、WebDAV、SFTP、S3 兼容存储或 FTP 作为备份目标；连接后浏览并选择保存目录。
+- 点击 `Start Backup` 会自动创建 `Minis ▸ Backups` 文件夹并保存 `.minisbak` 文件，无需选择备份目的地。
+- 备份文件会保留在本机；需要换机或另存时，可用 `Share` 或 `Save to Files` 复制到其他设备、iCloud Drive 或外部存储。
 - 备份历史保留近一个月。
 
 **Restore**
 
-- 从备份目的地、Files 或其他服务器选择 `.minisbak`。
+- 默认列出 `Minis ▸ Backups` 中的备份，最新备份排在前面，点选要恢复的文件即可进入恢复流程。
+- 其他设备上的备份可通过 `Choose from Files` 选择 `.minisbak` 文件导入。
 - 恢复是**合并**，不会先删除现有数据。
 - 按稳定 ID 匹配；已有较新内容会保留。
 - 可勾选要恢复的类别；加密备份需要口令。
@@ -634,7 +635,7 @@ iCloud Sync 是持续的多设备同步，不是备份快照；它也不快照�
 | 能力 | 适合 | 关键限制 |
 |---|---|---|
 | iCloud Sync | 多台设备持续同步聊天、会话文件、Skills、Providers、环境变量 | 需要同一 iCloud 账号；不是时间点快照；不包含完整 rootfs |
-| Backup & Restore | 迁移设备、保留可恢复的历史快照、备份到外部服务器 | 是 `.minisbak` 包；恢复是合并；文件大小上限和加密口令需自行确认 |
+| Backup & Restore | 迁移设备、保留可恢复的历史快照 | 默认保存到本机 `Minis ▸ Backups`；可分享或另存副本；恢复是合并；文件大小上限和加密口令需自行确认 |
 
 两者都不备份完整根文件系统和已安装的 Alpine 软件包。重要文件应放在 `/var/minis/shared` 或会话文件夹，并把对应类别加入备份。外部挂载目录的内容由原存储负责备份，Minis 不会复制它。
 
@@ -706,7 +707,7 @@ iCloud Sync 是持续的多设备同步，不是备份快照；它也不快照�
 | 排队消息没有发送 | 等待当前回合结束；检查排队消息右侧取消按钮是否被误触；停止当前任务后队列会恢复 |
 | iCloud 不同步 | 两端同一账号且已开启；开关需下次启动生效；在会话菜单尝试 Force Sync/Pull |
 | 恢复后缺少密钥 | 备份未包含凭据；重新填 API Key 或重新 OAuth |
-| 备份服务器连不上 | 检查地址/端口/账号/TLS；某些自签证书需允许继续；先在 Files 或 WebDAV 客户端验证同一地址可访问 |
+| 恢复页没有备份 | 先在 Backup 页创建备份；其他设备上的文件可通过 `Choose from Files` 导入；也可下拉刷新备份列表 |
 | 无法把 HTML 添加到主屏幕 | 文件必须在会话、共享目录或已挂载目录；当前构建需配置 WebApp launcher host；在 Safari 中手动“添加到主屏幕” |
 | 闹钟在系统时钟 App 里找不到 | Minis alarm 使用 AlarmKit，需在 Minis 首页闹钟图标或 `minis://views/alarm` 查看 |
 | 存储占用很大 | `Storage` 查看 Shell、日志、临时文件、孤儿会话；清理前确认影响 |

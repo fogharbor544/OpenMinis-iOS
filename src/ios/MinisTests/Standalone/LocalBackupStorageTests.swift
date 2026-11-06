@@ -27,8 +27,8 @@ import Foundation
         check(first != second)
         check(try Data(contentsOf: first) == Data("first backup".utf8))
         check(try Data(contentsOf: second) == Data("second backup".utf8))
-        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)], atPath: first.path)
-        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 200)], atPath: second.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)], ofItemAtPath: first.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 200)], ofItemAtPath: second.path)
 
         // Only complete, regular backup files are offered for restore.
         try Data().write(to: directory.appendingPathComponent("unfinished.minisbak.partial"))

@@ -541,3 +541,16 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - PASS: upstream source parity (three files plus two mount sections), unchanged existing resolver, unchanged agent exporter/importer/archive/category UI; check_current_bot_contract.py, 7 check_chat_settings_contracts.py tests, check_fresh_install.py, git diff --check.
 - Before/after parity check failed before rollback and passed afterward. Initial exploration used a private-method marker for public activate(entry:) and failed with ValueError; corrected the section marker before any edit.
 - No Swift compiler or Xcode found; native tests/build and FileProvider/device acceptance NOT RUN. No commit, push or remote workflow dispatch. Historical review annotated to distinguish this requested rollback from its earlier repair status.
+
+
+## 2026-11-06 simple local backup and restore
+- Read existing delivery, settings, restore, history and folder-export exclusion logic. Initial tracked worktree clean.
+- UI guidance: retain native Form, visible progress and inline error feedback. Explicit user direction supplies the flow; no destination redesign needed.
+- Exploration included two non-existent guessed paths; used actual file locations afterward. No application changes yet.
+
+- Completed simplified backup/restore UI, local package store, optional Files transfer, Chinese copy and bundled user-guide updates. Existing agent format/export/import/memory code is unchanged.
+- Added isolated LocalBackupStorageTests.swift plus runner and required-native CI step. Initial runner failed on missing store before implementation. Native behavior remains NOT RUN because swiftc is unavailable; a skipped run is not a runtime pass.
+- Final fresh checks PASS: current Bot source contracts, 7 settings contract tests, fresh-install SQLite/schema checks, four changed Swift files grammar parsing, Python/YAML syntax, native CI wiring, old localization preservation and git diff --check.
+- Independent read-only review completed without remaining concrete issues; no commit, push, cloud workflow dispatch or IPA build.
+- Tool issues resolved: localization helper first hit Windows GBK and then a pre-existing catalog-tail formatting assumption; reused its renderer to insert only new entries and checked every old entry unchanged. First parser process could not remove its loaded Windows DLL; cleaned the exact temporary directory after process exit, then parsed in a subprocess with clean temporary cleanup.
+- Device acceptance still required: create first backup with no destination, open Restore list, restore plain/encrypted packages including agents, cancel/reselect a large package, restart app and verify local files remain.

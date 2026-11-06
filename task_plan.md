@@ -556,3 +556,40 @@ Do not use the quota-blocked private remote for this task.
 - [x] Trace reply decoration/content/measurement widths and choose shared spacing metric.
 - [x] Apply 32pt additional assistant-only trailing inset (40pt total outside the existing 8pt background edge) to reply background and all hosted assistant rows; align height estimates/seeds.
 - [x] Update guide/decision notes and run targeted layout/source/syntax checks. Native UI/build validation unavailable on Windows.
+
+## 2026-11-07 Bot memory categories and isolated editors
+- [x] Inspect reader/editor/store contracts and existing memory decisions.
+- [x] User confirmed facts means existing event records, label 事实记忆.
+- [x] Split reading and editing by category; restrict persistence to the edited category.
+- [x] Extend adjacent regressions; update localization, manual and decision notes.
+- [x] Run targeted portable checks; report native validation limits. Native behavior/UI/build NOT RUN on Windows.
+
+## 2026-11-07 category editor code review
+- [x] Review changed application code, store transaction boundaries and callers.
+- [x] Check regression coverage, localization and available validation.
+- [x] Report concrete findings with source references; do not repair app code during review.
+
+## 2026-11-07 category editor review repair
+- [x] Preserve unrelated lastSaved/Undo state after a scoped transaction; clear it for affected records.
+- [x] Extend adjacent native regression assertions and update memory guidance.
+- [x] Run available targeted source/grammar checks and report native limits.
+
+## 2026-11-07 Poki 本机自动化可行性调研
+- 目标：审阅 JosssphZhou/poki 与 carrotciallo/poki-for-linux 源码，对照当前 iOS fork，提出有证据的集成判断；本轮不改应用代码。
+- [ ] 固定外部仓库版本并梳理自动化执行链、权限、依赖和许可证。
+- [ ] 追踪当前 NativeOffloads / MCP / browser / sandbox 能力和历史约束。
+- [ ] 核验 Apple 平台公开能力，比较本机 iOS 与远程桌面路线。
+- [ ] 输出完整调研报告、分阶段建议和验证限制。
+- 保护现有 Bot memory 未提交修改；规划文件仅追加。用户中的 iis 暂按 iOS 理解。
+
+### Poki 调研阶段进度
+- [x] 已固定外部仓库版本，追踪 AX、DVT screenshot、CoreDevice HID、RemotePairing、Linux host adaptations 和许可证。
+- [x] 已核对当前 iOS MCP/NativeOffloads/browser/iSH/background 实现及平台文档。
+- [ ] 整理同机实验架构、最小真机验证门槛和完整报告；等待可选的设备/版本/安装方式信息。
+
+## 2026-11-07 Poki 调研完成
+- [x] 固定外部仓库版本并梳理自动化执行链、权限、依赖和许可证。
+- [x] 对照当前 NativeOffloads / MCP / browser / iSH / background 实现及历史 a11y 草稿。
+- [x] 核验 Apple 平台公开能力，并补证 idevice + StikDebug 同机开发者连接路径。
+- [x] 输出 docs/ios-poki-automation-feasibility-2026-11-07.md：同机候选架构、最小 PoC、失败停止条件、外部中转边界与验证限制。
+- 结论：可投入实验性同机 PoC；不能宣称已接入或可普通安装后通用控制。设备/版本/安装方式问题为可选补充，不阻塞本轮调研交付。

@@ -393,3 +393,49 @@ User explicitly requests combined document memory reading/editing, and direct ta
 - 核查设置、Files、@ 文件候选及内置手册：已移除旧 memory 的三个展示入口；MemoryManagementView 和设置“共享记忆”都指向 SQLite，非旧目录。
 - Storage 页“Skills, Memory & Shared Files”仅是遗留共享文件容量统计，无目录跳转；仍有历史链接、文件预览、Linux 挂载和迁移兼容，保留以免破坏旧文件访问。
 - Windows 中 swiftc 不可用；Swift 行为用例可由现有 macOS CI 的 run_local_backup_storage_tests.py 执行。
+
+## 2026-11-06 thinking / secure-input investigation
+- Initial worktree clean. Screenshot shows extra blank space between first collapsed thinking header and browser tool row.
+- Existing browser_use secure_input already keeps raw values out of model results; current entry point uses a native overlay in BrowserPasswords.swift.
+- UI guidance matches: visible field labels, submission feedback and stable view identity/spacing.
+- Search wrapper misinterprets regex pipe; use rg -e alternatives.
+
+### 2026-11-06 findings and decisions
+- User confirmed browser login only; no generic API-key tool. Existing browser_use secure_input schema now explains the resumable chat card and status-only result.
+- Confirmed overlay cancellation on didEnterBackground; replaced automatic primary-chat presentation with memory-only block-UUID routing and native inline fields. Optional webpage shares the same session; subagents without a host chat cell retain native presentation. Request stays until completion/cancel/tab lifecycle/process termination.
+- Background lifecycle belongs to the session rather than a mounted view, so scrolling/reuse does not release input. Background shields values, resets reveal and locks the vault. Page cleanup remains required after native or manual page input.
+- Thinking memo identity omitted expansion state, clearCachedHeight retained a seed, and the toggle path retained precalc estimates. Fixed all three and moved expansion invalidation into ChatModels so offscreen changes are observed.
+- General native UI guidance applied: visible input label, secure text content type, loading/feedback, privacy shield, 44pt button frames and system semantic colors. Device layout, accessibility, Dynamic Type and small/landscape acceptance remain unverified here.
+
+## 2026-11-06 follow-up code review
+- Confirmed BrowserSheetView adds the reopen button below an AgentBrowsingOverlay. secure_input keeps tab.inUse while awaiting the continuation; the overlay covers the button and removes takeover during hasSecureInput.
+- Reviewing inline state identity, store observation, cleanup ownership and thinking cache invalidation. No application-source edits during review.
+
+### 2026-11-06 code review conclusions
+- P1 (source-confirmed): primary-agent routing at AIChatViewModel+ConcurrentTools.swift:737 checks only helperConfig and block indices. Scheduled new-chat/follow-up jobs create ordinary VMs and submit silent programmatic turns (ScheduledJobRunner.swift:348,364). They get an inline-only request even without a visible chat. startInline and foreground lifecycle have no presentation, jump-to-request notification or expiry, while BrowserTabPool.hasSecureInput uses the global owner and rejects browser calls from all pools. A hidden request can therefore leave unrelated Bot browser work failing until the original request is found/ended. Preserve resumable foreground requests but give nonvisible requests a discoverable/actionable lifecycle or reject/defer them before acquiring the global lock.
+- P2 (source-confirmed): the new BrowserSheetView.swift:54 reopen button is under the ZStack's AgentBrowsingOverlay at line 85. executeInner sets tab.inUse before awaiting secureInput, so isAgentBrowsingInSheet remains true for the whole interaction. Overlay covers the button; hasSecureInput also removes takeover. Opening the browser sheet during the pending request cannot use its advertised reopen action. Render the secure-input entry above/outside that overlay, or exclude waiting secure input from the ordinary automation overlay.
+- No additional confirmed new defect in the thinking-cache changes after examining model notifications, cell seeds, memo keys and precalc fallback. Discarded a possible scrolling-screenshot leak: that legacy capture function has no live caller; current export builds from persisted block metadata. Active-chat re-entry also reuses the running VM, so no confirmed block-UUID loss on normal navigation.
+- Fresh checks: run_secure_input_tests.py PASS 55 production-JS assertions + 14 source contracts; run_browser_takeover_tests.py PASS 14; check_chat_settings_contracts.py PASS 7; git diff --check PASS. The existing tests do not exercise hidden programmatic secure requests or browser-sheet reopen hit testing.
+- Source control-flow assertions confirmed both findings. Native Swift/XCTest/simulator/build/device verification remains unavailable (Windows lacks swiftc/xcodebuild). No application code changed during this review.
+
+## 2026-11-06 review-fix execution
+- Continued planning-with-files and ui-ux-pro-max workflow; read current dirty worktree and prior review/decision notes. No user changes overwritten.
+- Chosen fix: reject newly arriving hidden/programmatic main-agent requests before global secure ownership instead of adding a new notification/persistence subsystem. Already-created requests continue across background transitions.
+- Admission must read current visibility at manager request creation, after cookie/tab waits, rather than snapshot visibility at dispatch.
+
+### 2026-11-06 review fixes completed locally
+- New main-agent secure input receives a native-only weak admission callback. Manager checks it immediately before session creation/global lock: foreground active + owning chat visible + interactive origin + non-silent turn. Normal user turns and foreground userAskAnswer continuations allowed; hidden/scheduled/silent requests return localized reopen/retry guidance. Existing sessions never re-evaluate this gate.
+- The browser-sheet automation overlay no longer covers an active secure-input session's reopen control. Navigation/tab/takeover restrictions remain in place.
+- Native simulator fixture extracts and compiles the actual production admission closure against a memory-only owner; six new cases cover changing visibility, scheduled/silent origins, deferred answer continuation and owner release. Total native assertions now 24; syntax only verified on Windows, runtime NOT RUN.
+- Added one English/Simplified Chinese/Traditional Chinese rejection message, preserved existing entries, updated bundled guide and appended superseding decision note.
+
+## 2026-11-06 assistant reply trailing gutter
+- Reference image 1 has a visible fixed right-hand gap; current screenshot 2's assistant background reaches the existing 8pt edge. User requests model replies only.
+- Assistant groups use full-width collection cells plus a separate BotReplyBackground decoration inset 8pt on each side. Header/block/tool-group/footer are distinct hosted views; text precalc/first seeds currently assume 32pt total internal gutters.
+- Direction: keep collection cell geometry and user messages unchanged, add shared 32pt assistant trailing content inset and match decoration; total right background clearance becomes 40pt.
+
+### Assistant trailing gutter implemented
+- Added AssistantReplyLayout.trailingInset = 32 and shared availableWidth; reply background now ends 40pt from the list trailing edge (existing 8pt + 32pt). Four assistant hosting configurations apply the same inset; user whole-message configuration is unchanged.
+- Updated assistant first-display seed, snapshot text precalc, cached/plain Markdown estimates and thinking estimate to use reduced available width. Existing internal gutters, regular cap and split-row architecture preserved.
+- Updated the two adjacent Swift source guards and bundled guide. No new tests that merely mirror padding were added.
+- Geometry/source inspection passed for 320/375/393/414/844/1024/1366pt list widths. Native visual acceptance remains unavailable on this Windows host.

@@ -527,3 +527,32 @@ Do not use the quota-blocked private remote for this task.
 
 ## 错误
 - 规划文档原文已从初始 HEAD 恢复，并通过原文前缀校验；当前记录仅追加。补丁上下文、终端编码和翻译已有键问题均已修正，详见 progress.md。
+
+## 2026-11-06 thinking spacing and inline secure input
+- Goal: fix intermittent blank space after collapsed thinking; replace fragile secure-input overlay with resumable inline interaction without recording secret values.
+- [x] Trace rendering and secure-input ownership/lifecycle; inspect prior decisions.
+- [x] Implement focused layout and interaction fixes; preserve website-origin protections.
+- [x] Extend relevant regressions, update bundled guide and decision notes, run available targeted checks. Native behavior/build/device validation remains pending on macOS.
+- Environment: Windows; native Swift/Xcode/device checks may be unavailable.
+
+## 2026-11-06 review of thinking / inline secure-input changes
+- Scope: review the current uncommitted implementation only; do not repair application code in this turn.
+- [ ] Trace changed runtime paths and verify concrete findings against surrounding code.
+- [ ] Run available targeted checks and report ranked findings with native-validation limits.
+
+### 2026-11-06 review completed
+- [x] Trace changed runtime paths and verify concrete findings against surrounding code.
+- [x] Run available targeted checks and report ranked findings with native-validation limits.
+- Two findings remain unfixed: hidden noninteractive requests can occupy the app-wide browser lock; browser-sheet reopen action is obscured by the automation overlay.
+
+## 2026-11-06 repair follow-up review findings
+- Scope: fix P1 hidden primary-agent secure-input admission and P2 browser-sheet reopen obstruction; preserve all prior local work and active-request background continuation.
+- [x] Reject new primary inline requests unless an interactive foreground chat can own them; check at session creation before acquiring the global lock.
+- [x] Exclude an active secure-input session from the browser-sheet automation overlay; retain browser control restrictions.
+- [x] Extend adjacent regressions, update guide/decision records and run available targeted checks. No commit/push. Native fixture/build/device validation remains pending on macOS.
+
+## 2026-11-06 assistant reply trailing gutter
+- Goal: match reference's fixed right-hand space for assistant reply groups; preserve user message layout and prior pending changes.
+- [x] Trace reply decoration/content/measurement widths and choose shared spacing metric.
+- [x] Apply 32pt additional assistant-only trailing inset (40pt total outside the existing 8pt background edge) to reply background and all hosted assistant rows; align height estimates/seeds.
+- [x] Update guide/decision notes and run targeted layout/source/syntax checks. Native UI/build validation unavailable on Windows.

@@ -500,3 +500,11 @@ Do not use the quota-blocked private remote for this task.
 - [x] Inspect local history and compare upstream HEAD (1a71df0, confirmed by ls-remote).
 - [x] Restore destination picker, registration and shared folder-add/reactivation implementation. Retain independent cold-launch resolver and its existing test/CI wiring.
 - [x] Verify upstream parity, unchanged agent backup wiring, 7 settings contract tests, current Bot source contracts, fresh initialization and diff whitespace. Swift/Xcode/device validation unavailable on Windows.
+
+
+## 2026-11-06 simple local backup and restore
+- User direction: remove destination selection, create/save in the default backup folder, restore by selecting a file there.
+- [x] Trace export destination gate, local storage and restore picker.
+- [x] Reuse MinisFileProvider/Backups with local storage and isolated native filesystem fixtures; keep completed files and list them newest first. Native execution pending Swift availability.
+- [x] Remove destination UI/delivery from settings; default restore to local backups, retain optional Files import/share and update Chinese copy plus bundled guide.
+- [x] Available targeted checks and four Swift grammar parses passed; independent read-only review found no remaining concrete defect. Native filesystem tests, iOS compile and device acceptance NOT RUN on Windows.

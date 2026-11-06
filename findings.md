@@ -368,3 +368,14 @@ User explicitly requests combined document memory reading/editing, and direct ta
 
 - Final differences from upstream are limited to the pre-existing cold-launch bookmark deadline helper/resolver. Folder addition and reactivation match upstream exactly; no parallel destination storage or new agent adaptation is needed.
 - Upstream synchronously creates bookmarks/probes writes during addition; slow FileProvider behavior and two-device restore remain native acceptance items.
+
+
+## 2026-11-06 simple local backup and restore
+- BackupDelivery.backupsDirectory already resolves to the FileProvider-visible Backups sibling of the agent shared workspace. Reuse it to avoid recursive backup and agent access.
+- BackupSettingsView gates Start on hasDestination, delivers to saved remote/mount selections and deletes the local copy after verified delivery; remove those settings dependencies.
+- Restore currently omits local Backups entirely and synchronously copies selected files before showing progress. Default to the local directory list; move preparation I/O into the asynchronous open path.
+- Keep category dependencies, current minisbak/4 agent archive and import merge behavior. Files import/share remain optional for moving backups between devices.
+
+- Implemented local store creates Backups, preserves same-name older packages, returns complete regular .minisbak files newest first and propagates directory errors. Settings no longer access saved mounts/remotes or delete finished local packages.
+- Restore list refreshes on backup completion and pull-to-refresh. Preparing a selected package runs off the main actor; cancellation immediately stops its ticker and discards scratch after in-flight preparation/inspection ends.
+- Independent review found no remaining concrete defect; corrected directory URL fixture isDirectory flag and cancellation window during implementation.

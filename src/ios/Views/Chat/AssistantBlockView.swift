@@ -22,6 +22,7 @@ struct AssistantBlockView: View {
     var toolSnapshots: [ToolSnapshotItem] = []
     @Binding var highlightedBlockId: UUID?
     @Binding var detailBlock: AssistantBlock?
+    @ObservedObject private var secureInputs = BrowserSecureInputCenter.shared
     private var isHighlighted: Bool { highlightedBlockId == block.id }
 
     var body: some View {
@@ -58,9 +59,13 @@ struct AssistantBlockView: View {
                             commandStartTime: commandStartTime, onStop: onStop,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .browserTool:
-            ToolCapsuleView(block: block, icon: "globe", accentColor: .blue,
+            if let session = secureInputs.session, session.blockID == block.id {
+                BrowserSecureInputCard(session: session)
+            } else {
+                ToolCapsuleView(block: block, icon: "globe", accentColor: .blue,
                             commandStartTime: commandStartTime, onStop: onStop, browserPool: browserPool,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
+            }
         case .readImageTool:
             ToolCapsuleView(block: block, icon: "photo", accentColor: .purple,
                             commandStartTime: commandStartTime, onStop: onStop,
@@ -1002,9 +1007,8 @@ struct ThinkingBlockView: View {
                 // Mark before flipping so any concurrent stream-end collapse
                 // observer in this view sees `thinkingUserToggled = true`
                 // and bails out instead of stomping the user's choice.
-                // The collection view's cached height is invalidated by the
-                // `onChange(of: isThinkingExpanded)` observer below — single
-                // source of truth so the auto-collapse path stays in sync.
+                // ChatModels invalidates the collection view's cached height
+                // for both user taps and automatic state changes.
                 AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] tap block=\(block.id.uuidString.prefix(8)) wasExpanded=\(isExpanded.wrappedValue) streaming=\(isStreaming) contentLen=\(block.content.count)")
                 block.thinkingUserToggled = true
                 if !isExpanded.wrappedValue {
@@ -1184,54 +1188,14 @@ struct ThinkingBlockView: View {
             }
         }
         .onChange(of: isStreaming) { streaming in
-            // Auto-collapse when streaming for THIS block ends, but only if
-            // the user hasn't manually toggled it. Without the user-touched
-            // gate, the streaming-end transition stomped a tap the user did
-            // on an earlier thinking block while a later one was still live.
             if !streaming, !block.thinkingUserToggled {
-                AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] auto-collapse block=\(block.id.uuidString.prefix(8)) streaming→false userToggled=false contentLen=\(block.content.count)")
                 block.isThinkingExpanded = false
-                // [T-ios-thinking-autocollapse-no-post] Post the invalidation
-                // HERE rather than relying on the `.onChange(of:)` below.
-                //
-                // Field evidence (2026-08-13 device log): `auto-collapse` fired
-                // 6 times while `[ThinkingCollapse] post` fired 0 times. The
-                // observer never ran, because this write happens inside another
-                // `onChange` handler in the same view update — SwiftUI compares
-                // `isThinkingExpanded` before and after that update as a whole,
-                // and the write is not observed as a transition. A manual tap is
-                // its own update, which is why tapping to collapse always worked
-                // and only the stream-end auto-collapse left a gap.
-                //
-                // Without the post, `SelfSizingCell`'s width-keyed dedup keeps
-                // answering with the EXPANDED height (the cache the
-                // `.thinkingBlockToggled` receiver exists to clear), so the pill
-                // draws collapsed inside a frame still sized for the expanded
-                // body — the blank strip under the first thinking block.
-                //
-                // Posting from both places is safe: the receiver only clears
-                // caches and reconfigures, and a duplicate notification
-                // re-measures to the same height.
-                NotificationCenter.default.post(name: .thinkingBlockToggled,
-                                                object: block.id)
-            } else if !streaming {
-                AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] stream-end-skip block=\(block.id.uuidString.prefix(8)) userToggled=\(block.thinkingUserToggled) currentlyExpanded=\(block.isThinkingExpanded)")
             }
         }
         .onChange(of: block.isThinkingExpanded) { newValue in
-            // [T-thinking-expand-stuck-height] A fresh expansion re-arms the
-            // growth reporting below.
             if !newValue { lastReportedBodyHeight = 0 }
-            // Single source of truth for cell-height invalidation: fires
-            // for BOTH manual taps and the stream-end auto-collapse path
-            // above. Previously only the tap gesture posted this, so when
-            // a long thinking block auto-collapsed at stream end, the
-            // UICollectionView kept the expanded cell height (~300pt) and
-            // rendered a tall empty gap below the pill — see 2026-05-17
-            // screenshot bug.
-            AppLogger(category: "ThinkingCollapse").info("[ThinkingCollapse] post block=\(block.id.uuidString.prefix(8)) expanded=\(newValue) userToggled=\(block.thinkingUserToggled) streaming=\(isStreaming)")
-            NotificationCenter.default.post(name: .thinkingBlockToggled,
-                                            object: block.id)
+            // ChatModels owns expansion invalidation, including offscreen
+            // changes. This view only resets its streaming-growth tracker.
         }
     }
 }

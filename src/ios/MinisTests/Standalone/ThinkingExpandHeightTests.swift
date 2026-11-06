@@ -115,6 +115,22 @@ check("re-measure uses the existing toggle path (clears both height caches)",
       fn.contains("NotificationCenter.default.post(name: .thinkingBlockToggled, object: block.id)"))
 check("collapsing re-arms reporting for the next expansion",
       view.contains("if !newValue { lastReportedBodyHeight = 0 }"))
+let estimates = source("Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+HeightEstimation.swift")
+let blockKey = between(estimates, "let n = block?.content.count ?? 0", "case .toolGroup(let mid, let first):")
+check("same-text thinking expansion changes the memo key",
+      blockKey.contains("block?.isThinkingExpanded == true ? 1 : 0") && blockKey.contains("\\(thinkingState)"))
+let model = source("Agent/Chat/ChatModels.swift")
+let expansion = between(model, "@Published var isThinkingExpanded:", "/// True once the user")
+check("offscreen model changes also invalidate thinking height",
+      expansion.contains("oldValue != isThinkingExpanded") && expansion.contains(".thinkingBlockToggled, object: id"))
+let infrastructure = source("Agent/MessageList/MessageListInfrastructure.swift")
+let clear = between(infrastructure, "func clearCachedHeight() {", "override func prepareForReuse()")
+check("explicit invalidation clears seeded and measured heights",
+      clear.contains("seededHeight = nil") && clear.contains("lastComputedHeight = nil"))
+let snapshot = source("Agent/MessageList/CollectionViewMessageListV3/Coordinator/MessageListV3Coordinator+Snapshot.swift")
+let toggle = between(snapshot, "if thinkingToggleSub == nil", "if toolGroupToggleSub == nil")
+check("toggle drops the stale precalc and refreshes the fallback estimate",
+      toggle.contains("layout.clearPrecalcHeight(at: i)") && toggle.contains("layout.setEstimatedHeight(Self.estimateItemHeight"))
 // [T-thinking-autoexpand-toggle-longpress] The key and its default now live in
 // ThinkingAutoExpand (shared with the thinking block's long-press toggle).
 check("the auto-expand gate still honours the setting",

@@ -79,8 +79,8 @@ check("the seed is memoized like a measure",
 check("assistant text blocks only, above the size where it pays",
       list.contains("case .text = block.kind,\n                  block.content.count >= Self.firstSeedMinChars else { return nil }")
       && list.contains("private static let firstSeedMinChars = 200"))
-check("text column = collection width - 32, capped at maxWidth",
-      list.contains("var textWidth = collectionWidth - 32\n            if maxWidth > 0 { textWidth = min(textWidth, maxWidth) }"))
+check("text column excludes the assistant trailing gutter and 32pt padding before its cap",
+      list.contains("var textWidth = AssistantReplyLayout.availableWidth(collectionWidth) - 32\n            if maxWidth > 0 { textWidth = min(textWidth, maxWidth) }"))
 check("cell height = text height + 2 pt above and below",
       list.contains("return height + 4"))
 let blockView = source("Views/Chat/AssistantBlockView.swift")

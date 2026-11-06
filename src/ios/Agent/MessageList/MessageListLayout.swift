@@ -323,6 +323,7 @@ final class MessageListLayout: UICollectionViewLayout {
               itemAttributes.indices.contains(first), itemAttributes.indices.contains(last) else { return nil }
         let attrs = UICollectionViewLayoutAttributes(forDecorationViewOfKind: kind, with: indexPath)
         attrs.frame = itemAttributes[first].frame.union(itemAttributes[last].frame).insetBy(dx: 8, dy: 1)
+        attrs.frame.size.width = AssistantReplyLayout.availableWidth(attrs.frame.width)
         attrs.zIndex = -1
         return attrs
     }
@@ -1099,6 +1100,16 @@ final class MessageListLayout: UICollectionViewLayout {
 }
 
 // MARK: - [T-scroll-estimate-fidelity] Header metrics and cross-load height memo
+
+/// Extra space reserved to the right of assistant replies, shared by their
+/// hosted content, background decoration and text-height calculations.
+enum AssistantReplyLayout {
+    static let trailingInset: CGFloat = 32
+
+    static func availableWidth(_ width: CGFloat) -> CGFloat {
+        max(0, width - trailingInset)
+    }
+}
 
 /// Height of the assistant header row (AssistantHeaderV3): the 22 pt soul icon
 /// beside the semibold body-font name, `.padding(.top, 4)`. 26 pt at the default

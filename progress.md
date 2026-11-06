@@ -554,3 +554,20 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Independent read-only review completed without remaining concrete issues; no commit, push, cloud workflow dispatch or IPA build.
 - Tool issues resolved: localization helper first hit Windows GBK and then a pre-existing catalog-tail formatting assumption; reused its renderer to insert only new entries and checked every old entry unchanged. First parser process could not remove its loaded Windows DLL; cleaned the exact temporary directory after process exit, then parsed in a subprocess with clean temporary cleanup.
 - Device acceptance still required: create first backup with no destination, open Restore list, restore plain/encrypted packages including agents, cancel/reselect a large package, restart app and verify local files remain.
+
+
+# 执行记录
+
+- 开始任务：将共享文件夹的记忆入口替换为备份管理入口，并检查其他旧入口。
+- 初始 git status 无现有用户改动。
+- 已读取项目规则、RTK.md、planning-with-files 和 ui-ux-pro-max。
+- 已替换入口、增加本机备份列表（恢复/分享/确认删除/刷新/Files 可见性），复用备份存储和分享恢复流程。
+- 已修正 FileProvider 的可见目录及监听，移除旧记忆目录的 @ 索引入口，更新内置手册和新增中英文文案。
+- 已扩展已有 LocalBackupStorageTests，覆盖正常删除及拒绝越界、嵌套、符号链接、目录、无关文件和重复删除。
+- 记录异常：规划文件首次写入覆盖旧记录，已立即从初始干净 HEAD 恢复原文并改为追加；无历史记录丢失。一次补丁因注释上下文不匹配未应用，调整后已成功。一次终端打印 Unicode 遇到 GBK 编码错误，改用 ASCII 转义检查。
+- 已运行 check_chat_settings_contracts.py（7 项通过）、check_current_bot_contract.py（源码契约通过）。run_local_backup_storage_tests.py 明确跳过：缺少 swiftc，未执行 Swift 行为测试。
+- 新文案中“Delete this backup file?”已有完整翻译，复用原文；其余 5 项新增英文、简体中文和繁体中文。首次插入因检测到已有键而中止，调整为保留已有键后成功。
+- 为 Files 升级后的缓存目录增加隐藏根目录删除通知；这只移除展示缓存，不删除磁盘文件。
+- 最终检查：5 项新文案的三种语言与插值占位符一致，全部既有翻译保持原样；三个规划文件的历史内容完整保留。git diff --check 通过。
+- 已完成 Views 全面入口核查，其他旧目录引用均为文件链接／预览／路径兼容，无其他可直接打开的旧记忆目录入口。核查记录见 docs/ios-backup-folder-entry.md。
+- 交付限制：未运行 Swift 编译、Swift 文件行为测试、Xcode 构建或真机 UI／Files 验收；未提交、推送或触发远程 CI。

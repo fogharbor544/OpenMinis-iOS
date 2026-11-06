@@ -379,3 +379,17 @@ User explicitly requests combined document memory reading/editing, and direct ta
 - Implemented local store creates Backups, preserves same-name older packages, returns complete regular .minisbak files newest first and propagates directory errors. Settings no longer access saved mounts/remotes or delete finished local packages.
 - Restore list refreshes on backup completion and pull-to-refresh. Preparing a selected package runs off the main actor; cancellation immediately stops its ticker and discards scratch after in-flight preparation/inspection ends.
 - Independent review found no remaining concrete defect; corrected directory URL fixture isDirectory flag and cancellation window during implementation.
+
+
+# 核查发现
+
+- SharedFoldersSettingsView 当前列出 shared、skills、memory 三个目录。
+- BotMemoryStore 将真实长期记忆保存到 Library/MinisBotMemory/entries.sqlite，与共享 memory 目录分离。
+- 需继续核查 BackupDelivery、FileProvider 和旧目录的其他用户入口。
+- 实际本地备份位于 MinisFileProvider/Backups，LocalBackupStorage 已提供安全筛选和按时间排序。此目录有意不挂载给 Agent，避免备份被二次备份及暴露凭据。
+- 恢复页已列出本地备份，但没有删除入口；备份目的地管理页只面向服务器和外部挂载目录，不能直接复用为本地目录。
+- FileProvider 仍默认创建并展示 memory；@ 文件候选索引也包含旧 memory 根目录。其他 Linux 路径映射属于历史文件兼容，需保留。
+- UI 规范检索匹配删除前确认和明确反馈，使用现有 SwiftUI List/alert 交互。
+- 核查设置、Files、@ 文件候选及内置手册：已移除旧 memory 的三个展示入口；MemoryManagementView 和设置“共享记忆”都指向 SQLite，非旧目录。
+- Storage 页“Skills, Memory & Shared Files”仅是遗留共享文件容量统计，无目录跳转；仍有历史链接、文件预览、Linux 挂载和迁移兼容，保留以免破坏旧文件访问。
+- Windows 中 swiftc 不可用；Swift 行为用例可由现有 macOS CI 的 run_local_backup_storage_tests.py 执行。

@@ -508,3 +508,22 @@ Do not use the quota-blocked private remote for this task.
 - [x] Reuse MinisFileProvider/Backups with local storage and isolated native filesystem fixtures; keep completed files and list them newest first. Native execution pending Swift availability.
 - [x] Remove destination UI/delivery from settings; default restore to local backups, retain optional Files import/share and update Chinese copy plus bundled guide.
 - [x] Available targeted checks and four Swift grammar parses passed; independent read-only review found no remaining concrete defect. Native filesystem tests, iOS compile and device acceptance NOT RUN on Windows.
+
+
+# 共享文件夹备份入口
+
+## 目标
+将设置中共享文件夹的旧记忆入口替换为实际备份文件夹，支持管理、删除备份；核查其他旧目录入口，保留现有用户文件。
+
+## 阶段
+1. complete：核查共享目录、FileProvider、备份存储和现有管理界面。
+2. complete：复用现有备份管理能力，替换入口并修正相关目录暴露和文档。
+3. complete：执行可用的针对性检查，记录其他旧入口和平台验证限制；Swift/Xcode/真机检查待 macOS 环境执行。
+
+## 约束
+- 不删除旧 memory 目录及用户数据。
+- 优先复用现有浏览、删除、备份锁定机制。
+- Windows 环境无法直接运行 iOS app，按本地和 CI 已有验证方式执行可用检查。
+
+## 错误
+- 规划文档原文已从初始 HEAD 恢复，并通过原文前缀校验；当前记录仅追加。补丁上下文、终端编码和翻译已有键问题均已修正，详见 progress.md。

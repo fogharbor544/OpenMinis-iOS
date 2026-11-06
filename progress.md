@@ -571,3 +571,33 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - 最终检查：5 项新文案的三种语言与插值占位符一致，全部既有翻译保持原样；三个规划文件的历史内容完整保留。git diff --check 通过。
 - 已完成 Views 全面入口核查，其他旧目录引用均为文件链接／预览／路径兼容，无其他可直接打开的旧记忆目录入口。核查记录见 docs/ios-backup-folder-entry.md。
 - 交付限制：未运行 Swift 编译、Swift 文件行为测试、Xcode 构建或真机 UI／Files 验收；未提交、推送或触发远程 CI。
+
+## 2026-11-06 thinking / secure-input repair
+- Read AGENTS.md, RTK.md and planning/UI skills; inspected screenshot and located secure input implementation.
+- Planning and decision histories preserved by appending.
+
+### 2026-11-06 implementation and validation
+- Implemented inline primary-chat secure input, native webpage return/reopen, resumable background lifecycle, field cleanup ownership, tool description, three localized entries and bundled-guide/decision-note updates. Values remain outside chat/model serialization; no commit/push.
+- Thinking fixes cover expanded/collapsed memo identity, model-owned notifications, seed clearing and stale precalc/estimate invalidation. Retained streaming growth tracking.
+- PASS: 55 production JS assertions; 14 secure-input source contracts; 14 browser takeover contracts; 7 chat settings contracts; current Bot contracts; four thinking source guards and fixture-port identity; Python AST; 14 changed Swift grammar parses with LF normalization; old catalog entry integrity; diff whitespace.
+- Added native session background/foreground/cancel test, 3 presentation cases (18 total) and 4 thinking fixture guards. NOT RUN: Swift fixtures/XCTest, simulator, Swift type checking, Xcode build, actual iOS visual/accessibility/login checks. swiftc/xcodebuild unavailable on Windows.
+- Tool/validation issues: raw Swift parsing of CRLF bytes reported errors in two unchanged multiline-string regions; LF-normalized current and HEAD both parsed without errors. static_check.py original reports 68 unexplained/59 stale due Windows path separators; diagnostic normalization reports 9 pre-existing unexplained/2 stale. data_guard.py invoked without required snapshot/diff arguments raised IndexError; read its contract, did not run macOS production-container snapshot/audit on Windows.
+
+### 2026-11-06 follow-up review completed
+- Reviewed all changed application paths and surrounding scheduled-job, browser ownership, presentation, VM reload, layout memo and export wiring.
+- Found one P1 hidden-request/global-browser-lock issue and one P2 browser-sheet reopen overlay issue. Both verified against production source control flow; no iOS runtime reproduction claimed.
+- Fresh secure-input, browser takeover and chat-settings checks passed, as did diff whitespace. Native checks unavailable. App source/tests left unchanged; only planning/review records appended. No commit/push or repairs.
+
+## 2026-11-06 follow-up review repairs
+- Implemented both findings with admission at session creation and overlay gating. Prior local work preserved; no branch/commit/push.
+- Added two source regressions before repairs: observed expected one missing-admission error and one overlay-guard failure; both now pass (16 browser contracts total). Failed assertion initially printed the entire source; no sensitive values were involved.
+- PASS: 55 production-JS assertions + 14 secure-input contracts, 16 browser contracts, 7 settings contracts, current Bot contracts, 14 LF-normalized changed Swift grammar parses, generated admission fixture grammar, changed Python AST, unchanged existing catalog entries/new trilingual message and diff whitespace. No new production-data API hits in modified Swift tests.
+- Native simulator fixture now has 24 cases, including 6 using the actual shipping admission callback; NOT RUN on Windows without swiftc/xcodebuild. Full build, native tests, small-screen/Dynamic Type/accessibility and real browser-sheet hit testing remain unverified. Existing global isolation-check issues from the prior review remain outside this focused repair.
+- UI skill database returned generic/web stacking guidance, not a native-specific match; relied on the existing SwiftUI view hierarchy and preserved native interaction restrictions for the focused fix.
+
+## 2026-11-06 assistant trailing gutter
+- Applied a shared 32pt assistant-only trailing inset to header, block, folded tool group and footer hosts, plus matching reply decoration. Resulting background clearance is 40pt; user message configuration remains unchanged.
+- Aligned first text seeds, snapshot precalc and text/thinking estimates with narrower rendering. Updated existing seed/estimate source guards, bundled manual and appended decision note. Preserved all prior dirty changes.
+- PASS: 7-width geometry/source verification; assistant/user separation and background/render/measurement wiring; updated source guards; 5 whole Swift grammar parses; changed MarkdownHeightEstimate test wiring section parses; diff whitespace.
+- Initial parser check reported errors in MarkdownHeightEstimateTests.swift. Confirmed identical error positions/types in HEAD and current (pre-existing nested multiline-string parser limitation), then parsed changed wiring section successfully. No unrelated source repair performed.
+- NOT RUN: Swift behavior fixtures, iOS build, actual small-phone/landscape/iPad/Dynamic Type/VoiceOver/light/dark UI inspection. No swiftc or xcodebuild on Windows. No commit or push.

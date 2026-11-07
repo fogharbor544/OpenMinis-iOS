@@ -105,7 +105,9 @@ jobs:
           "$RUNNER_TEMP/model-identity-tests"
       - name: Bot memory iOS UI type checking
         if: ${{ !cancelled() }}
-        run: python3 src/ios/MinisTests/Standalone/check_bot_memory_ui.py
+        run: |
+          python3 src/ios/MinisTests/Standalone/check_bot_memory_editor_layout.py
+          python3 src/ios/MinisTests/Standalone/check_bot_memory_ui.py
       - name: Browser storage behavior tests
         if: ${{ !cancelled() }}
         run: |

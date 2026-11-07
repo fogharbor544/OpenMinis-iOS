@@ -157,7 +157,8 @@ import Foundation
                                    ordinaryEdits: [savedOrdinary.id: "password=secret-value"], section: .ordinary)
             fatalError("Accepted a secret in an ordinary entry")
         } catch BotMemoryError.invalid { }
-        precondition(try store.documentEntries(owner: owner) == document, "Rejected per-entry ordinary edits are atomic")
+        let afterRejectedOrdinary = try store.documentEntries(owner: owner)
+        precondition(afterRejectedOrdinary == document, "Rejected per-entry ordinary edits are atomic")
         try store.saveDocument(owner: owner, text: "", baseline: perEntryOrdinary,
                                ordinaryEdits: [savedOrdinary.id: "Uses SwiftUI and Swift 6"], section: .ordinary)
         document = try store.documentEntries(owner: owner)

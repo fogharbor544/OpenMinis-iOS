@@ -133,15 +133,41 @@ import Foundation
         // Ordinary text equal to a fixed rule must not consume that rule's identity.
         let ordinaryBaseline = document.filter { $0.memorySection == .ordinary }
         let outsideOrdinary = document.filter { $0.memorySection != .ordinary }
-        try store.saveDocument(owner: owner, text: BotMemoryStore.documentText(ordinaryBaseline) + "\n\nUse concise replies",
-                               baseline: ordinaryBaseline, section: .ordinary)
+        try store.saveDocument(owner: owner, text: "", baseline: ordinaryBaseline,
+                               ordinaryEdits: Dictionary(uniqueKeysWithValues: ordinaryBaseline.map {
+                                   ($0.id, $0.content + "\n\nUse concise replies")
+                               }), section: .ordinary)
         document = try store.documentEntries(owner: owner)
         precondition(document.filter { $0.memorySection != .ordinary } == outsideOrdinary)
-        precondition(document.contains { $0.id != savedFixed.id && $0.content == "Use concise replies" && $0.memorySection == .ordinary })
+        precondition(document.contains { $0.id != savedFixed.id && $0.content.hasSuffix("Use concise replies") && $0.memorySection == .ordinary })
         let retainedOrdinary = document.first { $0.id == savedOrdinary.id }!
-        precondition(retainedOrdinary.content == savedOrdinary.content && retainedOrdinary.grants == savedOrdinary.grants)
+        precondition(retainedOrdinary.content.hasPrefix(savedOrdinary.content) && retainedOrdinary.grants == savedOrdinary.grants)
         precondition(retainedOrdinary.createdAt == savedOrdinary.createdAt && retainedOrdinary.automatic && retainedOrdinary.pinned)
         precondition(store.lastSaved == nil, "Saving the addition's own category clears its old Undo snapshot")
+
+        let perEntryOrdinary = document.filter { $0.memorySection == .ordinary }
+        let perEntryOutside = document.filter { $0.memorySection != .ordinary }
+        do {
+            try store.saveDocument(owner: owner, text: "", baseline: perEntryOrdinary,
+                                   ordinaryEdits: [savedFixed.id: "Wrong category"], section: .ordinary)
+            fatalError("Accepted a fixed memory ID as an ordinary entry")
+        } catch BotMemoryError.invalid { }
+        do {
+            try store.saveDocument(owner: owner, text: "", baseline: perEntryOrdinary,
+                                   ordinaryEdits: [savedOrdinary.id: "password=secret-value"], section: .ordinary)
+            fatalError("Accepted a secret in an ordinary entry")
+        } catch BotMemoryError.invalid { }
+        precondition(try store.documentEntries(owner: owner) == document, "Rejected per-entry ordinary edits are atomic")
+        try store.saveDocument(owner: owner, text: "", baseline: perEntryOrdinary,
+                               ordinaryEdits: [savedOrdinary.id: "Uses SwiftUI and Swift 6"], section: .ordinary)
+        document = try store.documentEntries(owner: owner)
+        let editedOrdinary = document.first { $0.id == savedOrdinary.id }!
+        precondition(editedOrdinary.content == "Uses SwiftUI and Swift 6")
+        precondition(editedOrdinary.createdAt == savedOrdinary.createdAt
+                     && editedOrdinary.grants == savedOrdinary.grants
+                     && editedOrdinary.automatic && editedOrdinary.pinned)
+        precondition(document.filter { $0.memorySection != .ordinary } == perEntryOutside,
+                     "Per-entry ordinary edits leave other categories unchanged")
 
         let factBaseline = document.filter { $0.memorySection == .facts }
         let outsideFacts = document.filter { $0.memorySection != .facts }

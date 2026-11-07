@@ -322,7 +322,8 @@ private extension BotMemoryStore {
     /// changed fixed text is private until the user explicitly shares it again.
     /// With a section, baseline and edits cover that section only; nil edits the full document.
     func saveDocument(owner: String, text: String, baseline: [BotMemoryEntry], eventEdits: [String: String] = [:],
-                      fixedEdits: [String: String] = [:], section: BotMemorySection? = nil) throws {
+                      fixedEdits: [String: String] = [:], ordinaryEdits: [String: String] = [:],
+                      section: BotMemorySection? = nil) throws {
         let document = try documentEntries(owner: owner)
         // Category editors compare and replace only their own records. Concurrent
         // changes in another category are preserved, including all metadata.
@@ -332,7 +333,10 @@ private extension BotMemoryStore {
         }
         var remaining = text.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !owner.isEmpty, remaining.count <= 200_000 else { throw BotMemoryError.invalid("文档过长，请精简后保存。") }
-        if eventEdits.isEmpty && fixedEdits.isEmpty && remaining == Self.documentText(current) { return }
+        let individualEdits = eventEdits.merging(fixedEdits) { _, fixed in fixed }
+            .merging(ordinaryEdits) { edited, _ in edited }
+        if section != nil && !individualEdits.isEmpty { remaining = "" }
+        if individualEdits.isEmpty && remaining == Self.documentText(current) { return }
         guard !Self.containsSecret(remaining) else { throw BotMemoryError.invalid("记忆不能保存密码、验证码或密钥，请移除后再保存。") }
         var result: [BotMemoryEntry] = []
         var retained = Set<String>()
@@ -343,7 +347,9 @@ private extension BotMemoryStore {
         guard fixedEdits.keys.allSatisfy({ id in current.contains { $0.id == id && $0.isFixedMemory } }) else {
             throw BotMemoryError.invalid("固定记忆已不存在，请重新打开编辑。")
         }
-        let individualEdits = eventEdits.merging(fixedEdits) { _, fixed in fixed }
+        guard ordinaryEdits.keys.allSatisfy({ id in current.contains { $0.id == id && $0.memorySection == .ordinary } }) else {
+            throw BotMemoryError.invalid("普通记忆已不存在，请重新打开编辑。")
+        }
         let longestFirst = current.filter { individualEdits[$0.id] == nil }.sorted { $0.content.count > $1.content.count }
         while !remaining.isEmpty {
             let existing = longestFirst.first { entry in

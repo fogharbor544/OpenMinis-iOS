@@ -52,6 +52,7 @@ struct BotMemoryView: View {
     @State private var addingFixed = false
     @State private var sharing = false
     @State private var clearing = false
+    @State private var forgetting: BotMemoryEntry?
     @State private var query = ""
     @State private var error: String?
     private var document: String { BotMemoryStore.documentText(owned) }
@@ -69,45 +70,73 @@ struct BotMemoryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("长期记忆文档", systemImage: "doc.text").font(.title2.bold())
-                    Text("Browse fixed, ordinary and fact memories separately. Edit applies only to the selected category.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    if let date = owned.map(\.updatedAt).max() {
-                        Text("最近更新 \(date.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption).foregroundStyle(.secondary)
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("长期记忆文档", systemImage: "doc.text").font(.title2.bold())
+                        Text("Browse fixed, ordinary and fact memories separately. Edit applies only to the selected category.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        if let date = owned.map(\.updatedAt).max() {
+                            Text("最近更新 \(date.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
-                }
-                Picker("记忆分类", selection: $section) {
-                    ForEach(BotMemorySection.allCases) { category in
-                        Text(category.title).tag(category)
+                    Picker("记忆分类", selection: $section) {
+                        ForEach(BotMemorySection.allCases) { category in
+                            Text(category.title).tag(category)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
+                    .pickerStyle(.segmented)
 
-                if !query.isEmpty {
-                    Text(BotMemoryStore.documentText(displayedEntries + displayedShared).localizedCaseInsensitiveContains(query)
-                         ? "匹配内容已高亮" : "当前分类未找到匹配内容").font(.caption).foregroundStyle(.secondary)
-                }
-                if !available { Text("此 Bot 或群组已不存在。").foregroundStyle(.secondary) }
-                if let error { Text(error).font(.callout).foregroundStyle(.red) }
-                if section == .fixed {
-                    Button { addingFixed = true } label: {
-                        Label("添加固定记忆", systemImage: "plus").frame(minHeight: 44)
+                    if !query.isEmpty {
+                        Text(BotMemoryStore.documentText(displayedEntries + displayedShared).localizedCaseInsensitiveContains(query)
+                             ? "匹配内容已高亮" : "当前分类未找到匹配内容").font(.caption).foregroundStyle(.secondary)
                     }
-                    .disabled(!available)
+                    if !available { Text("此 Bot 或群组已不存在。").foregroundStyle(.secondary) }
+                    if let error { Text(error).font(.callout).foregroundStyle(.red) }
+                    if section == .fixed {
+                        Button { addingFixed = true } label: {
+                            Label("添加固定记忆", systemImage: "plus").frame(minHeight: 44)
+                        }
+                        .disabled(!available)
+                    }
+                    if displayedEntries.isEmpty { Text(section.emptyText).foregroundStyle(.secondary) }
                 }
-                if displayedEntries.isEmpty {
-                    Text(section.emptyText).foregroundStyle(.secondary)
-                } else {
+                .frame(maxWidth: 760, alignment: .leading)
+                .padding(.vertical, 12)
+                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color(UIColor.systemBackground))
+            }
+            if !displayedEntries.isEmpty {
+                Section {
                     ForEach(displayedEntries) { entry in
                         memoryRow(entry)
+                            .frame(maxWidth: 760, alignment: .leading)
+                            .padding(.vertical, 12)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                            .listRowSeparator(.visible)
+                            .listRowBackground(Color(UIColor.systemBackground))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) { forgetting = entry } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                .disabled(!available)
+                                if entry.category != "event" || entry.isFixedMemory {
+                                    Button { toggleFixed(entry) } label: {
+                                        Label(entry.isFixedMemory ? "Unpin" : "Pin",
+                                              systemImage: entry.isFixedMemory ? "pin.slash" : "pin")
+                                    }
+                                    .tint(.blue)
+                                    .disabled(!available)
+                                }
+                            }
                     }
                 }
-                if !displayedShared.isEmpty {
-                    Divider()
+            }
+            if !displayedShared.isEmpty {
+                Section {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("共享给我的记忆", systemImage: "person.2").font(.headline)
                         Text("这些内容也可供当前 Bot 参考；编辑和撤销共享由来源 Bot 管理。")
@@ -120,9 +149,15 @@ struct BotMemoryView: View {
                             }
                         }
                     }
+                    .frame(maxWidth: 760, alignment: .leading)
+                    .padding(.vertical, 12)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color(UIColor.systemBackground))
                 }
-            }.frame(maxWidth: 760, alignment: .leading).padding(20).frame(maxWidth: .infinity)
+            }
         }
+        .listStyle(.plain)
         .background(Color(UIColor.systemBackground))
         .navigationTitle(Text(title)).navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "在当前分类查找")
@@ -155,6 +190,13 @@ struct BotMemoryView: View {
                 catch { self.error = error.localizedDescription }
             }
         } message: { Text("当前内容将被遗忘，并撤销其共享。旧消息不会自动把它恢复。") }
+        .confirmationDialog("Forget", isPresented: Binding(get: { forgetting != nil },
+                                                          set: { if !$0 { forgetting = nil } }),
+                            titleVisibility: .visible) {
+            Button("Forget", role: .destructive) { forgetSelected() }
+        } message: {
+            Text("忘记这条记忆？它将不再被检索或共享，旧消息也不能自动恢复它。")
+        }
     }
 
     private func memoryRow(_ entry: BotMemoryEntry) -> some View {
@@ -169,21 +211,20 @@ struct BotMemoryView: View {
                 highlighted(entry.content).font(.body).lineSpacing(6).textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if entry.category != "event" || entry.isFixedMemory {
-                Button {
-                    guard available else { return }
-                    do { try store.setFixedMemory(id: entry.id, owner: owner, fixed: !entry.isFixedMemory) }
-                    catch { self.error = error.localizedDescription }
-                } label: {
-                    Image(systemName: entry.isFixedMemory ? "pin.slash" : "pin")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!available)
-                .accessibilityLabel(entry.isFixedMemory ? Text("取消固定") : Text("固定记忆"))
-            }
         }
+    }
+
+    private func toggleFixed(_ entry: BotMemoryEntry) {
+        guard available else { return }
+        do { try store.setFixedMemory(id: entry.id, owner: owner, fixed: !entry.isFixedMemory) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func forgetSelected() {
+        guard available, let entry = forgetting else { return }
+        forgetting = nil
+        do { try store.forget(id: entry.id, owner: owner) }
+        catch { self.error = error.localizedDescription }
     }
 
     private func highlighted(_ text: String) -> Text {
@@ -262,26 +303,20 @@ private struct BotMemoryDocumentEditor: View {
     let owner: String
     let section: BotMemorySection
     @State private var baseline: [BotMemoryEntry]
-    @State private var draft: String
     @State private var entryDrafts: [String: String]
     @State private var error: String?
     @State private var discarding = false
     @Environment(\.dismiss) private var dismiss
-    private var changed: Bool {
-        if section == .ordinary { return draft != BotMemoryStore.documentText(baseline) }
-        return baseline.contains { entryDrafts[$0.id] != $0.content }
-    }
+    private var changed: Bool { baseline.contains { entryDrafts[$0.id] != $0.content } }
     private var draftDocument: String {
-        if section == .ordinary { return draft }
-        return baseline.map { entryDrafts[$0.id] ?? "" }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        baseline.map { entryDrafts[$0.id] ?? "" }.filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     init(owner: String, section: BotMemorySection, baseline: [BotMemoryEntry]) {
         self.owner = owner
         self.section = section
         _baseline = State(initialValue: baseline)
-        _draft = State(initialValue: section == .ordinary ? BotMemoryStore.documentText(baseline) : "")
-        _entryDrafts = State(initialValue: section == .ordinary ? [:] : Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0.content) }))
+        _entryDrafts = State(initialValue: Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0.content) }))
     }
 
     var body: some View {
@@ -298,21 +333,16 @@ private struct BotMemoryDocumentEditor: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         Text(section.title).font(.headline)
-                        if section == .ordinary {
-                            TextEditor(text: $draft).font(.body).lineSpacing(6).frame(minHeight: 240)
-                                .accessibilityLabel(Text(section.title))
-                        } else {
-                            if baseline.isEmpty { Text(section.emptyText).foregroundStyle(.secondary) }
-                            ForEach(baseline) { entry in
-                                if entry.category == "event" {
-                                    Text("事件 · \(entry.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.subheadline).foregroundStyle(.secondary)
-                                }
-                                TextEditor(text: Binding(get: { entryDrafts[entry.id] ?? "" },
-                                                         set: { entryDrafts[entry.id] = $0 }))
-                                    .font(.body).lineSpacing(6).frame(minHeight: 140)
-                                    .accessibilityLabel(Text(section.title))
+                        if baseline.isEmpty { Text(section.emptyText).foregroundStyle(.secondary) }
+                        ForEach(baseline) { entry in
+                            if entry.category == "event" {
+                                Text("事件 · \(entry.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.subheadline).foregroundStyle(.secondary)
                             }
+                            TextEditor(text: Binding(get: { entryDrafts[entry.id] ?? "" },
+                                                     set: { entryDrafts[entry.id] = $0 }))
+                                .font(.body).lineSpacing(6).frame(minHeight: 140)
+                                .accessibilityLabel(Text(section.title))
                         }
                     }.padding(.horizontal, 16)
                 }
@@ -325,11 +355,13 @@ private struct BotMemoryDocumentEditor: View {
                         Button("保存") {
                             guard memoryOwnerExists(owner) else { error = "此 Bot 或群组已不存在。"; return }
                             let events = Set(baseline.filter { $0.category == "event" }.map(\.id))
+                            let ordinaryEdits = section == .ordinary ? entryDrafts : [:]
                             do {
                                 try BotMemoryStore.shared.saveDocument(
-                                    owner: owner, text: draft, baseline: baseline,
+                                    owner: owner, text: "", baseline: baseline,
                                     eventEdits: entryDrafts.filter { events.contains($0.key) },
-                                    fixedEdits: entryDrafts.filter { !events.contains($0.key) }, section: section
+                                    fixedEdits: entryDrafts.filter { !events.contains($0.key) && section == .fixed },
+                                    ordinaryEdits: ordinaryEdits, section: section
                                 )
                                 dismiss()
                             }

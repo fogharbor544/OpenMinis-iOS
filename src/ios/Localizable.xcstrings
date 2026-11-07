@@ -868,6 +868,12 @@
           "state": "translated",
           "value": "忘记"
         }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "忘記"
+        }
       }
     }
   },
@@ -1037,6 +1043,12 @@
         "stringUnit": {
           "state": "translated",
           "value": "忘记这条记忆？它将不再被检索或共享，旧消息也不能自动恢复它。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "忘記這條記憶？它將不再被檢索或共享，舊訊息也不能自動恢復它。"
         }
       }
     }

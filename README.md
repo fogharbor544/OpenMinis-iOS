@@ -32,12 +32,12 @@ directly on this repository's `main`.
 | **Bring your own model** | Claude, GPT, Gemini and other providers, via your own API keys or account sign-in. |
 | **A real Linux shell** | A sandboxed Alpine Linux environment runs on-device — the agent can install packages, run scripts, and work with real files. |
 | **Device integration** | Health, Calendar, Reminders, Contacts, HomeKit, Bluetooth, Clipboard, Media, Alarms and more, exposed to the agent as tools. |
-| **Browser automation** | The agent can browse and interact with the web; bookmarks and Keychain-backed passwords are managed in-app. |
-| **Bots & groups** | Bot-first home navigation, bounded group rounds, per-Bot configuration and scoped long-term memory. |
+| **Browser automation** | The agent can browse and interact with the web; bookmarks, Keychain-backed passwords and an inline secure-input card for browser logins are available. |
+| **Bots & groups** | Bot-first home navigation, bounded group rounds, per-Bot configuration with a single scroll area for long instructions, and scoped memory with fixed / ordinary / fact categories and per-entry editing. |
 | **Skills & MCP** | On-demand skills, external MCP connectors, a catalog of built-in capabilities and execution-time permission controls. |
 | **Workspaces** | Session working files at `/var/minis/workspace/`, addressable as `minis://workspace/...`; shared and external folders can be mounted. |
 | **Schedules & Shortcuts** | Unified in-app task management, iOS Shortcuts, a share extension and a widget. |
-| **Sync, backup & restore** | Optional iCloud sync, plus local `.minisbak` snapshots with optional encryption and category selection. |
+| **Sync, backup & restore** | Optional iCloud sync, plus local `.minisbak` snapshots in `Minis ▸ Backups`. Select Chats for local Bot history and Browser Bookmarks for saved links. Browser Passwords (including the shared vault) and Browser Cookies are separate opt-in categories and require encryption. Partitioned cookies are skipped. Shared Folders exposes local packages for restore, share and deletion. |
 | **Native offloads** | Heavy or platform-specific work is handed to native code instead of the sandbox. |
 
 The bundled in-app guide is the authoritative user-facing feature reference:
@@ -148,9 +148,12 @@ builds require simulator-architecture dependencies. On macOS, run
 `./scripts/ios-unit-tests.sh` for the isolated XCTest host, or a targeted
 standalone fixture such as
 `python3 src/ios/MinisTests/Standalone/check_fresh_install.py`. The
+`python3 scripts/ios-unit-tests/static_check.py` guard verifies test-data
+isolation for the local XCTest harness; its allowlist currently assumes macOS
+path separators and is not registered as a CI step. The
 [`iOS validation`](.github/workflows/ios-validation.yml) workflow runs portable
-source checks and Swift fixtures; its optional `full_build` dispatch produces
-an unsigned IPA.
+source checks, Swift fixtures and UI checks; its optional `full_build` dispatch
+produces an unsigned IPA.
 
 ---
 

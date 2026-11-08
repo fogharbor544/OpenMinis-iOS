@@ -24,15 +24,16 @@ private let logger = AppLogger(category: "Backup")
 ///    interrupted, the package it finally produces is one consistent view of
 ///    the data as of the first attempt.
 enum BackupExportJournal {
-    static let stagingVersion = 1
+    // Version 2 snapshots can be opened without SQLite WAL sidecar files.
+    static let stagingVersion = 2
 
     private static var supportDir: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BackupExport", isDirectory: true)
     }
 
-    private static var markerURL: URL {
-        supportDir.appendingPathComponent("in-progress.json")
+    private static func markerURL(in directory: URL = supportDir) -> URL {
+        directory.appendingPathComponent("in-progress.json")
     }
 
     /// Staging directory for an export run.
@@ -45,8 +46,8 @@ enum BackupExportJournal {
     /// verification on restore with hundreds of "integrity check failed"
     /// entries. Caught on device; keeping the historical name keeps packages
     /// byte-compatible with what previous builds produced.
-    static func stagingRoot(backupId: String) -> URL {
-        supportDir.appendingPathComponent("minisbak-\(backupId)", isDirectory: true)
+    static func stagingRoot(backupId: String, in directory: URL = supportDir) -> URL {
+        directory.appendingPathComponent("minisbak-\(backupId)", isDirectory: true)
     }
 
     /// What an interrupted export was doing, so it can be picked up again.
@@ -76,7 +77,7 @@ enum BackupExportJournal {
                                                     withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
-            try encoder.encode(marker).write(to: markerURL, options: .atomic)
+            try encoder.encode(marker).write(to: markerURL(), options: .atomic)
         } catch {
             // A missing marker costs resume, not correctness.
             logger.warning("[Backup] couldn't write export marker: \(error.localizedDescription)")
@@ -84,8 +85,8 @@ enum BackupExportJournal {
     }
 
     /// The export that never finished, if any.
-    static func interrupted() -> Marker? {
-        guard let data = try? Data(contentsOf: markerURL) else { return nil }
+    static func interrupted(in directory: URL = supportDir) -> Marker? {
+        guard let data = try? Data(contentsOf: markerURL(in: directory)) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(Marker.self, from: data)
@@ -96,18 +97,32 @@ enum BackupExportJournal {
             && FileManager.default.fileExists(atPath: stagingRoot(backupId: marker.backupId).path)
     }
 
+    /// Reclaim the retired run before a new marker can replace it.
+    static func discardIncompatibleStaging(in directory: URL = supportDir) throws {
+        guard let marker = interrupted(in: directory), marker.stagingVersion != stagingVersion else { return }
+        if UUID(uuidString: marker.backupId) != nil {
+            try removeIfPresent(stagingRoot(backupId: marker.backupId, in: directory))
+        }
+        // Keep the marker if removal failed, so cleanup can be retried.
+        try removeIfPresent(markerURL(in: directory))
+    }
+
     /// Stop offering resume before encryption starts rewriting staging in place.
     static func disallowResume() throws {
+        try removeIfPresent(markerURL())
+    }
+
+    private static func removeIfPresent(_ url: URL) throws {
         do {
-            try FileManager.default.removeItem(at: markerURL)
+            try FileManager.default.removeItem(at: url)
         } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
-            // The run had no resume marker.
+            // Already absent.
         }
     }
 
     /// Clear the marker and the staging tree after a clean finish.
     static func finish(backupId: String) {
-        try? FileManager.default.removeItem(at: markerURL)
+        try? FileManager.default.removeItem(at: markerURL())
         try? FileManager.default.removeItem(at: stagingRoot(backupId: backupId))
     }
 
@@ -169,13 +184,13 @@ enum BackupExportJournal {
     /// [review I6] Delete abandoned staging trees and stale `tmp/` working
     /// directories at launch.
     ///
-    /// Called from app startup. Anything belonging to the CURRENT in-progress
-    /// marker is preserved — that is the tree a resume needs. Everything else
-    /// is unreachable by definition: no marker points at it, so nothing can
-    /// ever resume it, and it is only occupying disk.
+    /// Called from app startup. Preserve only staging with a compatible marker.
+    /// Leave the marker itself to the next export, which owns the backup lock.
     static func sweepAbandoned() {
         let fm = FileManager.default
-        let keep = interrupted().map { "minisbak-\($0.backupId)" }
+        let keep = interrupted().flatMap { marker in
+            marker.stagingVersion == stagingVersion ? "minisbak-\(marker.backupId)" : nil
+        }
 
         var removed = 0
         for name in (try? fm.contentsOfDirectory(atPath: supportDir.path)) ?? [] {

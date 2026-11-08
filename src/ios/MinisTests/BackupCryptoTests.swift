@@ -63,6 +63,38 @@ final class BackupCryptoTests: XCTestCase {
         XCTAssertEqual(try roundTrip(plaintext), plaintext)
     }
 
+    func testBrowserPasswordMemberRejectsTamperingAndWrongKeys() throws {
+        let kdf = BackupCrypto.currentKDF(salt: Data(repeating: 7, count: 16))
+        let keys = try BackupCrypto.deriveKeys(passphrase: "test passphrase", kdf: kdf)
+        let otherKeys = try BackupCrypto.deriveKeys(passphrase: "other passphrase", kdf: kdf)
+        let plaintext = Data("synthetic browser credential".utf8)
+        let sealed = try BackupCrypto.sealBrowserPayload(plaintext, member: .passwords, keys: keys)
+        XCTAssertEqual(try BackupCrypto.openBrowserPayload(sealed, member: .passwords, keys: keys), plaintext)
+        XCTAssertThrowsError(try BackupCrypto.openBrowserPayload(sealed, member: .passwords, keys: otherKeys))
+        XCTAssertThrowsError(try BackupCrypto.openBrowserPayload(sealed, member: .cookies, keys: keys))
+        var tampered = sealed
+        tampered[tampered.index(before: tampered.endIndex)] ^= 1
+        XCTAssertThrowsError(try BackupCrypto.openBrowserPayload(tampered, member: .passwords, keys: keys))
+    }
+
+    @MainActor
+    func testCookieMigrationKeepsExistingIdentityAndDropsExpiredCookies() {
+        func cookie(_ name: String, domain: String = "example.com", expires: Double? = nil) -> CookieBackupStore.BackupCookie {
+            .init(name: name, value: name, domain: domain, path: "/", expires: expires, secure: true, httpOnly: true)
+        }
+        var partitioned = cookie("partitioned")
+        partitioned.partitioned = true
+        let incoming = [cookie("existing", domain: ".EXAMPLE.COM"), cookie("cached"),
+                        cookie("old", expires: 99), cookie("new"), cookie("new"), partitioned]
+        let plan = CookieBackupStore.migrationPlan(incoming, keeping: [cookie("existing"), cookie("cached")],
+                                                   now: Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(plan.candidates.map(\.name), ["new"])
+        XCTAssertEqual(plan.kept, 2)
+        XCTAssertEqual(plan.ignored, 2)
+        XCTAssertEqual(plan.partitioned, 1)
+        XCTAssertNil(partitioned.toHTTPCookie())
+    }
+
     /// Exactly one segment — the boundary where an off-by-one in the length
     /// prefix or the read loop would show up.
     func testExactlyOneSegmentRoundTrips() throws {

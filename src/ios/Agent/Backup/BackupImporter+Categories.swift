@@ -56,7 +56,7 @@ extension BackupImporter {
         case .providers: liveDirs = []
         // Environment variables merge into the live store rather than
         // replacing a file, so there is nothing to snapshot.
-        case .chats, .skills, .agents, .voiceCorrections, .environmentVariables:
+        case .chats, .skills, .agents, .browserBookmarks, .browserPasswords, .browserCookies, .voiceCorrections, .environmentVariables:
             liveDirs = []
         }
 
@@ -123,12 +123,46 @@ extension BackupImporter {
     func importCategory(_ category: BackupCategory,
                         root: URL,
                         fileIndex: [BackupFileIndexEntry],
-                        options: Options) async throws -> CategoryReport {
+                        options: Options,
+                        browserPasswords: [BrowserPasswordBackupEntry]?,
+                        browserCookies: [CookieBackupStore.BackupCookie]?) async throws -> CategoryReport {
         switch category {
         case .chats: return try await importChats(root: root, fileIndex: fileIndex, options: options)
-        case .sharedFiles: return try importSharedFiles(root: root, fileIndex: fileIndex)
+        case .sharedFiles: return try await importSharedFiles(root: root, fileIndex: fileIndex)
         case .skills: return try await importSkills(root: root, fileIndex: fileIndex)
         case .agents: return try await importAgents(root: root, options: options)
+        case .browserBookmarks:
+            let data = try Data(contentsOf: root.appendingPathComponent("data/browser_bookmarks.json"))
+            let bookmarks = try JSONDecoder().decode([BrowserBookmark].self, from: data)
+            let added = try await BrowserBookmarkStore.shared.restoreBookmarks(bookmarks)
+            return CategoryReport(category: category.rawValue, imported: added, skipped: bookmarks.count - added)
+        case .browserPasswords:
+            guard let browserPasswords else {
+                throw ImportError.unreadablePackage(AppLocalized("The browser migration data is missing or invalid."))
+            }
+            let sharedVault = await BrowserCredentialStore.defaultSharedVaultURL
+            guard isContained(sharedVault, within: AIChatViewModel.minisSharedPersistentDir) else {
+                throw CocoaError(.fileWriteInvalidFileName)
+            }
+            let added = try await MainActor.run {
+                try BrowserCredentialStore.restorePasswords(browserPasswords, into: KeychainBrowserCredentialVault(),
+                                                           sharedVaultURL: sharedVault)
+            }
+            return CategoryReport(category: category.rawValue, imported: added, skipped: browserPasswords.count - added)
+        case .browserCookies:
+            guard let browserCookies else {
+                throw ImportError.unreadablePackage(AppLocalized("The browser migration data is missing or invalid."))
+            }
+            let result = await CookieBackupStore.shared.restoreMigratedCookies(browserCookies)
+            var report = CategoryReport(category: category.rawValue, imported: result.added, skipped: result.kept,
+                                        unreadable: result.unreadable)
+            if result.ignored > 0 {
+                report.warnings.append(String(format: AppLocalized("Expired or duplicate cookies skipped: %d."), result.ignored))
+            }
+            if result.partitioned > 0 {
+                report.warnings.append(String(format: AppLocalized("Partitioned cookies skipped: %d."), result.partitioned))
+            }
+            return report
         case .providers: return try await importProviders(root: root)
         case .mcpServers: return try await importMCPServers(root: root)
         case .voiceCorrections: return try await importVoiceCorrections(root: root)
@@ -140,7 +174,7 @@ extension BackupImporter {
     // MARK: - Chats
 
     /// Validate the complete Bot graph and every staged row before the first live write.
-    func preflightBotGraph(root: URL, options: Options) async throws {
+    func preflightBotGraph(root: URL, manifest: BackupManifest, options: Options) async throws {
         var archive = try BotWorkspaceArchive.read(from: root.appendingPathComponent("data/agents.json"))
         for bot in archive.workspace.bots {
             if let data = bot.iconImageData, data.count > 8 * 1024 * 1024 || UIImage(data: data) == nil {
@@ -154,10 +188,14 @@ extension BackupImporter {
         } else {
             struct SessionRecord: Codable { let session: ChatSession; let memoryEnabled: Bool; let modelBinding: String? }
             let data = root.appendingPathComponent("data", isDirectory: true)
-            let sessions = try readStrictJSONL(data, base: "sessions", as: SessionRecord.self)
-            let messages = try readStrictJSONL(data, base: "messages", as: RawMessage.self)
+            let sessions = try readStrictJSONL(data, base: "sessions", as: SessionRecord.self,
+                allowMissing: archive.workspace.sessionOwners.isEmpty && manifest.allowsMissingChatStream("sessions"))
+            let messages = try readStrictJSONL(data, base: "messages", as: RawMessage.self,
+                allowMissing: manifest.allowsMissingChatStream("messages"))
             let sessionIDs = Set(sessions.map { $0.session.id })
+            let declaredMessages = manifest.categories[BackupCategory.chats.rawValue]?.messages
             guard sessionIDs.count == sessions.count, Set(messages.map(\.id)).count == messages.count,
+                  declaredMessages.map({ $0 == messages.count }) ?? true,
                   Set(archive.workspace.sessionOwners.keys).isSubset(of: sessionIDs),
                   messages.allSatisfy({ sessionIDs.contains($0.sessionId) }) else {
                 throw BotWorkspaceError.rejected("备份中的会话、消息或 Bot 归属不完整，尚未写入任何数据。")
@@ -197,11 +235,15 @@ extension BackupImporter {
         }
     }
 
-    private func readStrictJSONL<T: Codable>(_ directory: URL, base: String, as type: T.Type) throws -> [T] {
+    private func readStrictJSONL<T: Codable>(_ directory: URL, base: String, as type: T.Type,
+                                            allowMissing: Bool) throws -> [T] {
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter {
             $0 == "\(base).jsonl" || ($0.hasPrefix("\(base)-") && $0.hasSuffix(".jsonl"))
         }.sorted()
-        guard !names.isEmpty else { throw BotWorkspaceError.rejected("备份缺少 \(base) 数据。") }
+        if names.isEmpty {
+            guard allowMissing else { throw BotWorkspaceError.rejected("备份缺少 \(base) 数据。") }
+            return []
+        }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         var rows: [T] = []
         for name in names {
@@ -378,19 +420,53 @@ extension BackupImporter {
 
     // MARK: - Shared files
 
-    private func importSharedFiles(root: URL, fileIndex: [BackupFileIndexEntry]) throws
+    private func importSharedFiles(root: URL, fileIndex: [BackupFileIndexEntry]) async throws
         -> CategoryReport {
         var report = CategoryReport(category: BackupCategory.sharedFiles.rawValue)
         let base = AIChatViewModel.minisSharedPersistentDir
+        let vaultPath = "shared/" + BrowserCredentialStore.sharedVaultRelativePath
+        let sharedVault = base.appendingPathComponent(BrowserCredentialStore.sharedVaultRelativePath)
         let files = try restoreFileTree(
             root: root, fileIndex: fileIndex, category: .sharedFiles,
             destinationFor: { path in
                 guard path.hasPrefix("shared/") else { return nil }
-                return base.appendingPathComponent(String(path.dropFirst("shared/".count)))
+                let destination = base.appendingPathComponent(String(path.dropFirst("shared/".count)))
+                guard destination.standardizedFileURL.resolvingSymlinksInPath()
+                        != sharedVault.standardizedFileURL.resolvingSymlinksInPath() else { return nil }
+                return destination
             })
         report.filesWritten = files.written
         report.bytesWritten = files.bytes
         report.missingBlobs = files.missingBlobs
+        // Older packages can contain the vault as a shared file. Merge its
+        // accounts instead of replacing the target's authoritative file.
+        if let entry = fileIndex.first(where: { $0.category == BackupCategory.sharedFiles.rawValue
+            && $0.path == vaultPath && $0.skipped == nil }) {
+            do {
+                guard let sha = entry.sha256, sha.utf8.count == 64,
+                      sha.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+                      isContained(sharedVault, within: base) else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                let blob = root.appendingPathComponent(BackupBlobStore.packagePath(for: sha))
+                guard FileManager.default.fileExists(atPath: blob.path) else {
+                    report.missingBlobs += 1
+                    return report
+                }
+                let data = try Data(contentsOf: blob)
+                let result = try await MainActor.run {
+                    let rows = try BrowserCredentialStore.sharedPasswords(from: data)
+                    let added = try BrowserCredentialStore.restorePasswords(rows, into: KeychainBrowserCredentialVault(),
+                                                                            sharedVaultURL: sharedVault)
+                    return (added, rows.count - added)
+                }
+                report.imported += result.0
+                report.skipped += result.1
+            } catch {
+                report.unreadable += 1
+                report.warnings.append(AppLocalized("The password vault in Shared Files could not be restored. Other shared files were unaffected."))
+            }
+        }
         // Per §3.2 no meta.db write is needed: every mount re-walks this
         // directory and re-registers rows, so the guest sees the files after the
         // next boot.
@@ -839,7 +915,7 @@ extension BackupImporter {
         case .chats: return AIChatViewModel.minisPersistentBase
         case .sharedFiles: return AIChatViewModel.minisSharedPersistentDir
         case .skills: return AIChatViewModel.minisSkillsPersistentDir
-        case .agents, .providers, .mcpServers, .voiceCorrections, .environmentVariables:
+        case .agents, .browserBookmarks, .browserPasswords, .browserCookies, .providers, .mcpServers, .voiceCorrections, .environmentVariables:
             // These write single known files, not index-driven trees; give them
             // the app-group root so the check is still meaningful if one ever
             // starts using restoreFileTree.

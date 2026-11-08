@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct BrowserBookmark: Identifiable, Codable {
+struct BrowserBookmark: Identifiable, Codable, Sendable {
     var id = UUID()
     var title: String
     var url: String
@@ -58,6 +58,26 @@ final class BrowserBookmarkStore: ObservableObject {
         var next = entries
         next.remove(atOffsets: offsets)
         _ = persist(next)
+    }
+
+    func bookmarksForBackup() throws -> [BrowserBookmark] {
+        guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
+        return entries
+    }
+
+    func restoreBookmarks(_ incoming: [BrowserBookmark]) throws -> Int {
+        guard !loadFailed else { throw CocoaError(.fileReadCorruptFile) }
+        var next = entries
+        var ids = Set(entries.map(\.id))
+        for var bookmark in incoming {
+            guard let url = Self.normalizedURL(bookmark.url) else { throw CocoaError(.fileReadCorruptFile) }
+            guard ids.insert(bookmark.id).inserted else { continue }
+            bookmark.url = url.absoluteString
+            next.append(bookmark)
+        }
+        let added = next.count - entries.count
+        if added > 0, !persist(next) { throw CocoaError(.fileWriteUnknown) }
+        return added
     }
 
     private func persist(_ next: [BrowserBookmark]) -> Bool {

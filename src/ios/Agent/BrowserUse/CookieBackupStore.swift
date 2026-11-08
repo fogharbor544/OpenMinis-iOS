@@ -27,7 +27,7 @@ final class CookieBackupStore {
     /// doesn't flood the log with identical listings.
     private var lastLoggedKeys: Set<String> = []
 
-    private struct BackupCookie: Codable {
+    struct BackupCookie: Codable, Sendable {
         var name: String
         var value: String
         var domain: String
@@ -36,8 +36,13 @@ final class CookieBackupStore {
         var expires: Double?
         var secure: Bool
         var httpOnly: Bool
+        var sameSite: String? = nil
+        var partitioned: Bool? = nil
 
         var key: String { "\(domain)|\(path)|\(name)" }
+        var migrationKey: [String] {
+            [String(domain.lowercased().drop(while: { $0 == "." })), path, name]
+        }
 
         /// Log-safe description: metadata only, never the value itself.
         var logLabel: String {
@@ -70,9 +75,14 @@ final class CookieBackupStore {
             expires = cookie.expiresDate?.timeIntervalSince1970
             secure = cookie.isSecure
             httpOnly = cookie.isHTTPOnly
+            sameSite = cookie.properties?[HTTPCookiePropertyKey("SameSite")] as? String
+            // WebKit's Cocoa bridge exposes this property for partitioned
+            // cookies. Do not rebuild one as an unpartitioned cookie.
+            if cookie.properties?[HTTPCookiePropertyKey("StoragePartition")] != nil { partitioned = true }
         }
 
         func toHTTPCookie() -> HTTPCookie? {
+            guard partitioned != true else { return nil }
             var properties: [HTTPCookiePropertyKey: Any] = [
                 .name: name,
                 .value: value,
@@ -81,6 +91,7 @@ final class CookieBackupStore {
             ]
             if secure { properties[.secure] = "TRUE" }
             if httpOnly { properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
+            if let sameSite { properties[HTTPCookiePropertyKey("SameSite")] = sameSite }
             if let expires {
                 properties[.expires] = Date(timeIntervalSince1970: expires)
             }
@@ -88,9 +99,56 @@ final class CookieBackupStore {
         }
     }
 
+    // Export the live WebKit store, not the recovery cache. A cookie no longer
+    // present on the source device must not be brought back by migration.
+    func cookiesForMigration() async -> (cookies: [BackupCookie], partitioned: Int) {
+        let live = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
+        let plan = Self.migrationPlan(live.map(BackupCookie.init(from:)), keeping: [], now: Date())
+        return (plan.candidates, plan.partitioned)
+    }
+
+    static func migrationPlan(_ incoming: [BackupCookie], keeping local: [BackupCookie], now: Date)
+        -> (candidates: [BackupCookie], kept: Int, ignored: Int, partitioned: Int) {
+        let time = now.timeIntervalSince1970
+        let localKeys = Set(local.filter { $0.partitioned != true && ($0.expires ?? .infinity) > time }.map(\.migrationKey))
+        var seen = Set<[String]>()
+        var result: (candidates: [BackupCookie], kept: Int, ignored: Int, partitioned: Int) = ([], 0, 0, 0)
+        for entry in incoming {
+            if entry.partitioned == true { result.partitioned += 1 }
+            else if (entry.expires ?? .infinity) <= time || !seen.insert(entry.migrationKey).inserted { result.ignored += 1 }
+            else if localKeys.contains(entry.migrationKey) { result.kept += 1 }
+            else { result.candidates.append(entry) }
+        }
+        return result
+    }
+
+    func restoreMigratedCookies(_ incoming: [BackupCookie]) async
+        -> (added: Int, kept: Int, unreadable: Int, ignored: Int, partitioned: Int) {
+        guard !incoming.isEmpty else { return (0, 0, 0, 0, 0) }
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        let local = await store.allCookies().map(BackupCookie.init(from:))
+        let now = Date()
+        let visits = loadVisitMap()
+        let liveDomains = Set(local.map { Self.registrableDomain($0.domain) })
+        let cached = loadBackup().filter {
+            let domain = Self.registrableDomain($0.domain)
+            return liveDomains.contains(domain)
+                || (visits[domain].map { now.timeIntervalSince1970 - $0 <= Self.domainRetention } ?? true)
+        }
+        let plan = Self.migrationPlan(incoming, keeping: local + cached, now: now)
+        for entry in plan.candidates {
+            if let cookie = entry.toHTTPCookie() { await store.setCookie(cookie) }
+        }
+        let actual = await store.allCookies().map(BackupCookie.init(from:))
+        let values = Dictionary(actual.filter { $0.partitioned != true }.map { ($0.migrationKey, $0.value) },
+                                uniquingKeysWith: { _, value in value })
+        let added = plan.candidates.filter { values[$0.migrationKey] == $0.value }.count
+        return (added, plan.kept, plan.candidates.count - added, plan.ignored, plan.partitioned)
+    }
+
     /// Local backup directory: one `<registrable-domain>.txt` per domain plus
-    /// a `.lastVisit.json` sibling. Created on demand; excluded from backup so
-    /// the login state never leaves this device.
+    /// a `.lastVisit.json` sibling. Excluded from system backups; explicit
+    /// encrypted migration reads the live WebKit store instead.
     private var backupDirURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,
                                            in: .userDomainMask)[0]
@@ -150,6 +208,7 @@ final class CookieBackupStore {
         let remaining = live
             .filter { Self.registrableDomain($0.domain) == key }
             .map { BackupCookie(from: $0) }
+            .filter { $0.partitioned != true }
         if remaining.isEmpty {
             deleteCookieItem(domain: key)
             var visits = loadVisitMap()
@@ -214,15 +273,20 @@ final class CookieBackupStore {
         // Merge: start from the backup (pruning expired-by-time entries and
         // aged-out domains), then let every live cookie overwrite its backup
         // entry — the live store is authoritative for anything it still holds.
+        let liveEntries = live.map(BackupCookie.init(from:))
+        let partitionedKeys = Set(liveEntries.filter { $0.partitioned == true }.map(\.migrationKey))
         var merged: [String: BackupCookie] = [:]
         for entry in loadBackup() {
             if let e = entry.expires, e <= now { continue }
             if expiredDomains.contains(Self.registrableDomain(entry.domain)) { continue }
+            // A legacy cache entry with this identity may have lost its partition.
+            if partitionedKeys.contains(entry.migrationKey) { continue }
             merged[entry.key] = entry
         }
         var liveKeys = Set<String>()
-        for cookie in live {
-            let entry = BackupCookie(from: cookie)
+        for entry in liveEntries {
+            // Netscape files cannot preserve the partition boundary.
+            guard entry.partitioned != true else { continue }
             liveKeys.insert(entry.key)
             merged[entry.key] = entry
         }

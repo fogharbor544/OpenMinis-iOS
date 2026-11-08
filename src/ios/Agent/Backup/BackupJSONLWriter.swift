@@ -67,7 +67,8 @@ final class BackupJSONLWriter {
         shardPaths.append(name)
     }
 
-    func close() throws {
+    func close(writingEmptyShard: Bool = false) throws {
+        if writingEmptyShard, shardPaths.isEmpty { try rollover() }
         try handle?.close()
         handle = nil
         currentURL = nil

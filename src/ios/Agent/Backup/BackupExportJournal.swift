@@ -24,6 +24,7 @@ private let logger = AppLogger(category: "Backup")
 ///    interrupted, the package it finally produces is one consistent view of
 ///    the data as of the first attempt.
 enum BackupExportJournal {
+    static let stagingVersion = 1
 
     private static var supportDir: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -64,6 +65,9 @@ enum BackupExportJournal {
         /// stale staging is discarded rather than silently downgraded to a
         /// plaintext package.
         var encrypted: Bool
+        /// Older staging may contain a generic vault, incomplete chat streams,
+        /// or members already rewritten with a discarded encryption key.
+        var stagingVersion: Int? = nil
     }
 
     static func begin(_ marker: Marker) {
@@ -85,6 +89,20 @@ enum BackupExportJournal {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(Marker.self, from: data)
+    }
+
+    static func canResume(_ marker: Marker) -> Bool {
+        marker.stagingVersion == stagingVersion
+            && FileManager.default.fileExists(atPath: stagingRoot(backupId: marker.backupId).path)
+    }
+
+    /// Stop offering resume before encryption starts rewriting staging in place.
+    static func disallowResume() throws {
+        do {
+            try FileManager.default.removeItem(at: markerURL)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
+            // The run had no resume marker.
+        }
     }
 
     /// Clear the marker and the staging tree after a clean finish.

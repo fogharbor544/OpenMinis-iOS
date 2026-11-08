@@ -25,6 +25,9 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     case sharedFiles = "shared_files"
     case skills
     case agents
+    case browserBookmarks = "browser_bookmarks"
+    case browserPasswords = "browser_passwords"
+    case browserCookies = "browser_cookies"
     case providers
     case mcpServers = "mcp_servers"
     case voiceCorrections = "voice_corrections"
@@ -39,7 +42,11 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     case environmentVariables = "environment_variables"
 
     /// Default checkbox state on the backup screen (§3 table).
-    var defaultsOn: Bool { true }
+    var requiresEncryptedBackup: Bool { self == .browserPasswords || self == .browserCookies }
+
+    var defaultsOn: Bool { !requiresEncryptedBackup }
+
+    static var defaultSelection: Set<Self> { Set(backupable.filter(\.defaultsOn)) }
 
     /// These categories can reference Bot IDs even when no private capability exists.
     static func includingAgentOwners(_ selected: Set<BackupCategory>) -> Set<BackupCategory> {
@@ -60,7 +67,7 @@ enum BackupCategory: String, Codable, CaseIterable, Sendable {
     var carriesFileTree: Bool {
         switch self {
         case .chats, .sharedFiles, .skills: return true
-        case .agents, .providers, .mcpServers, .voiceCorrections,
+        case .agents, .browserBookmarks, .browserPasswords, .browserCookies, .providers, .mcpServers, .voiceCorrections,
              .environmentVariables: return false
         }
     }
@@ -76,6 +83,9 @@ extension BackupCategory {
         case .sharedFiles: return AppLocalized("Shared Files")
         case .skills: return AppLocalized("Skills")
         case .agents: return AppLocalized("Agents and Memory")
+        case .browserBookmarks: return AppLocalized("Browser Bookmarks")
+        case .browserPasswords: return AppLocalized("Browser Passwords")
+        case .browserCookies: return AppLocalized("Browser Cookies")
         case .providers: return AppLocalized("Providers")
         case .mcpServers: return AppLocalized("MCP Servers")
         case .voiceCorrections: return AppLocalized("Voice Corrections")
@@ -164,6 +174,21 @@ struct BackupManifest: Codable {
         self.encryption = encryption
         self.integrity = integrity
         self.manifestMac = manifestMac
+    }
+
+    /// Older writers omitted a JSONL stream when it had no rows.
+    func allowsMissingChatStream(_ base: String) -> Bool {
+        guard let chats = categories[BackupCategory.chats.rawValue], chats.messages == 0 else { return false }
+        if base == "sessions" {
+            guard chats.entries == 0, chats.files == 0, chats.bytes == 0 else { return false }
+        } else if base != "messages" {
+            return false
+        }
+        let prefix = "data/\(base)"
+        return !integrity.keys.contains { path in
+            let name = path.hasSuffix(".enc") ? String(path.dropLast(4)) : path
+            return name == "\(prefix).jsonl" || (name.hasPrefix("\(prefix)-") && name.hasSuffix(".jsonl"))
+        }
     }
 
     struct AppInfo: Codable {

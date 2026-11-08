@@ -52,6 +52,9 @@ struct BackupCategoryIcon: View {
         case .sharedFiles: return "doc.fill"
         case .skills: return "puzzlepiece.fill"
         case .agents: return "person.2.fill"
+        case .browserBookmarks: return "bookmark.fill"
+        case .browserPasswords: return "key.fill"
+        case .browserCookies: return "globe"
         case .providers: return "link"
         case .mcpServers: return "square.stack.3d.up.fill"
         case .voiceCorrections: return "waveform"
@@ -65,6 +68,9 @@ struct BackupCategoryIcon: View {
         case .sharedFiles: return .indigo
         case .skills: return .orange
         case .agents: return .pink
+        case .browserBookmarks: return .purple
+        case .browserPasswords: return .mint
+        case .browserCookies: return .cyan
         case .providers: return .teal
         case .mcpServers: return .cyan
         case .voiceCorrections: return .purple

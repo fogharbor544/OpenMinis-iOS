@@ -52,6 +52,21 @@ assert 'static let current = "minisbak/4"' in read("Agent/Backup/BackupFormat.sw
 importer = read("Agent/Backup/BackupImporter.swift")
 inspect = importer.split("func inspect(packageURL:", 1)[1].split("// MARK:", 1)[0]
 assert "try checkFormat(manifest)" in inspect
+exporter = read("Agent/Backup/BackupExporter.swift")
+chat_export = exporter.split("private func exportChats(", 1)[1].split("private struct SessionRecord", 1)[0]
+# Legacy cloud deletion markers are ignored by the live session list. A visible
+# local conversation carrying one must not be dropped from a backup.
+assert "tombstonedSessionIds" not in chat_export, "Chat backup filters sessions by a retired sync deletion marker"
+assert "BackupCrypto.sealBrowserPayload(" in exporter and "openBrowserPayload(" in importer
+assert "CookieBackupStore.shared.cookiesForMigration()" in exporter
+assert "CookieBackupStore.shared.restoreMigratedCookies(" in read("Agent/Backup/BackupImporter+Categories.swift")
+assert "sessions.close(writingEmptyShard: true)" in chat_export
+assert "messages.close(writingEmptyShard: true)" in chat_export
+assert "try await store.sessionIdsForBackup()" in chat_export
+assert "try await store.loadMessagesForBackup(" in chat_export
+assert exporter.index("try BackupExportJournal.disallowResume()") < exporter.index("try encryptStagedMembers(in:")
+assert "allowsMissingChatStream" in read("Agent/Backup/BackupImporter+Categories.swift")
+assert "loadBackup()" in read("Agent/BrowserUse/CookieBackupStore.swift").split("func restoreMigratedCookies", 1)[1].split("/// Local backup directory", 1)[0]
 debug = read("Debug/DebugRPCProviderChat.swift")
 assert 'params["botId"] as? String' in debug and "workspace.ensureCommander" not in debug
 print("PASS: source contracts for protected commander initialization, generic delegation, current backup versions and no restore replay")

@@ -261,16 +261,34 @@ extension ChatStore {
     /// Returns every locally-stored session id (for §3.6.0 scenario E
     /// fullFetch reconciliation).
     func allSessionIds() -> [String] {
+        readSessionIDs().ids
+    }
+
+    func sessionIdsForBackup() throws -> [String] {
+        let result = readSessionIDs()
+        guard result.status == SQLITE_DONE else {
+            throw BackupError.stagingFailed(AppLocalized("Could not read the chat backup snapshot."))
+        }
+        return result.ids
+    }
+
+    private func readSessionIDs() -> (ids: [String], status: Int32) {
         let sql = "SELECT id FROM sessions"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         var ids: [String] = []
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return ids }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let cstr = sqlite3_column_text(stmt, 0) {
-                ids.append(String(cString: cstr))
+        let prepare = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        guard prepare == SQLITE_OK else { return (ids, prepare) }
+        var rowsValid = true
+        var status = sqlite3_step(stmt)
+        while status == SQLITE_ROW {
+            if let id = sqlite3_column_text(stmt, 0) {
+                ids.append(String(cString: id))
+            } else {
+                rowsValid = false
             }
+            status = sqlite3_step(stmt)
         }
-        return ids
+        return (ids, rowsValid ? status : SQLITE_CORRUPT)
     }
 }

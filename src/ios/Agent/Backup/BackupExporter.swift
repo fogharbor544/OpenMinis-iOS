@@ -20,7 +20,7 @@ private let logger = AppLogger(category: "Backup")
 actor BackupExporter {
 
     struct Options {
-        var categories: Set<BackupCategory> = Set(BackupCategory.backupable)
+        var categories: Set<BackupCategory> = BackupCategory.defaultSelection
         /// §3.4 — nil means unlimited, which is the DEFAULT. See the design doc
         /// for why this differs from iCloud's finite default.
         var maxFileBytes: Int64?
@@ -28,9 +28,7 @@ actor BackupExporter {
         /// restored provider actually works. Setting this false produces the
         /// "export copy without credentials" share package.
         var includeCredentials = true
-        /// nil / empty = unencrypted package (§5 not applied). §3.3 requires a
-        /// passphrase whenever credentials are included; the caller enforces
-        /// that policy, and `export` refuses the unsafe combination outright.
+        /// nil / empty = unencrypted package. Browser passwords require encryption.
         var passphrase: String?
         /// Data cut-off for this export (review S7 / snapshot task).
         ///
@@ -60,7 +58,7 @@ actor BackupExporter {
         /// in Backup History, where the run being continued is named.
         var allowResume = false
 
-        init(categories: Set<BackupCategory> = Set(BackupCategory.backupable),
+        init(categories: Set<BackupCategory> = BackupCategory.defaultSelection,
              maxFileBytes: Int64? = nil,
              includeCredentials: Bool = true,
              passphrase: String? = nil,
@@ -150,6 +148,14 @@ actor BackupExporter {
         // that has to be said where the user chooses, not enforced by silently
         // dropping their data.
         let hasPassphrase = !(options.passphrase ?? "").isEmpty
+        if options.categories.contains(where: \.requiresEncryptedBackup) {
+            guard hasPassphrase, options.includeCredentials else {
+                throw BackupError.stagingFailed(AppLocalized("Browser passwords and cookies require an encrypted backup."))
+            }
+            guard await BiometricAuth.authenticate(reason: AppLocalized("Verify identity to back up browser data")) else {
+                throw BackupError.cancelled
+            }
+        }
 
         let started = Date()
 
@@ -181,7 +187,8 @@ actor BackupExporter {
                 categories: options.categories.map(\.rawValue).sorted(),
                 includeCredentials: options.includeCredentials,
                 maxFileBytes: options.maxFileBytes,
-                encrypted: hasPassphrase))
+                encrypted: hasPassphrase,
+                stagingVersion: BackupExportJournal.stagingVersion))
         }
         onBackupId?(backupId)
 
@@ -199,16 +206,9 @@ actor BackupExporter {
         // launch (review I6).
         let staging = BackupExportJournal.stagingRoot(backupId: backupId)
 
-        // Cleared only on a clean finish. An interrupted run deliberately
-        // leaves its staging behind so the next attempt can resume it; the
-        // launch sweeper removes anything no marker points at.
-        //
-        // CANCELLATION is an interruption, not a finish: `defer` runs on the
-        // way out of a thrown CancellationError too, and wiping staging there
-        // would throw away exactly the work a "pause" is supposed to preserve.
-        // So the cleanup is conditional on having got to the end.
-        var completed = false
-        defer { if completed { BackupExportJournal.finish(backupId: backupId) } }
+        // Keep interrupted staging only while it is safe to reuse.
+        var discardStaging = false
+        defer { if discardStaging { BackupExportJournal.finish(backupId: backupId) } }
 
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         let dataDir = staging.appendingPathComponent("data", isDirectory: true)
@@ -335,6 +335,13 @@ actor BackupExporter {
         try await run(.agents, AppLocalized("Exporting agents and memory…")) {
             try await exportAgents(dataDir: dataDir, includesHistory: options.categories.contains(.chats), snapshot: graphSnapshot)
         }
+        try await run(.browserBookmarks, AppLocalized("Browser Bookmarks")) {
+            let bookmarks = try await BrowserBookmarkStore.shared.bookmarksForBackup()
+            let url = dataDir.appendingPathComponent("browser_bookmarks.json")
+            try BackupJSONFile.write(bookmarks, to: url)
+            let bytes = try fm.attributesOfItem(atPath: url.path)[.size] as? Int64 ?? 0
+            return BackupManifest.CategoryStat(entries: bookmarks.count, bytes: bytes, encrypted: false)
+        }
         try await run(.sharedFiles, AppLocalized("Exporting shared files…")) {
             try exportSharedFiles(trees: trees)
         }
@@ -382,10 +389,6 @@ actor BackupExporter {
             try await exportVoiceCorrections(dataDir: dataDir)
         }
 
-        // Resume bookkeeping must not become package content — the archive
-        // step zips this whole directory.
-        BackupExportJournal.clearDoneMarkers(in: staging)
-
         // Rescue index (plaintext, never encrypted — see BackupRescueIndex).
         // Written before the manifest so the manifest's `integrity` map can
         // carry its hash: that makes tampering detectable without making the
@@ -415,13 +418,42 @@ actor BackupExporter {
             let salt = BackupCrypto.makeSalt()
             let kdf = BackupCrypto.currentKDF(salt: salt)
             let derived = try BackupCrypto.deriveKeys(passphrase: passphrase, kdf: kdf)
+            func writeBrowserPayload<T: Encodable>(_ records: [T], member: BackupCrypto.BrowserMember,
+                                                   category: BackupCategory) throws {
+                let payload = try BackupCrypto.sealBrowserPayload(JSONEncoder().encode(records), member: member, keys: derived)
+                try payload.write(to: staging.appendingPathComponent(member.rawValue), options: .atomic)
+                stats[category.rawValue] = .init(entries: records.count, bytes: Int64(payload.count), encrypted: true)
+            }
+            if options.categories.contains(.browserPasswords) {
+                say(AppLocalized("Browser Passwords"))
+                let passwords = try await MainActor.run {
+                    try BrowserCredentialStore.passwordsForBackup(from: KeychainBrowserCredentialVault(),
+                                                                  sharedVaultURL: BrowserCredentialStore.defaultSharedVaultURL)
+                }
+                try writeBrowserPayload(passwords, member: .passwords, category: .browserPasswords)
+            }
+            if options.categories.contains(.browserCookies) {
+                say(AppLocalized("Browser Cookies"))
+                let cookies = await CookieBackupStore.shared.cookiesForMigration()
+                if cookies.partitioned > 0 {
+                    say(String(format: AppLocalized("Partitioned cookies skipped: %d."), cookies.partitioned))
+                }
+                try writeBrowserPayload(cookies.cookies, member: .cookies, category: .browserCookies)
+            }
+            try Task.checkCancellation()
+            // From here staging may contain a mix of plaintext and ciphertext.
+            // Remove the journal pointer before touching any resumable members.
+            try BackupExportJournal.disallowResume()
+            discardStaging = true
+            BackupExportJournal.clearDoneMarkers(in: staging)
             try encryptStagedMembers(in: staging, keys: derived)
             encryption = BackupManifest.Encryption(
                 scheme: BackupCrypto.scheme, kdf: kdf, verifier: derived.verifier)
             keys = derived
-            // Every category's bytes are now ciphertext, so the per-category
-            // `encrypted` flag must say so rather than keeping stage 1's false.
             for key in stats.keys { stats[key]?.encrypted = true }
+        } else {
+            // Resume bookkeeping must not ship with the package.
+            BackupExportJournal.clearDoneMarkers(in: staging)
         }
 
         say("Writing manifest…")
@@ -471,7 +503,7 @@ actor BackupExporter {
                                            encrypted: hasPassphrase)
         }
 
-        completed = true
+        discardStaging = true
         let total = (try? fm.attributesOfItem(atPath: packageURL.path)[.size] as? Int64) ?? 0
         logger.info("[Backup] done id=\(backupId) bytes=\(total) skipped=\(blobStore.skippedFiles)")
 
@@ -515,14 +547,12 @@ actor BackupExporter {
     /// package from a run the user asked to encrypt would leak their API keys.
     private static func resumableRun(for options: Options) -> BackupExportJournal.Marker? {
         guard let marker = BackupExportJournal.interrupted() else { return nil }
-        let staging = BackupExportJournal.stagingRoot(backupId: marker.backupId)
-        guard FileManager.default.fileExists(atPath: staging.path) else { return nil }
-
         let wantsEncryption = !(options.passphrase ?? "").isEmpty
         guard marker.categories == options.categories.map(\.rawValue).sorted(),
               marker.maxFileBytes == options.maxFileBytes,
               marker.includeCredentials == options.includeCredentials,
-              marker.encrypted == wantsEncryption
+              marker.encrypted == wantsEncryption,
+              BackupExportJournal.canResume(marker)
         else {
             logger.info("[Backup] previous export is not compatible with this request — starting fresh")
             BackupExportJournal.finish(backupId: marker.backupId)
@@ -540,17 +570,12 @@ actor BackupExporter {
                              snapshotAt: Date,
                              progress: (@Sendable (String, Bool) -> Void)? = nil) async throws
         -> BackupManifest.CategoryStat {
-        let sessionIds = await store.allSessionIds()
-        let tombstoned = Set(await store.tombstonedSessionIds())
-
-        // Chats is the only category that runs long enough to need live
-        // progress — the rest finish inside a second. Counted against the
-        // sessions actually in scope, so the denominator matches what the
-        // loop below will really walk.
-        let inScope = sessionIds.filter { !tombstoned.contains($0) }
+        // Match the live session list: sync deletes remove the row. A legacy
+        // remote_tombstoned_at value does not hide a surviving conversation.
+        let sessionIds = try await store.sessionIdsForBackup()
         var reporter = BackupProgressReporter(
             noun: AppLocalized("conversations"),
-            total: inScope.count,
+            total: sessionIds.count,
             emit: { text, transient in progress?(text, transient) })
         reporter.begin(AppLocalized("Exporting chats…"))
 
@@ -572,14 +597,10 @@ actor BackupExporter {
             // must yield to system memory pressure instead of charging
             // through CRITICAL until jetsam kills the app.
             BackupMemoryGovernor.shared.throttleIfNeeded(context: "chats \(sid.prefix(8))")
-            // Soft-deleted sessions are excluded: restoring them would
-            // resurrect rows the user already deleted.
-            guard !tombstoned.contains(sid) else { continue }
-            // Counted before the snapshot filter below, so the number always
-            // advances — a run whose tail is all newer-than-snapshot sessions
-            // would otherwise appear to stall just before finishing.
             reporter.step()
-            guard let session = await store.getSession(sid) else { continue }
+            guard let session = await store.getSession(sid) else {
+                throw BackupError.stagingFailed(AppLocalized("Could not read the chat backup snapshot."))
+            }
             // Rows come from the frozen SQLite snapshot, including all rows of
             // a conversation that continued on the live device after capture.
             let extras = await store.getSessionExtras(sid)
@@ -593,7 +614,7 @@ actor BackupExporter {
             // JSON-encoding of a long session's messages produces a burst of
             // autoreleased buffers that otherwise pile up across all 2284
             // sessions (the pool can't drain inside a loop that suspends).
-            let sessionMsgs = await store.loadMessages(sessionId: sid)
+            let sessionMsgs = try await store.loadMessagesForBackup(sessionId: sid)
             try autoreleasepool {
                 for msg in sessionMsgs {
                     try messages.write(BackupRecordEnvelope(t: "MessageV2", d: msg))
@@ -623,14 +644,16 @@ actor BackupExporter {
             try folders.write(BackupRecordEnvelope(t: "FolderV2", d: folder))
         }
 
-        try sessions.close(); try messages.close()
+        // A selected but empty chat category is valid. The restore preflight
+        // still requires both streams to distinguish it from missing members.
+        try sessions.close(writingEmptyShard: true); try messages.close(writingEmptyShard: true)
         try markers.close(); try folders.close()
 
         // What this category actually produced. The counts are the useful
         // part: "did my 400 conversations really go in?" is answerable from
         // the log rather than only from the finished package.
         reporter.finish(AppLocalized("Chats exported"),
-                        detail: AppLocalized("\(inScope.count) conversations, \(messageCount) messages, \(fileCount) files"))
+                        detail: AppLocalized("\(sessions.writtenRecords) conversations, \(messageCount) messages, \(fileCount) files"))
 
         return BackupManifest.CategoryStat(
             entries: messageCount + fileCount,
@@ -654,7 +677,8 @@ actor BackupExporter {
         -> BackupManifest.CategoryStat {
         let r = try trees.export(root: AIChatViewModel.minisSharedPersistentDir,
                                  logicalPrefix: "shared",
-                                 category: .sharedFiles)
+                                 category: .sharedFiles,
+                                 excludedRelativePaths: [BrowserCredentialStore.sharedVaultRelativePath])
         return BackupManifest.CategoryStat(
             entries: r.filesIncluded, bytes: r.bytesIncluded, encrypted: false)
     }
@@ -1050,6 +1074,7 @@ actor BackupExporter {
                 // rescue index is useless to the person who needs it most.
                 // Encrypting it would have silently defeated the whole feature.
                 guard url.lastPathComponent != "manifest.json",
+                      !BackupCrypto.BrowserMember.allCases.contains(where: { $0.rawValue == url.lastPathComponent }),
                       url.lastPathComponent != BackupRescueIndex.filename,
                       url.lastPathComponent != BackupRescueIndex.manifestCopyFilename
                 else { continue }

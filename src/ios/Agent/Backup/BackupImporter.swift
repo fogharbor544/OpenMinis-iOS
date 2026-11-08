@@ -58,6 +58,7 @@ actor BackupImporter {
         /// backup must not clobber a key the user has since rotated.
         var credentialsKept = 0
         var failed: String?
+        var warnings: [String] = []
     }
 
     struct Report {
@@ -138,6 +139,15 @@ actor BackupImporter {
         progress?(AppLocalized("Reading manifest…"))
         let manifest = try readManifest(at: root)
         try checkFormat(manifest)
+        let passwordStat = options.categories?.contains(.browserPasswords) == false
+            ? nil : manifest.categories[BackupCategory.browserPasswords.rawValue]
+        let cookieStat = options.categories?.contains(.browserCookies) == false
+            ? nil : manifest.categories[BackupCategory.browserCookies.rawValue]
+        var browserPasswords: [BrowserPasswordBackupEntry]?
+        var browserCookies: [CookieBackupStore.BackupCookie]?
+        if passwordStat != nil || cookieStat != nil, manifest.encryption == nil {
+            throw ImportError.unreadablePackage(AppLocalized("Browser passwords and cookies require an encrypted backup."))
+        }
 
         var report = Report(backupId: manifest.backupId,
                             createdAt: manifest.createdAt,
@@ -187,6 +197,8 @@ actor BackupImporter {
             } else {
                 try BackupCrypto.verifyManifestMAC(manifest, key: keys.macKey)
             }
+            browserPasswords = try readBrowserMember(.passwords, stat: passwordStat, root: root, manifest: manifest, keys: keys)
+            browserCookies = try readBrowserMember(.cookies, stat: cookieStat, root: root, manifest: manifest, keys: keys)
             try decryptStagedMembers(in: root, keys: keys)
             report.wasEncrypted = true
         }
@@ -216,7 +228,7 @@ actor BackupImporter {
         var restoreOptions = options
         restoreOptions.categories = wanted
         if wanted.contains(.agents) {
-            try await preflightBotGraph(root: root, options: restoreOptions)
+            try await preflightBotGraph(root: root, manifest: manifest, options: restoreOptions)
             let active = await MainActor.run { Array(SessionActivityTracker.shared.activeSessions) }
             guard active.isEmpty else { throw ImportError.sessionsRunning(active) }
         }
@@ -273,7 +285,8 @@ actor BackupImporter {
                     if category == .chats { graphFilesSnapshot = snapshot }
                 }
                 var cat = try await importCategory(category, root: root, fileIndex: fileIndex,
-                                                   options: restoreOptions)
+                                                   options: restoreOptions, browserPasswords: browserPasswords,
+                                                   browserCookies: browserCookies)
                 cat.sizeSkippedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "size" }.count
                 // [review S9] Same treatment for iCloud placeholders the export
@@ -283,6 +296,7 @@ actor BackupImporter {
                 cat.notDownloadedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "not_downloaded" }.count
                 report.categories.append(cat)
+                report.warnings += cat.warnings
                 if category == .agents {
                     let unavailable = await MainActor.run {
                         BotWorkspaceStore.shared.data.bots.filter { $0.iconImageData == nil && $0.avatarPresetID != nil && $0.originalAvatar == nil }.map(\.name)
@@ -337,6 +351,22 @@ actor BackupImporter {
         let manifest = try readManifest(at: root)
         try checkFormat(manifest)
         return manifest
+    }
+
+    private func readBrowserMember<T: Decodable>(_ member: BackupCrypto.BrowserMember,
+                                                stat: BackupManifest.CategoryStat?, root: URL,
+                                                manifest: BackupManifest, keys: BackupCrypto.Keys) throws -> [T]? {
+        guard let stat else { return nil }
+        guard stat.encrypted, manifest.integrity[member.rawValue] != nil else {
+            throw ImportError.unreadablePackage(AppLocalized("The browser migration data is missing or invalid."))
+        }
+        let payload = try Data(contentsOf: root.appendingPathComponent(member.rawValue))
+        let plaintext = try BackupCrypto.openBrowserPayload(payload, member: member, keys: keys)
+        let records = try JSONDecoder().decode([T].self, from: plaintext)
+        guard records.count == stat.entries else {
+            throw ImportError.unreadablePackage(AppLocalized("The browser migration data is missing or invalid."))
+        }
+        return records
     }
 
     // MARK: - Package opening
@@ -501,7 +531,7 @@ actor BackupImporter {
         //
         // A category missing from this list is silently skipped, which is how
         // this one would have failed had it simply been appended to the enum.
-        let order: [BackupCategory] = [.chats, .sharedFiles, .skills, .agents,
+        let order: [BackupCategory] = [.chats, .sharedFiles, .skills, .agents, .browserBookmarks, .browserPasswords, .browserCookies,
                                        .providers, .environmentVariables,
                                        .mcpServers, .voiceCorrections]
         return order.filter { wanted.contains($0) }

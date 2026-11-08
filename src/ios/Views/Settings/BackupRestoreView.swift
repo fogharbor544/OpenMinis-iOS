@@ -709,6 +709,8 @@ struct BackupRestoreView: View {
     private func detailText(_ c: BackupCategory, _ stat: BackupManifest.CategoryStat) -> String {
         let size = ByteCountFormatter.string(fromByteCount: stat.bytes, countStyle: .file)
         switch c {
+        case .browserCookies:
+            return "\(stat.entries) · \(size) · " + AppLocalized("May restore website sign-ins")
         case .chats:
             // [T-restore-progress-localized] Counted through countLabel like
             // every other category; this line was a bare English literal.

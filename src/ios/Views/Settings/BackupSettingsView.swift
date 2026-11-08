@@ -13,7 +13,7 @@ struct BackupSettingsView: View {
     /// container's "Backup & Restore" with its own "Backup".
     var embedded = false
 
-    @State private var selected: Set<BackupCategory> = Set(BackupCategory.backupable)
+    @State private var selected: Set<BackupCategory> = BackupCategory.defaultSelection
     /// The Include toggles are styled like the iCloud settings rows, and rows
     /// that look like settings are expected to SURVIVE leaving the screen —
     /// a fresh launch used to silently reset a trimmed selection back to
@@ -64,8 +64,8 @@ struct BackupSettingsView: View {
     /// Whether to encrypt. Defaults OFF, so the common case — back up, keep the
     /// file — takes no passphrase and nothing to forget.
     ///
-    /// Credentials are included either way; the footer explains that a
-    /// passphrase protects them when encryption is enabled.
+    /// Browser passwords and cookies always require encryption; other credential categories
+    /// keep their existing policy.
     @AppStorage("backup.encrypt") private var encryptBackup: Bool = false
 
     @State private var isExporting = false
@@ -135,6 +135,13 @@ struct BackupSettingsView: View {
                 Text("Include")
             } footer: {
                 Text("Agent definitions and memory are included with chats, providers or environment variables. Select all categories for a device migration.")
+                Text("Browser passwords and cookies require an encrypted backup.")
+                if selected.contains(.sharedFiles) && !selected.contains(.browserPasswords) {
+                    Text("Select Browser Passwords to include the shared password vault.")
+                }
+                if selected.contains(.browserCookies) {
+                    Text("Cookies can restore website sign-ins. Some websites may still require you to sign in again.")
+                }
                 // The cap's consequence is stated, because §3.4's whole point is
                 // that a skipped file leaves a tombstone rather than silently
                 // vanishing — the user should know that before it happens, not
@@ -175,6 +182,7 @@ struct BackupSettingsView: View {
                         Text("Encrypt Backup")
                     }
                 }
+                .disabled(selected.contains(where: \.requiresEncryptedBackup))
                 if encryptBackup {
                     SecureField("Passphrase", text: $passphrase)
                         .textContentType(.newPassword)
@@ -408,7 +416,10 @@ struct BackupSettingsView: View {
         Binding(
             get: { BackupCategory.includingAgentOwners(selected).contains(category) },
             set: { on in
-                if on { selected.insert(category) }
+                if on {
+                    selected.insert(category)
+                    if category.requiresEncryptedBackup { encryptBackup = true }
+                }
                 else {
                     selected.remove(category)
                     if category == .agents { selected.subtract([.chats, .providers, .environmentVariables]) }
@@ -429,6 +440,7 @@ struct BackupSettingsView: View {
         // old string — but we can't tell those apart, so prefer the user's
         // explicit selection as saved.
         if !stored.isEmpty { selected = stored }
+        if selected.contains(where: \.requiresEncryptedBackup) { encryptBackup = true }
     }
 
     /// Whether this record is the interrupted run whose staging is still on
@@ -447,8 +459,7 @@ struct BackupSettingsView: View {
               let marker = BackupExportJournal.interrupted(),
               marker.backupId == r.backupId
         else { return false }
-        return FileManager.default.fileExists(
-            atPath: BackupExportJournal.stagingRoot(backupId: marker.backupId).path)
+        return BackupExportJournal.canResume(marker)
     }
 
     /// [T-backup-device-name-setting] Lets the user name this device, which is
@@ -647,10 +658,12 @@ struct BackupSettingsView: View {
             // The user pressed Stop. That is an ACTION they took, not a failure
             // that happened to them — reporting it in red as an error (with
             // Foundation's generic "operation couldn't be completed" text) says
-            // something went wrong when nothing did. The record notes it was
-            // stopped and that the next run resumes.
+            // something went wrong when nothing did.
             errorText = nil
-            BackupHistory.shared.fail(runId, message: AppLocalized("Stopped — the next backup picks up from here."))
+            let resumable = BackupExportJournal.interrupted().map(BackupExportJournal.canResume) ?? false
+            BackupHistory.shared.fail(runId, message: resumable
+                ? AppLocalized("Stopped — the next backup picks up from here.")
+                : AppLocalized("Stopped — the next backup starts over."))
             logger.info("[Backup] user export stopped by user")
         } catch {
             errorText = error.localizedDescription

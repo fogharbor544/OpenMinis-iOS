@@ -219,6 +219,18 @@ extension ChatStore {
     }
 
     func loadMessages(sessionId: String) -> [RawMessage] {
+        readMessages(sessionId: sessionId).messages
+    }
+
+    func loadMessagesForBackup(sessionId: String) throws -> [RawMessage] {
+        let result = readMessages(sessionId: sessionId)
+        guard result.complete else {
+            throw BackupError.stagingFailed(AppLocalized("Could not read the chat backup snapshot."))
+        }
+        return result.messages
+    }
+
+    private func readMessages(sessionId: String) -> (messages: [RawMessage], complete: Bool) {
         let totalStart = CFAbsoluteTimeGetCurrent()
         let sql = """
             SELECT id, session_id, role, parts_json, created_at, token_usage, reasoning_content, stream_interrupt_count, sort_order, error_info, model_id, model_display_name, provider_type, provider_instance_id, reasoning_echo
@@ -229,26 +241,29 @@ extension ChatStore {
         var jsonDecodeTime: Double = 0
 
         let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-        if prepareResult == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
-
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let id = String(cString: sqlite3_column_text(stmt, 0))
-                let sessId = String(cString: sqlite3_column_text(stmt, 1))
-                let roleStr = String(cString: sqlite3_column_text(stmt, 2))
-                let partsStr = String(cString: sqlite3_column_text(stmt, 3))
+        var status = prepareResult
+        var rowsValid = true
+        if status == SQLITE_OK {
+            status = sessionId.withCString { id in
+                sqlite3_bind_text(stmt, 1, id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            }
+            if status == SQLITE_OK { status = sqlite3_step(stmt) }
+            while status == SQLITE_ROW {
+                defer { status = sqlite3_step(stmt) }
+                guard let idText = sqlite3_column_text(stmt, 0),
+                      let sessId = sqlite3_column_text(stmt, 1),
+                      let roleStr = sqlite3_column_text(stmt, 2),
+                      let partsStr = sqlite3_column_text(stmt, 3),
+                      let role = MessageRole(rawValue: String(cString: roleStr))
+                else { rowsValid = false; continue }
+                let id = String(cString: idText)
                 let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
                 let usageStr = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
 
-                guard let role = MessageRole(rawValue: roleStr) else { continue }
-
                 let decodeStart = CFAbsoluteTimeGetCurrent()
-                let parts: [ContentPart]
-                if let data = partsStr.data(using: .utf8) {
-                    parts = (try? JSONDecoder().decode([ContentPart].self, from: data)) ?? []
-                } else {
-                    parts = []
-                }
+                let data = Data(String(cString: partsStr).utf8)
+                let parts = try? JSONDecoder().decode([ContentPart].self, from: data)
+                if parts == nil { rowsValid = false }
 
                 let tokenUsage: StoredTokenUsage?
                 if let usageData = usageStr?.data(using: .utf8) {
@@ -264,7 +279,7 @@ extension ChatStore {
                 let sortOrder = Int(sqlite3_column_int64(stmt, 8))
                 let errorInfo = sqlite3_column_text(stmt, 9).map { String(cString: $0) }  // [T-error-persist-ios]
                 var msg = RawMessage(
-                    id: id, sessionId: sessId, role: role, parts: parts,
+                    id: id, sessionId: String(cString: sessId), role: role, parts: parts ?? [],
                     createdAt: createdAt, tokenUsage: tokenUsage,
                     reasoningContent: reasoningContent,
                     streamInterruptCount: streamInterruptCount
@@ -340,7 +355,7 @@ extension ChatStore {
             // what carries signal: duplicates and gaps are real data problems.
         }
 
-        return messages
+        return (messages, rowsValid && status == SQLITE_DONE)
     }
 
     /// [T-ios-session-paused-badge-hardkill] Returns the set of session ids whose

@@ -17,6 +17,19 @@ struct BrowserCredential: Identifiable, Codable {
     var isSharedVault: Bool?
 }
 
+/// A portable login, without device-specific file permissions or record IDs.
+struct BrowserPasswordBackupEntry: Codable, Sendable {
+    var origin: String
+    var username: String
+    var password: String
+    var shared: Bool? = nil
+
+    struct Identity: Hashable {
+        let origin: String
+        let username: String
+    }
+}
+
 @MainActor
 protocol BrowserCredentialVault {
     func read() throws -> Data?
@@ -82,8 +95,10 @@ final class BrowserCredentialStore: ObservableObject {
     /// The shared vault written by the agent and the legacy password manager.
     /// It lives under Minis's shared directory rather than a user-picked file,
     /// so importing it needs no bookmark.
+    nonisolated static let sharedVaultRelativePath = "password_manager/vault.json"
+
     static var defaultSharedVaultURL: URL {
-        AIChatViewModel.minisSharedPersistentDir.appendingPathComponent("password_manager/vault.json")
+        AIChatViewModel.minisSharedPersistentDir.appendingPathComponent(sharedVaultRelativePath)
     }
 
     static func origin(for text: String) -> String? {
@@ -94,6 +109,98 @@ final class BrowserCredentialStore: ObservableObject {
         components.host = host
         if let port = url.port, port != 443 { components.port = port }
         return components.string
+    }
+
+    static func passwordsForBackup(from vault: any BrowserCredentialVault,
+                                   sharedVaultURL: URL) throws -> [BrowserPasswordBackupEntry] {
+        let saved = try vault.read().map { try JSONDecoder().decode([BrowserCredential].self, from: $0) } ?? []
+        var byIdentity: [BrowserPasswordBackupEntry.Identity: BrowserPasswordBackupEntry] = [:]
+        for entry in saved where entry.isSharedVault != true {
+            let key = BrowserPasswordBackupEntry.Identity(origin: entry.origin, username: entry.username)
+            byIdentity[key] = .init(origin: entry.origin, username: entry.username, password: entry.password)
+        }
+        if let data = try readSharedVault(at: sharedVaultURL) {
+            for entry in try sharedPasswords(from: data) {
+                let key = BrowserPasswordBackupEntry.Identity(origin: entry.origin, username: entry.username)
+                byIdentity[key] = entry
+            }
+        }
+        return byIdentity.values.sorted { ($0.origin, $0.username) < ($1.origin, $1.username) }
+    }
+
+    static func sharedPasswords(from data: Data) throws -> [BrowserPasswordBackupEntry] {
+        let object = try JSONSerialization.jsonObject(with: data)
+        return try validatedRows(object).compactMap { row in
+            guard let entry = credential(row) else { return nil }
+            return .init(origin: entry.origin, username: entry.username, password: entry.password, shared: true)
+        }
+    }
+
+    private static func readSharedVault(at url: URL) throws -> Data? {
+        do { return try Data(contentsOf: url) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return nil
+        }
+    }
+
+    static func restorePasswords(_ incoming: [BrowserPasswordBackupEntry],
+                                 into vault: any BrowserCredentialVault, sharedVaultURL: URL) throws -> Int {
+        guard !incoming.isEmpty else { return 0 }
+        let local = try vault.read().map { try JSONDecoder().decode([BrowserCredential].self, from: $0) } ?? []
+        let priorFile = try readSharedVault(at: sharedVaultURL)
+        let fileEntries = try priorFile.map { try sharedPasswords(from: $0) } ?? []
+        var identities = Set(local.filter { $0.isSharedVault != true }.map {
+            BrowserPasswordBackupEntry.Identity(origin: origin(for: $0.origin) ?? $0.origin, username: $0.username)
+        })
+        identities.formUnion(fileEntries.map { .init(origin: $0.origin, username: $0.username) })
+        var next = local
+        var nativeAdded = 0
+        var sharedRows: [[String: String]] = []
+        for entry in incoming {
+            guard let site = origin(for: entry.origin), !entry.password.isEmpty else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let identity = BrowserPasswordBackupEntry.Identity(origin: site, username: entry.username)
+            guard identities.insert(identity).inserted else { continue }
+            if entry.shared == true {
+                sharedRows.append(["origin": site, "username": entry.username, "password": entry.password])
+            } else {
+                next.removeAll { $0.isSharedVault == true && $0.origin == site && $0.username == entry.username }
+                next.append(BrowserCredential(origin: site, username: entry.username, password: entry.password))
+                nativeAdded += 1
+            }
+        }
+        if !sharedRows.isEmpty {
+            let object = try priorFile.map { try JSONSerialization.jsonObject(with: $0) } ?? [Any]()
+            let merged: Any
+            if var dictionary = object as? [String: Any], credential(dictionary) == nil {
+                let keys = ["entries", "credentials", "passwords", "accounts"]
+                if let key = keys.first(where: { dictionary[$0] is [Any] }) {
+                    dictionary[key] = (dictionary[key] as? [Any] ?? []) + sharedRows
+                } else if let key = keys.first(where: { dictionary[$0] == nil }) {
+                    dictionary[key] = sharedRows
+                } else {
+                    // Keep the existing object intact when none of its keys is an appendable list.
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                merged = dictionary
+            } else {
+                merged = (object as? [Any] ?? [object]) + sharedRows
+            }
+            let data = try JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .sortedKeys])
+            try FileManager.default.createDirectory(at: sharedVaultURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: sharedVaultURL, options: .atomic)
+        }
+        do {
+            if nativeAdded > 0 { try vault.write(JSONEncoder().encode(next)) }
+        } catch {
+            if !sharedRows.isEmpty {
+                if let priorFile { try priorFile.write(to: sharedVaultURL, options: .atomic) }
+                else { try FileManager.default.removeItem(at: sharedVaultURL) }
+            }
+            throw error
+        }
+        return nativeAdded + sharedRows.count
     }
 
     func unlock() async {

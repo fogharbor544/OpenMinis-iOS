@@ -38,6 +38,16 @@ struct BrowserStorageBehaviorTests {
         precondition(!broken.save(bookmark))
         let unchanged = try String(contentsOf: corrupt, encoding: .utf8)
         precondition(unchanged == "corrupt")
+        let destination = BrowserBookmarkStore(fileURL: root.appendingPathComponent("restored-bookmarks.json"))
+        var localBookmark = bookmark
+        localBookmark.title = "Local edit"
+        precondition(destination.save(localBookmark))
+        let newBookmark = BrowserBookmark(title: "New", url: "https://example.org")
+        let bookmarkBackup = try bookmarks.bookmarksForBackup() + [newBookmark]
+        let addedBookmarks = try destination.restoreBookmarks(bookmarkBackup)
+        let repeatedBookmarks = try destination.restoreBookmarks(bookmarkBackup)
+        precondition(addedBookmarks == 1 && repeatedBookmarks == 0)
+        precondition(destination.entries.map(\.title) == ["Local edit", "New"])
         let directory = root.appendingPathComponent("directory")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let failed = BrowserBookmarkStore(fileURL: directory)
@@ -79,6 +89,24 @@ struct BrowserStorageBehaviorTests {
         let sourceData = try JSONSerialization.data(withJSONObject: [["origin": "https://import.example", "username": "synthetic", "password": UUID().uuidString]])
         try sourceData.write(to: sourceFile)
         precondition(passwords.importFile(sourceFile))
+        let portablePasswords = try BrowserCredentialStore.passwordsForBackup(from: vault, sharedVaultURL: shared)
+        let restoredVault = MemoryCredentialVault()
+        let localPassword = BrowserCredential(origin: "https://example.com", username: "one", password: "local-password")
+        restoredVault.data = try JSONEncoder().encode([localPassword])
+        let addedPasswords = try BrowserCredentialStore.restorePasswords(portablePasswords, into: restoredVault, sharedVaultURL: shared)
+        let repeatedPasswords = try BrowserCredentialStore.restorePasswords(portablePasswords, into: restoredVault, sharedVaultURL: shared)
+        precondition(addedPasswords == 1 && repeatedPasswords == 0)
+        let restoredPasswords = try JSONDecoder().decode([BrowserCredential].self, from: restoredVault.data!)
+        precondition(restoredPasswords.first?.password == localPassword.password)
+        precondition(restoredPasswords.last?.origin == "https://import.example")
+        precondition(restoredPasswords.allSatisfy { $0.sourceBookmark == nil && $0.isSharedVault != true })
+        let goodVault = restoredVault.data
+        do {
+            _ = try BrowserCredentialStore.restorePasswords(
+                [BrowserPasswordBackupEntry(origin: "http://example.org", username: "unsafe", password: "test")],
+                into: restoredVault, sharedVaultURL: shared)
+            preconditionFailure("Unsafe password origin was accepted")
+        } catch { precondition(restoredVault.data == goodVault) }
         var imported = passwords.entries.first { $0.origin == "https://import.example" }!
         imported.password = UUID().uuidString
         precondition(passwords.save(imported))
@@ -115,6 +143,34 @@ struct BrowserStorageBehaviorTests {
         precondition(live.entries.count == 1 && live.entries[0].sourceBookmark == nil)
         let monitor = Task { await live.monitorSharedVault() }
         let sharedID = live.entries[0].id
+        let updatedShared = [["origin": "https://example.com", "username": "one", "password": "new-file-value"],
+                             ["origin": "https://new.example", "username": "two", "password": "new-account"]]
+        try JSONSerialization.data(withJSONObject: updatedShared).write(to: shared)
+        let migrated = try BrowserCredentialStore.passwordsForBackup(from: sharedVault, sharedVaultURL: shared)
+        precondition(migrated.count == 2 && migrated.allSatisfy { $0.shared == true })
+        precondition(migrated.first { $0.username == "one" }?.password == "new-file-value")
+        let targetFile = root.appendingPathComponent("target-vault.json")
+        let targetVault = MemoryCredentialVault()
+        let targetRows = ["metadata": ["version": 1],
+                          "accounts": [["origin": "https://example.com", "username": "one", "password": "target-value"]]] as [String: Any]
+        try JSONSerialization.data(withJSONObject: targetRows).write(to: targetFile)
+        let migratedCount = try BrowserCredentialStore.restorePasswords(migrated, into: targetVault, sharedVaultURL: targetFile)
+        precondition(migratedCount == 1)
+        let target = BrowserCredentialStore(vault: targetVault, sharedVaultURL: targetFile, authenticate: { true })
+        await target.unlock()
+        precondition(target.entries.count == 2 && target.entries.allSatisfy { $0.isSharedVault == true })
+        precondition(target.entries.first { $0.username == "one" }?.password == "target-value")
+        let repeatShared = try BrowserCredentialStore.restorePasswords(migrated, into: targetVault, sharedVaultURL: targetFile)
+        precondition(repeatShared == 0)
+        var linked = target.entries.first { $0.username == "two" }!
+        linked.password = UUID().uuidString
+        precondition(target.save(linked))
+        let fileAfterEdit = try BrowserCredentialStore.sharedPasswords(from: Data(contentsOf: targetFile))
+        precondition(fileAfterEdit.first { $0.username == "two" }?.password == linked.password)
+        try FileManager.default.removeItem(at: targetFile)
+        let afterSourceRemoval = try BrowserCredentialStore.passwordsForBackup(from: targetVault, sharedVaultURL: targetFile)
+        precondition(afterSourceRemoval.isEmpty, "cached shared passwords must not resurrect deleted file entries")
+        try JSONSerialization.data(withJSONObject: sharedRows).write(to: shared)
         live.refreshSharedVault()
         precondition(live.entries[0].id == sharedID)
         let emptyRows: [String: Any] = ["metadata": ["version": 1], "nested": ["example.com": []]]

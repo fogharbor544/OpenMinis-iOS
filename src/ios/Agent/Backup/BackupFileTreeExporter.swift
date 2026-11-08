@@ -125,7 +125,8 @@ struct BackupFileTreeExporter {
     func export(root: URL,
                 logicalPrefix: String,
                 category: BackupCategory,
-                sessionId: String? = nil) throws -> Result {
+                sessionId: String? = nil,
+                excludedRelativePaths: Set<String> = []) throws -> Result {
         var result = Result()
         let fm = FileManager.default
 
@@ -151,6 +152,8 @@ struct BackupFileTreeExporter {
         // file is copied and indexed atomically, so an abort leaves the
         // already-written entries consistent and simply omits the rest.
         var scanned = 0
+        let rootPath = root.standardizedFileURL.path
+        let resolvedRootPath = root.resolvingSymlinksInPath().path
 
         for case let url as URL in enumerator {
             // Checked every 32 entries rather than every one: this is a hot
@@ -163,9 +166,20 @@ struct BackupFileTreeExporter {
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
             // Relative path via path-prefix strip: the enumerator yields
             // absolute URLs, and `url.relativePath` is not meaningful here.
-            let rel = url.path.hasPrefix(root.path + "/")
-                ? String(url.path.dropFirst(root.path.count + 1))
-                : url.lastPathComponent
+            let path = url.standardizedFileURL.path
+            let rel: String
+            if path.hasPrefix(rootPath + "/") {
+                rel = String(path.dropFirst(rootPath.count + 1))
+            } else {
+                let resolved = url.resolvingSymlinksInPath().path
+                rel = resolved.hasPrefix(resolvedRootPath + "/")
+                    ? String(resolved.dropFirst(resolvedRootPath.count + 1))
+                    : url.lastPathComponent
+            }
+            if excludedRelativePaths.contains(rel) {
+                if values?.isDirectory == true { enumerator.skipDescendants() }
+                continue
+            }
             let logicalPath = "\(logicalPrefix)/\(rel)"
 
             // Never let a backup package become part of the next backup.

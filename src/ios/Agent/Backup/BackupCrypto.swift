@@ -55,6 +55,29 @@ enum BackupCrypto {
     /// parse it as JSON.
     static let magic = Data([0x4D, 0x42, 0x4B, 0x31])
 
+    // A small sealed member keeps browser passwords out of plaintext staging,
+    // including when the app is stopped before packaging or during restore.
+    enum BrowserMember: String, CaseIterable {
+        case passwords = "browser_passwords.sealed"
+        case cookies = "browser_cookies.sealed"
+    }
+
+    static func sealBrowserPayload(_ data: Data, member: BrowserMember, keys: Keys) throws -> Data {
+        let box = try AES.GCM.seal(data, using: keys.secretsKey,
+                                   authenticating: Data(member.rawValue.utf8))
+        guard let combined = box.combined else { throw CryptoError.corruptMember(member.rawValue) }
+        return combined
+    }
+
+    static func openBrowserPayload(_ data: Data, member: BrowserMember, keys: Keys) throws -> Data {
+        do {
+            return try AES.GCM.open(AES.GCM.SealedBox(combined: data), using: keys.secretsKey,
+                                    authenticating: Data(member.rawValue.utf8))
+        } catch {
+            throw CryptoError.corruptMember(member.rawValue)
+        }
+    }
+
     // MARK: - Key hierarchy (§5.2)
 
     /// The derived key set. Lives only for the duration of an export/import and
@@ -62,7 +85,7 @@ enum BackupCrypto {
     final class Keys {
         /// `data/*` and `blobs/*`.
         let dataKey: SymmetricKey
-        /// `secrets.json` only — the separate subkey is what makes "strip the
+        /// `secrets.json` and sealed browser credentials — the separate subkey makes "strip the
         /// credentials from this package" a file removal rather than a re-encrypt.
         let secretsKey: SymmetricKey
         /// Authenticates manifest.json.

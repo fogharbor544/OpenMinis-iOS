@@ -108,9 +108,13 @@ actor ChatStore {
 
     init(snapshotURL: URL, mediaBaseURL: URL) throws {
         self.dbURL = snapshotURL; self.minisBaseURL = mediaBaseURL
-        guard sqlite3_open_v2(snapshotURL.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+        var connection: OpaquePointer?
+        guard sqlite3_open_v2(snapshotURL.path, &connection, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+            sqlite3_close(connection)
             throw BotWorkspaceError.storage
         }
+        sqlite3_extended_result_codes(connection, 1)
+        db = connection
     }
 
     // MARK: - [T-ios-reboot-config-loss] Protected-data reboot guard

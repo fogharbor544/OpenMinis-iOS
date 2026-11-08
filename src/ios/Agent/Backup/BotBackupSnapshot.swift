@@ -51,6 +51,15 @@ struct BotBackupSnapshot {
         let step = sqlite3_backup_step(backup, -1)
         let finish = sqlite3_backup_finish(backup)
         guard step == SQLITE_DONE && finish == SQLITE_OK else { throw BotWorkspaceError.storage }
+
+        // SQLite copies the WAL mode header as well as the committed pages.
+        // A frozen copy must be readable without creating a WAL or SHM file.
+        var journal: OpaquePointer?
+        defer { sqlite3_finalize(journal) }
+        guard sqlite3_prepare_v2(output, "PRAGMA journal_mode=DELETE", -1, &journal, nil) == SQLITE_OK,
+              sqlite3_step(journal) == SQLITE_ROW,
+              let mode = sqlite3_column_text(journal, 0), String(cString: mode) == "delete",
+              sqlite3_step(journal) == SQLITE_DONE else { throw BotWorkspaceError.storage }
     }
 }
 

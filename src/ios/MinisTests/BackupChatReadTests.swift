@@ -14,10 +14,11 @@ final class BackupChatReadTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ChatStore(baseURL: root)
         let empty = try await store.sessionIdsForBackup()
-        XCTAssertTrue(empty.isEmpty)
+        XCTAssertTrue(empty.ids.isEmpty)
         await store.exec("INSERT INTO sessions(id,model_id,created_at,updated_at,remote_tombstoned_at) VALUES('s','m',1,1,2)")
         let sessions = try await store.sessionIdsForBackup()
-        XCTAssertEqual(sessions, ["s"])
+        XCTAssertEqual(sessions.ids, ["s"])
+        XCTAssertEqual(sessions.unreadable, 0)
         let noMessages = try await store.loadMessagesForBackup(sessionId: "s")
         XCTAssertTrue(noMessages.messages.isEmpty)
         XCTAssertEqual(noMessages.unreadable, 0)
@@ -46,5 +47,27 @@ final class BackupChatReadTests: XCTestCase {
             XCTFail("A failed SQLite query must not be exported as an empty chat list")
         } catch BackupError.chatSnapshotReadFailed(_) {}
         await store.closeDatabase()
+    }
+
+    @MainActor
+    func testFrozenChatBackupCountsUnusableIDsWithoutHidingValidSessions() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let live = ChatStore(baseURL: root)
+        await live.exec("""
+            INSERT INTO sessions(id,model_id,created_at,updated_at) VALUES
+            ('valid','m',1,1), (NULL,'m',2,2), ('','m',3,3),
+            ('valid' || char(0) || 'tail','m',4,4), (CAST(X'FF' AS TEXT),'m',5,5)
+            """)
+        let frozen = root.appendingPathComponent("snapshot.sqlite")
+        try BotBackupSnapshot.copyDatabase(from: root.appendingPathComponent("minis.db"), to: frozen)
+        let reader = try ChatStore(snapshotURL: frozen, mediaBaseURL: root)
+        let sessions = try await reader.sessionIdsForBackup()
+        XCTAssertEqual(sessions.ids, ["valid"])
+        XCTAssertEqual(sessions.unreadable, 4)
+        let session = await reader.getSession("valid")
+        XCTAssertEqual(session?.id, "valid")
+        await reader.closeDatabase()
+        await live.closeDatabase()
     }
 }

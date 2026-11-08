@@ -334,6 +334,9 @@ actor BackupImporter {
 
         progress?(AppLocalized("Reloading stores…"))
         await reloadStores(for: wanted)
+        if wanted.contains(.chats), let count = manifest.categories[BackupCategory.chats.rawValue]?.unreadableSessions, count > 0 {
+            report.warnings.append(String(format: AppLocalized("Chat sessions with missing or invalid IDs left out of this backup: %d."), count))
+        }
         if wanted.contains(.chats), let count = manifest.categories[BackupCategory.chats.rawValue]?.unreadableMessages, count > 0 {
             report.warnings.append(String(format: AppLocalized("Unreadable chat messages left out of this backup: %d."), count))
         }

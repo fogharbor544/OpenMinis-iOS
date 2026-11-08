@@ -264,31 +264,44 @@ extension ChatStore {
         readSessionIDs().ids
     }
 
-    func sessionIdsForBackup() throws -> [String] {
+    func sessionIdsForBackup() throws -> (ids: [String], unreadable: Int) {
         let result = readSessionIDs()
         guard result.status == SQLITE_DONE else {
-            throw BackupError.chatSnapshotReadFailed(AppLocalized("Could not read the session list from the chat backup snapshot."))
+            throw BackupError.chatSnapshotReadFailed(String(
+                format: AppLocalized("Could not read the session list from the chat backup snapshot (SQLite %d)."),
+                result.status))
         }
-        return result.ids
+        return (result.ids, result.unreadable)
     }
 
-    private func readSessionIDs() -> (ids: [String], status: Int32) {
+    private func readSessionIDs() -> (ids: [String], unreadable: Int, status: Int32) {
         let sql = "SELECT id FROM sessions"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         var ids: [String] = []
         let prepare = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-        guard prepare == SQLITE_OK else { return (ids, prepare) }
-        var rowsValid = true
+        guard prepare == SQLITE_OK else { return (ids, 0, prepare) }
+        var unreadable = 0
         var status = sqlite3_step(stmt)
         while status == SQLITE_ROW {
-            if let id = sqlite3_column_text(stmt, 0) {
-                ids.append(String(cString: id))
+            if sqlite3_column_type(stmt, 0) == SQLITE_NULL {
+                // Legacy TEXT PRIMARY KEY tables permit NULL. Such a row
+                // has no stable ID to associate with messages or restore.
+                unreadable += 1
+            } else if let text = sqlite3_column_text(stmt, 0) {
+                // A C-string read would turn "valid\0tail" into "valid",
+                // causing a lookup of a different conversation.
+                let bytes = UnsafeBufferPointer(start: text, count: Int(sqlite3_column_bytes(stmt, 0)))
+                if !bytes.isEmpty, !bytes.contains(0), let id = String(bytes: bytes, encoding: .utf8) {
+                    ids.append(id)
+                } else {
+                    unreadable += 1
+                }
             } else {
-                rowsValid = false
+                return (ids, unreadable, SQLITE_NOMEM)
             }
             status = sqlite3_step(stmt)
         }
-        return (ids, rowsValid ? status : SQLITE_CORRUPT)
+        return (ids, unreadable, status)
     }
 }

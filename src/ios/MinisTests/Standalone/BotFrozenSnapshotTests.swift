@@ -5,9 +5,10 @@ enum BackupFormat { static let current = "minisbak/4" }
 actor ChatStore {
     let db: OpaquePointer?
     var invalidations = 0
-    init(url: URL) {
+    init(url: URL, readOnly: Bool = false) {
         var connection: OpaquePointer?
-        precondition(sqlite3_open(url.path, &connection) == SQLITE_OK)
+        let flags = readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
+        precondition(sqlite3_open_v2(url.path, &connection, flags, nil) == SQLITE_OK)
         db = connection
     }
     deinit { sqlite3_close(db) }
@@ -52,10 +53,15 @@ actor ChatStore {
         try BotMemoryStore.shared.replaceForRestore([])
         let resumedDate = try snapshot.capture(sourceDatabase: liveURL, resuming: true, includesHistory: true)
         precondition(resumedDate == date)
-        let frozen = ChatStore(url: snapshot.databaseURL)
+        let frozen = ChatStore(url: snapshot.databaseURL, readOnly: true)
+        let journalMode = await frozen.value("PRAGMA journal_mode")
+        precondition(journalMode == "delete", "A frozen export must not need WAL sidecar files")
         let count = await frozen.value("SELECT count(*) FROM messages")
         let metadata = await frozen.value("SELECT payload FROM message_presentation WHERE message_id='before'")
         precondition(count == "1" && metadata == "quote-and-group")
+        for suffix in ["-wal", "-shm"] {
+            precondition(!FileManager.default.fileExists(atPath: snapshot.databaseURL.path + suffix))
+        }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let archive = try decoder.decode(BotWorkspaceArchive.self, from: Data(contentsOf: snapshot.archiveURL))
         precondition(archive.workspace.bots.first(where: { $0.id == specialist.id })?.name == "Frozen name")

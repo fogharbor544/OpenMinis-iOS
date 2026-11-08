@@ -174,6 +174,7 @@ actor BackupExporter {
         // silently re-scope to now.
         var options = options
         options.categories = BackupCategory.includingAgentOwners(options.categories)
+        try BackupExportJournal.discardIncompatibleStaging()
         let resumed = options.allowResume ? Self.resumableRun(for: options) : nil
         let backupId: String
         if let resumed {
@@ -335,6 +336,9 @@ actor BackupExporter {
         }
         if let unreadable = stats[BackupCategory.chats.rawValue]?.unreadableMessages, unreadable > 0 {
             say(String(format: AppLocalized("Unreadable chat messages left out of this backup: %d."), unreadable))
+        }
+        if let unreadable = stats[BackupCategory.chats.rawValue]?.unreadableSessions, unreadable > 0 {
+            say(String(format: AppLocalized("Chat sessions with missing or invalid IDs left out of this backup: %d."), unreadable))
         }
         try await run(.agents, AppLocalized("Exporting agents and memory…")) {
             try await exportAgents(dataDir: dataDir, includesHistory: options.categories.contains(.chats), snapshot: graphSnapshot)
@@ -576,7 +580,8 @@ actor BackupExporter {
         -> BackupManifest.CategoryStat {
         // Match the live session list: sync deletes remove the row. A legacy
         // remote_tombstoned_at value does not hide a surviving conversation.
-        let sessionIds = try await store.sessionIdsForBackup()
+        let sessionRead = try await store.sessionIdsForBackup()
+        let sessionIds = sessionRead.ids
         var reporter = BackupProgressReporter(
             noun: AppLocalized("conversations"),
             total: sessionIds.count,
@@ -665,7 +670,8 @@ actor BackupExporter {
             entries: messageCount + fileCount,
             bytes: sessions.totalBytes + messages.totalBytes + markers.totalBytes + fileBytes,
             encrypted: false, messages: messageCount, files: fileCount,
-            unreadableMessages: unreadableMessages > 0 ? unreadableMessages : nil)
+            unreadableMessages: unreadableMessages > 0 ? unreadableMessages : nil,
+            unreadableSessions: sessionRead.unreadable > 0 ? sessionRead.unreadable : nil)
     }
 
     /// Session row + the two extras the sync layer keeps outside `ChatSession`,

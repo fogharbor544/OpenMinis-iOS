@@ -355,6 +355,11 @@ struct BackupSettingsView: View {
             if let result {
                 Section {
                     LabeledContent("Size", value: byteText(result.totalBytes))
+                    if let count = result.categories[BackupCategory.chats.rawValue]?.unreadableSessions, count > 0 {
+                        Label(String(format: AppLocalized("Chat sessions with missing or invalid IDs left out of this backup: %d."), count),
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
                     if let count = result.categories[BackupCategory.chats.rawValue]?.unreadableMessages, count > 0 {
                         Label(String(format: AppLocalized("Unreadable chat messages left out of this backup: %d."), count),
                               systemImage: "exclamationmark.triangle")

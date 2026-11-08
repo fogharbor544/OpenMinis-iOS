@@ -247,7 +247,7 @@ final class BackupFormatCompatibilityTests: XCTestCase {
             deviceName: "Test Device",
             backupId: "ID-1",
             categories: ["chats": .init(entries: 5, bytes: 512, encrypted: true,
-                                        messages: 3, files: 2, unreadableMessages: 1),
+                                        messages: 3, files: 2, unreadableMessages: 1, unreadableSessions: 2),
                          "providers": .init(entries: 1, bytes: 64, encrypted: true,
                                             includesCredentials: false)],
             limits: .init(maxFileBytes: 4096, skippedFiles: 2, skippedBytes: 9000),
@@ -273,7 +273,9 @@ final class BackupFormatCompatibilityTests: XCTestCase {
         XCTAssertEqual(back.categories["chats"]?.messages, 3)
         XCTAssertEqual(back.categories["chats"]?.files, 2)
         XCTAssertEqual(back.categories["chats"]?.unreadableMessages, 1)
+        XCTAssertEqual(back.categories["chats"]?.unreadableSessions, 2)
         XCTAssertNil(back.categories["providers"]?.unreadableMessages)
+        XCTAssertNil(back.categories["providers"]?.unreadableSessions)
         XCTAssertEqual(back.categories["providers"]?.includesCredentials, false)
         XCTAssertEqual(back.integrity["data/sessions.jsonl"], "abc")
     }

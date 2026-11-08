@@ -218,6 +218,8 @@ struct BackupManifest: Codable {
         var files: Int?
         /// Chats only: source rows that could be read but could not be decoded.
         var unreadableMessages: Int?
+        /// Chats only: source session rows without a usable stable ID.
+        var unreadableSessions: Int?
         /// Providers only: user-authored thinking rules travelling in the same
         /// category, counted SEPARATELY rather than folded into `entries`.
         ///
@@ -235,6 +237,7 @@ struct BackupManifest: Codable {
         enum CodingKeys: String, CodingKey {
             case entries, bytes, encrypted, messages, files
             case unreadableMessages = "unreadable_messages"
+            case unreadableSessions = "unreadable_sessions"
             case thinkingRules = "thinking_rules"
             case includesCredentials = "includes_credentials"
         }
@@ -247,19 +250,21 @@ struct BackupManifest: Codable {
             messages = try c.decodeIfPresent(Int.self, forKey: .messages)
             files = try c.decodeIfPresent(Int.self, forKey: .files)
             unreadableMessages = try c.decodeIfPresent(Int.self, forKey: .unreadableMessages)
+            unreadableSessions = try c.decodeIfPresent(Int.self, forKey: .unreadableSessions)
             thinkingRules = try c.decodeIfPresent(Int.self, forKey: .thinkingRules)
             includesCredentials = try c.decodeIfPresent(Bool.self, forKey: .includesCredentials)
         }
 
         init(entries: Int, bytes: Int64, encrypted: Bool,
              messages: Int? = nil, files: Int? = nil, thinkingRules: Int? = nil,
-             includesCredentials: Bool? = nil, unreadableMessages: Int? = nil) {
+             includesCredentials: Bool? = nil, unreadableMessages: Int? = nil, unreadableSessions: Int? = nil) {
             self.entries = entries
             self.bytes = bytes
             self.encrypted = encrypted
             self.messages = messages
             self.files = files
             self.unreadableMessages = unreadableMessages
+            self.unreadableSessions = unreadableSessions
             self.thinkingRules = thinkingRules
             self.includesCredentials = includesCredentials
         }

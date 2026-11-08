@@ -40,6 +40,8 @@ directly on this repository's `main`.
 | **Sync, backup & restore** | Optional iCloud sync, plus local `.minisbak` snapshots in `Minis ▸ Backups`. Select Chats for local Bot history; sessions with missing or invalid IDs and unreadable messages are reported separately. Browser Bookmarks are selectable, and Browser Passwords (including the shared vault) and Browser Cookies are separate opt-in categories requiring encryption. Partitioned cookies are skipped. Shared Folders exposes local packages for restore, share and deletion. |
 | **Native offloads** | Heavy or platform-specific work is handed to native code instead of the sandbox. |
 
+Chat keeps consecutive tool cards evenly spaced when the model emits only whitespace between them.
+
 The bundled in-app guide is the authoritative user-facing feature reference:
 [`src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md`](src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md).
 Implementation scope and verification limits are recorded in

@@ -277,6 +277,7 @@ extension CollectionViewMessageListV3.Coordinator {
                       let block = msg.blocks.first(where: { $0.id == blockId }) else { return 44 }
                 switch block.kind {
                 case .text:
+                    guard block.hasVisibleText else { return 0 }
                     if let attrStr = block.cachedAttributedString {
                         let textWidth = max(AssistantReplyLayout.availableWidth(width) - 32, 100)
                         // [T-ios-longreply-boundingRect-watchdog] CTFramesetter instead
@@ -362,9 +363,6 @@ extension CollectionViewMessageListV3.Coordinator {
         }
 
         static func estimateTextBlockHeight(_ content: String, width: CGFloat, scale: CGFloat, lineHeight: CGFloat) -> CGFloat {
-            // [T-ios-empty-textblock-gap] An empty text block renders nothing
-            // (EmptyView).
-            guard !content.isEmpty else { return 0 }
             // [T-scroll-estimate-fidelity] Follow the renderer's own layout
             // (base 16.5 × the user's message scale, text width = available
             // assistant width − 32 for the block's own horizontal padding,

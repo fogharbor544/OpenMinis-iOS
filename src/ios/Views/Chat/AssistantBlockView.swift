@@ -28,7 +28,7 @@ struct AssistantBlockView: View {
     var body: some View {
         switch block.kind {
         case .text:
-            if !block.content.isEmpty {
+            if block.hasVisibleText {
                 textBlockView
                     .padding(.vertical, 2)
                     .background(

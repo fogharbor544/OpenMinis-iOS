@@ -797,6 +797,12 @@ extension CollectionViewMessageListV3.Coordinator {
 
                         switch block.kind {
                         case .text:
+                            // Match AssistantBlockView before using cached Markdown
+                            // metrics: even an empty attributed string has insets.
+                            guard block.hasVisibleText else {
+                                layout.setEstimatedHeight(0, at: i)
+                                continue
+                            }
                             // Use TextKit layout for accurate height pre-calculation.
                             // [T-ios-listsessions-perf] Cached by CONTENT (see
                             // HeightCacheKey) rather than by the attributed
@@ -864,16 +870,6 @@ extension CollectionViewMessageListV3.Coordinator {
                                         tag: Self.stableCellTag(for: item, messages: messages, messageIndex: messageIndex))
                                 }
                                 #endif
-                            } else if block.content.isEmpty {
-                                // [T-ios-empty-textblock-gap] A content-less text
-                                // block renders EmptyView (AssistantBlockView gates
-                                // on !content.isEmpty), so it must occupy 0pt — the
-                                // heuristic's one-line floor made it a phantom
-                                // blank row above the next tool capsule while
-                                // streaming defers the corrective measure. When
-                                // content arrives, blockContentFilledSignal
-                                // invalidates the height and reconfigures the cell.
-                                layout.setEstimatedHeight(0, at: i)
                             } else {
                                 // Streaming text — no cachedAttributedString yet,
                                 // so use the char-count heuristic.

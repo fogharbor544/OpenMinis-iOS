@@ -502,6 +502,9 @@ final class AssistantBlock: Identifiable, ObservableObject {
     @Published var kind: AssistantBlockKind
     @Published var content: String
 
+    /// Whitespace-only text is a streaming placeholder, not a visible chat row.
+    var hasVisibleText: Bool { content.contains { !$0.isWhitespace } }
+
     // MARK: Thinking block performance (T-thinking-render-perf-ios)
 
     /// O(1) change counter — incremented on every thinking delta. Deliberately

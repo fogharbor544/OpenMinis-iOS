@@ -263,7 +263,7 @@ extension AIChatViewModel {
         parsedMarkdown: MarkdownContent?,
         cacheAttributedString shouldCacheAttributedString: Bool
     ) {
-        let wasEmpty = block.content.isEmpty
+        let wasBlank = !block.hasVisibleText
         block.content = text
         if let parsedMarkdown {
             block.cachedMarkdown = parsedMarkdown
@@ -273,12 +273,12 @@ extension AIChatViewModel {
         if shouldCacheAttributedString {
             cacheAttributedString(for: block)
         }
-        // When content transitions from empty to non-empty, signal the collection
+        // When the first visible text arrives, signal the collection
         // view to reconfigure the cell. UIHostingConfiguration doesn't always
         // trigger preferredLayoutAttributesFitting when the SwiftUI body changes
         // from emitting nothing (EmptyView) to emitting content — the cell can
         // stay at ~0 height indefinitely without this explicit nudge.
-        if wasEmpty && !text.isEmpty,
+        if wasBlank && block.hasVisibleText,
            let message = messages.first(where: { $0.blocks.contains(where: { $0.id == block.id }) }) {
             let prefix = String(text.prefix(30))
             let blockIdx = message.blocks.firstIndex(where: { $0.id == block.id }) ?? -1

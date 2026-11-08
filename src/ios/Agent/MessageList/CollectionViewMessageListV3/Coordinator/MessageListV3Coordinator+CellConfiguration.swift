@@ -282,7 +282,7 @@ extension CollectionViewMessageListV3.Coordinator {
                           let i = messageIndex[mid], i < messages.count,
                           let block = messages[i].blocks.first(where: { $0.id == bid }),
                           block.kind == .text else { return false }
-                    return !block.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    return block.hasVisibleText
                 }()
 
                 // [T-ios-memo-key-ignores-render-state] Look the memo up under
@@ -363,7 +363,8 @@ extension CollectionViewMessageListV3.Coordinator {
                   let msgIdx = messageIndex[msgId], msgIdx < messages.count,
                   let block = messages[msgIdx].blocks.first(where: { $0.id == blockId }),
                   case .text = block.kind,
-                  block.content.count >= Self.firstSeedMinChars else { return nil }
+                  block.content.count >= Self.firstSeedMinChars,
+                  block.hasVisibleText else { return nil }
             var textWidth = AssistantReplyLayout.availableWidth(collectionWidth) - 32
             if maxWidth > 0 { textWidth = min(textWidth, maxWidth) }
             #if DEBUG

@@ -76,8 +76,8 @@ check("seeded only when there is no measured height and the block is not streami
       list.contains("if let memo {\n                    cell.seedMeasuredHeight(memo, width: cvW)\n                } else if !isStreamingCell,\n                          let seed = firstDisplaySeed("))
 check("the seed is memoized like a measure",
       list.contains("cell.seedMeasuredHeight(seed, width: cvW)\n                    layout.recordMeasuredHeight(forKey: memoKey, height: seed, boundsWidth: cvW)"))
-check("assistant text blocks only, above the size where it pays",
-      list.contains("case .text = block.kind,\n                  block.content.count >= Self.firstSeedMinChars else { return nil }")
+check("only visible assistant text can seed a nonzero height, even when Markdown preserves whitespace",
+      list.contains("case .text = block.kind,\n                  block.content.count >= Self.firstSeedMinChars,\n                  block.hasVisibleText else { return nil }")
       && list.contains("private static let firstSeedMinChars = 200"))
 check("text column excludes the assistant trailing gutter and 32pt padding before its cap",
       list.contains("var textWidth = AssistantReplyLayout.availableWidth(collectionWidth) - 32\n            if maxWidth > 0 { textWidth = min(textWidth, maxWidth) }"))

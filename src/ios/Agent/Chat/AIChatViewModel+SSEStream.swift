@@ -586,7 +586,7 @@ extension AIChatViewModel {
                             guard msgIdx < messages.count, textIdx < messages[msgIdx].blocks.count else { return }
                             // Write content directly, bypassing suspend check
                             let block = messages[msgIdx].blocks[textIdx]
-                            let wasEmpty = block.content.isEmpty
+                            let wasBlank = !block.hasVisibleText
                             block.content = assistantText
                             block.cachedMarkdown = parsed
                             cacheAttributedString(for: block)
@@ -598,7 +598,7 @@ extension AIChatViewModel {
                             // `transitionSuspended`: that one exists solely to
                             // keep publishes out of a hosting-subgraph teardown.
                             publishUnlessTransitioning()
-                            if wasEmpty {
+                            if wasBlank && block.hasVisibleText {
                                 blockContentFilledSignal.send((
                                     messageId: messages[msgIdx].id,
                                     blockId: block.id

@@ -665,3 +665,9 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Consequence: this case now runs only through `./scripts/ios-unit-tests.sh` on macOS, not in CI.
 - Run 42434806643 (`full_build=true`) passed source-checks, ui-layout and device-build; verified package `build/ipa/OpenMinis-5cac0f2-unsigned.ipa`, 123,272,814 bytes, sha256 `93d12bae0372e040038ba5e409c166ecbd4ceab22114658b2b3414113b311139`, arm64, `com.fogharbor544.minis` 1.15 (1), unsigned.
 - NOT RUN: the migrated XCTest itself, plus any install on simulator or device; this host has no `swiftc` or `xcodebuild`.
+
+## 2026-11-08 backup session-ID tolerance, staging cleanup and rebuild
+- Commits `29d002c`, `08e8277` and `cf6c82d` land stale-staging cleanup, unusable session-ID reporting and frozen-snapshot sidecar removal; pushed to `origin/main` with the build-2 account `fogharbor544`.
+- First full run 42453279214 failed the frozen-graph fixture because macOS left a `-wal`/`-shm` file beside the copied database. The copy now closes the output connection explicitly and removes those sidecars after `PRAGMA journal_mode=DELETE`; source-checks passed on the retry.
+- Run 42454296971 (`full_build=true`, commit `cf6c82d`) passed source-checks, ui-layout and device-build. Verified `build/ipa/OpenMinis-cf6c82d-unsigned.ipa`, 123,283,400 bytes, sha256 `88ae5e8366e66de90fa3b18402dceed4a5873b7e87cbfd01adb06e326019b88e`, arm64, `com.fogharbor544.minis` 1.15 (1), unsigned, ZIP test passed.
+- NOT RUN: installation/re-signing and physical-device backup/restore acceptance. The Windows host has no `swiftc` or `xcodebuild`; cloud compilation and the recorded native fixtures are the available verification.

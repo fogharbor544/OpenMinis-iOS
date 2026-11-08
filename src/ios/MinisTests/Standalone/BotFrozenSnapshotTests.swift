@@ -60,7 +60,8 @@ actor ChatStore {
         let metadata = await frozen.value("SELECT payload FROM message_presentation WHERE message_id='before'")
         precondition(count == "1" && metadata == "quote-and-group")
         for suffix in ["-wal", "-shm"] {
-            precondition(!FileManager.default.fileExists(atPath: snapshot.databaseURL.path + suffix))
+            precondition(!FileManager.default.fileExists(atPath: snapshot.databaseURL.path + suffix),
+                         "Frozen export left \(suffix) beside the database")
         }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let archive = try decoder.decode(BotWorkspaceArchive.self, from: Data(contentsOf: snapshot.archiveURL))

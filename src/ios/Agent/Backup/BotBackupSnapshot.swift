@@ -60,6 +60,15 @@ struct BotBackupSnapshot {
               sqlite3_step(journal) == SQLITE_ROW,
               let mode = sqlite3_column_text(journal, 0), String(cString: mode) == "delete",
               sqlite3_step(journal) == SQLITE_DONE else { throw BotWorkspaceError.storage }
+        sqlite3_finalize(journal)
+        journal = nil
+        let closed = sqlite3_close(output)
+        output = nil
+        guard closed == SQLITE_OK else { throw BotWorkspaceError.storage }
+        // Some SQLite builds leave empty sidecars behind after the mode switch.
+        for suffix in ["-wal", "-shm"] {
+            try? FileManager.default.removeItem(atPath: target.path + suffix)
+        }
     }
 }
 

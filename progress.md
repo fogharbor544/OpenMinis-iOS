@@ -671,3 +671,8 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - First full run 42453279214 failed the frozen-graph fixture because macOS left a `-wal`/`-shm` file beside the copied database. The copy now closes the output connection explicitly and removes those sidecars after `PRAGMA journal_mode=DELETE`; source-checks passed on the retry.
 - Run 42454296971 (`full_build=true`, commit `cf6c82d`) passed source-checks, ui-layout and device-build. Verified `build/ipa/OpenMinis-cf6c82d-unsigned.ipa`, 123,283,400 bytes, sha256 `88ae5e8366e66de90fa3b18402dceed4a5873b7e87cbfd01adb06e326019b88e`, arm64, `com.fogharbor544.minis` 1.15 (1), unsigned, ZIP test passed.
 - NOT RUN: installation/re-signing and physical-device backup/restore acceptance. The Windows host has no `swiftc` or `xcodebuild`; cloud compilation and the recorded native fixtures are the available verification.
+
+## 2026-11-08 whitespace-only assistant placeholders packaged
+- Commit `ebcc011` treats whitespace-only assistant text as an invisible placeholder in rendering, height estimation, first-display seeding and content-filled signaling; README and the bundled guide record the spacing behavior.
+- Run 42478279865 (`full_build=true`, commit `ebcc011`) passed source-checks, ui-layout and device-build. Verified `build/ipa/OpenMinis-ebcc011-unsigned.ipa`, 123,290,927 bytes, sha256 `e8c79ab8cb48a3785d601a670b9ed3cf0067fdd6dfa7fd54279a485e7cf6e9c0`, arm64, `com.fogharbor544.minis` 1.15 (1), unsigned, ZIP test passed.
+- NOT RUN: real-device streaming and tool-card spacing acceptance. Cloud compilation and the recorded native fixtures are the available verification on this Windows host.

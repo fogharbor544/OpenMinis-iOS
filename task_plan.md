@@ -593,3 +593,20 @@ Do not use the quota-blocked private remote for this task.
 - [x] 核验 Apple 平台公开能力，并补证 idevice + StikDebug 同机开发者连接路径。
 - [x] 输出 docs/ios-poki-automation-feasibility-2026-11-07.md：同机候选架构、最小 PoC、失败停止条件、外部中转边界与验证限制。
 - 结论：可投入实验性同机 PoC；不能宣称已接入或可普通安装后通用控制。设备/版本/安装方式问题为可选补充，不阻塞本轮调研交付。
+
+## 2026-11-07 documentation sync for recent commits
+- [x] Inspect recent commits, decision records and current dirty worktree; preserve unrelated user changes.
+- [x] Update `AGENTS.md`, `README.md`, bundled guide and its `SKILL.md` directory for scoped memory, secure input, backup folder and assistant layout.
+- [x] 2026-11-07: reverted the isolation-guard port (POSIX allowlist keys, allowlist refresh, CI-first step); the three code files are byte-identical to `HEAD` and the docs describe the original Windows separator behavior again.
+- [x] Run targeted documentation/source checks and report exact native-validation limits.
+
+## 2026-11-07 re-sync documentation to current checkout
+- [x] Compare disk contents, `HEAD` and remote `main`; identify which previous documentation edits survived.
+- [x] Re-apply current `AGENTS.md` facts and README validation wording without reintroducing the reverted isolation-guard claims.
+- [x] Refresh the bundled guide's review date and backup-folder quick path; align `SKILL.md` triggers and version with `docs/ios-user-manual.md`.
+- [x] Run fresh targeted checks against the updated documentation and current source.
+
+## 2026-11-08 Poki feasibility record retained
+- [x] The 2026-11-07 draft here replaced the Poki entries with documentation-sync entries. That replacement is undone and both records now coexist: this file appends instead of rewriting, and `docs/ios-poki-automation-feasibility-2026-11-07.md` is back at its committed content.
+- [x] Evidence: `git diff HEAD -- docs/ios-poki-automation-feasibility-2026-11-07.md` is empty and the three planning files show added sections only.
+- 状态：Poki 同机自动化仍为调研结论，本 fork 未引入其实现、依赖或构建输入；后续变更继续追加，不覆盖本条。

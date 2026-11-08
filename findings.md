@@ -488,3 +488,18 @@ User explicitly requests combined document memory reading/editing, and direct ta
 - Added docs/ios-poki-automation-feasibility-2026-11-07.md with pinned source links, capability map, current-fork integration boundaries and A-F hardware acceptance gates.
 - Recommended candidate: native Swift/C ABI/Rust static library + idevice + AX/DVT/CoreDevice HID through an authorized same-device developer tunnel. StikDebug establishes the connection half; Poki establishes host-driven automation half. Their combined same-phone background loop remains unverified.
 - No app implementation or tests executed; existing user code changes preserved. Report distinguishes on-device experimental automation, host-assisted control of the phone and limited public intent workflows.
+
+## 2026-11-07 documentation sync findings
+- The bundled manual already describes three scoped memory tabs, the inline secure-input card, assistant reply spacing and local backup; its `SKILL.md` directory omitted the new memory terminology and secure input.
+- Shared Folders uses the localized label 备份文件夹, while the manual still called the entry `Backup Folder`; corrected the label and added refresh/exclusion behavior from `docs/ios-backup-folder-entry.md`.
+- `scripts/ios-unit-tests/static_check.py` keys allowlist rows with OS-native separators, so a Windows run reports noise (68 unexplained, 59 stale) and `.github/workflows/ios-validation.yml` does not run the guard. The port attempted earlier on 2026-11-07 (POSIX keys, allowlist refresh, CI-first step) was reverted at the user's request, so `AGENTS.md` and `README.md` keep their original wording.
+- `SKILL.md` also adds a secure-input trigger example and updates its directory, so the frontmatter `version` moves from `1.0.1` to `1.0.2`; otherwise existing installations would not replace their bundled entry file.
+
+### Re-sync findings
+- The bundled guide's "最后核对" date was still 2026-11-05 despite 2026-11-07 memory, secure-input and backup changes; updated it and added the localized backup-folder path to the settings quick-reference table.
+- `docs/ios-user-manual.md` requires a version bump for `SKILL.md` metadata or trigger-rule changes; the working `SKILL.md` has trigger/directory changes and `version: 1.0.2`, so that version is retained.
+- `AGENTS.md` is ignored by Git. Its disk copy must still be checked directly; `git status` alone cannot prove it was updated.
+
+## 2026-11-08 Poki record disposition
+- The Poki findings above stay as the pinned research record. The documentation-sync findings were appended as separate sections rather than replacing them.
+- Poki same-device automation remains research-only: this fork has no Poki source, dependency or build input, so `cd59568` describes a candidate path, not current behavior.

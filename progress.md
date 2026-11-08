@@ -638,3 +638,30 @@ c64ad9d / run41280955705 attempt2: all3 jobs SUCCESS. Failed job-only retry reso
 - Created docs/ios-poki-automation-feasibility-2026-11-07.md. PASS: UTF-8/whitespace/fenced-block validation, all 8 relative source references exist, scoped git diff --check.
 - NOT RUN: Poki/Linux suites, Rust iOS build, Swift/Xcode build, actual pairing/VPN/AX/HID/screenshot/background device checks; cargo/rustc/swiftc/xcodebuild not found on this Windows host.
 - Exa GNU license-page fetch unavailable; used repository license text and avoided a definitive legal conclusion. Optional device/setup questions remain pending. No branch/commit/push or application source edits.
+
+## 2026-11-07 documentation sync started
+- Read new project rules, recent commits, decision records and four documentation targets; initial dirty worktree contains unrelated changes, preserved.
+- Applied focused updates to `AGENTS.md`, `README.md`, the bundled guide and the guide `SKILL.md` directory. No application source, localization catalog, commit or push changes.
+- Corrected the `SKILL.md` frontmatter version from `1.0.1` to `1.0.2` after noticing that trigger examples also changed; a reference-only edit would not need a bump.
+- PASS: current Bot contracts, 7 settings contracts, per-entry memory editor layout, 55 secure-input JS assertions and 14 source contracts, 16 browser takeover tests; document links/anchors and `git diff --check` passed.
+- One documentation-check command initially failed on an empty parent path for root Markdown files; corrected the path join and reran the complete check successfully. No document was changed by that failure.
+- NOT RUN: Swift runtime fixtures, iOS SDK type-check, Xcode build, simulator/device UI and macOS CI; these tools are unavailable on this Windows host. No commit or push.
+
+## 2026-11-07 isolation guard port reverted
+- Reverted `scripts/ios-unit-tests/static_check.py`, `static-check-allowlist.tsv` and `.github/workflows/ios-validation.yml` at the user's request; all three are byte-identical to `HEAD` (`git hash-object` matches `HEAD:` for each).
+- Restored the pre-change wording in `AGENTS.md` (build step 4 and the data-isolation bullet) and `README.md` (validation workflow paragraph), so the docs again describe the original behavior: the guard keys allowlist rows with OS-native separators and CI does not run it.
+- Evidence: `python scripts/ios-unit-tests/static_check.py` exits 1 with `68 hits, 0 allowlisted, 68 unexplained, 59 stale allowlist entries` on this Windows host. `git diff --check` passed. No commit or push.
+
+## 2026-11-07 documentation re-sync
+- Re-read the current dirty worktree, `HEAD` and remote `main`; preserved the reverted guard files and the Poki feasibility record.
+- Re-applied the missing `AGENTS.md` current-state rules and README validation paragraph, refreshed the bundled manual's review date and backup quick path, and kept `SKILL.md` at `1.0.2` because its trigger rules changed.
+- PASS: current Bot contracts, 7 settings contracts, per-entry memory editor layout, 55 secure-input JS assertions and 14 source contracts, 16 browser takeover tests; document links/anchors, content tokens and `git diff --check`.
+- Fresh guard evidence matches the reverted state: `python scripts/ios-unit-tests/static_check.py` exits 1 with `68 hits, 0 allowlisted, 68 unexplained, 59 stale allowlist entries` on Windows; no CI isolation step is present.
+- Two documentation-content assertions initially used strings from the wrong target file; corrected the expected wording and reran successfully without changing documents.
+- NOT RUN: Swift runtime fixtures, iOS SDK type-check, Xcode build, simulator/device UI and macOS CI; these tools are unavailable on this Windows host. No commit or push.
+
+## 2026-11-08 backup read test split and unsigned package
+- `run_review_followup_tests.py` compiles `BackupFormatCompatibilityTests.swift` against `BackupFormat.swift` alone, so the ChatStore-backed read case failed CI step 22 (`cannot find 'ChatStore' in scope`). Moved it verbatim into `src/ios/MinisTests/BackupChatReadTests.swift`; the format file keeps 13 methods against the runner's `>= 12` assertion, and the `MinisTests` synchronized root group picks up the new file without a project edit.
+- Consequence: this case now runs only through `./scripts/ios-unit-tests.sh` on macOS, not in CI.
+- Run 42434806643 (`full_build=true`) passed source-checks, ui-layout and device-build; verified package `build/ipa/OpenMinis-5cac0f2-unsigned.ipa`, 123,272,814 bytes, sha256 `93d12bae0372e040038ba5e409c166ecbd4ceab22114658b2b3414113b311139`, arm64, `com.fogharbor544.minis` 1.15 (1), unsigned.
+- NOT RUN: the migrated XCTest itself, plus any install on simulator or device; this host has no `swiftc` or `xcodebuild`.

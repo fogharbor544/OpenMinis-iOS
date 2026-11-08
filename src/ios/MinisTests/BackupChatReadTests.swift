@@ -2,14 +2,14 @@ import XCTest
 @testable import Minis
 
 /// The backup chat reader must tell "this device really has no chats" apart
-/// from "the query or a row failed", because an incomplete package otherwise
-/// restores as a silent data loss. These cases drive the shipping ChatStore,
+/// from a failed query, and report bad rows without losing readable history.
+/// These cases drive the shipping ChatStore,
 /// so they live with the app test target rather than the format-only CI
 /// harness, which compiles BackupFormat.swift alone.
 final class BackupChatReadTests: XCTestCase {
 
     @MainActor
-    func testChatBackupReadsEmptyHistoryButRejectsIncompleteHistory() async throws {
+    func testChatBackupKeepsReadableMessagesAndReportsUnreadableRows() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ChatStore(baseURL: root)
@@ -19,22 +19,32 @@ final class BackupChatReadTests: XCTestCase {
         let sessions = try await store.sessionIdsForBackup()
         XCTAssertEqual(sessions, ["s"])
         let noMessages = try await store.loadMessagesForBackup(sessionId: "s")
-        XCTAssertTrue(noMessages.isEmpty)
+        XCTAssertTrue(noMessages.messages.isEmpty)
+        XCTAssertEqual(noMessages.unreadable, 0)
 
-        await store.exec("INSERT INTO messages(id,session_id,role,parts_json,created_at,sort_order) VALUES('ok','s','user','[]',1,0)")
+        await store.exec("""
+            INSERT INTO messages(id,session_id,role,parts_json,created_at,sort_order) VALUES
+            ('before','s','user','[{"type":"text","value":"First"}]',1,0),
+            ('malformed','s','user','{',2,1),
+            ('unknown-part','s','assistant','[{"type":"future","value":{}}]',3,2),
+            ('after','s','assistant','[{"type":"text","value":"Last"}]',4,3)
+            """)
         let messages = try await store.loadMessagesForBackup(sessionId: "s")
-        XCTAssertEqual(messages.map(\.id), ["ok"])
-        await store.exec("INSERT INTO messages(id,session_id,role,parts_json,created_at,sort_order) VALUES('bad','s','user','{',2,1)")
+        XCTAssertEqual(messages.messages.map(\.id), ["before", "after"])
+        XCTAssertEqual(messages.messages.last?.parts, [.text("Last")])
+        XCTAssertEqual(messages.unreadable, 2)
+
+        await store.exec("ALTER TABLE messages RENAME TO unavailable_messages")
         do {
             _ = try await store.loadMessagesForBackup(sessionId: "s")
-            XCTFail("A malformed message must not be exported as a partial conversation")
-        } catch BackupError.stagingFailed(_) {}
+            XCTFail("A failed SQLite query must not be exported as an empty chat")
+        } catch BackupError.chatSnapshotReadFailed(_) {}
 
         await store.exec("ALTER TABLE sessions RENAME TO unavailable_sessions")
         do {
             _ = try await store.sessionIdsForBackup()
             XCTFail("A failed SQLite query must not be exported as an empty chat list")
-        } catch BackupError.stagingFailed(_) {}
+        } catch BackupError.chatSnapshotReadFailed(_) {}
         await store.closeDatabase()
     }
 }

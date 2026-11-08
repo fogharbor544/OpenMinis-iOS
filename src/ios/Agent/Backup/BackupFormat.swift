@@ -216,6 +216,8 @@ struct BackupManifest: Codable {
         /// "342 messages + 1204 files" (§2.1).
         var messages: Int?
         var files: Int?
+        /// Chats only: source rows that could be read but could not be decoded.
+        var unreadableMessages: Int?
         /// Providers only: user-authored thinking rules travelling in the same
         /// category, counted SEPARATELY rather than folded into `entries`.
         ///
@@ -232,6 +234,7 @@ struct BackupManifest: Codable {
 
         enum CodingKeys: String, CodingKey {
             case entries, bytes, encrypted, messages, files
+            case unreadableMessages = "unreadable_messages"
             case thinkingRules = "thinking_rules"
             case includesCredentials = "includes_credentials"
         }
@@ -243,18 +246,20 @@ struct BackupManifest: Codable {
             encrypted = try c.decodeIfPresent(Bool.self, forKey: .encrypted) ?? false
             messages = try c.decodeIfPresent(Int.self, forKey: .messages)
             files = try c.decodeIfPresent(Int.self, forKey: .files)
+            unreadableMessages = try c.decodeIfPresent(Int.self, forKey: .unreadableMessages)
             thinkingRules = try c.decodeIfPresent(Int.self, forKey: .thinkingRules)
             includesCredentials = try c.decodeIfPresent(Bool.self, forKey: .includesCredentials)
         }
 
         init(entries: Int, bytes: Int64, encrypted: Bool,
              messages: Int? = nil, files: Int? = nil, thinkingRules: Int? = nil,
-             includesCredentials: Bool? = nil) {
+             includesCredentials: Bool? = nil, unreadableMessages: Int? = nil) {
             self.entries = entries
             self.bytes = bytes
             self.encrypted = encrypted
             self.messages = messages
             self.files = files
+            self.unreadableMessages = unreadableMessages
             self.thinkingRules = thinkingRules
             self.includesCredentials = includesCredentials
         }
@@ -450,6 +455,7 @@ struct BackupThinkingRuleRecord: Codable {
 
 enum BackupError: LocalizedError {
     case stagingFailed(String)
+    case chatSnapshotReadFailed(String)
     case writeFailed(String, underlying: Error?)
     case archiveFailed(Error?)
     case cancelled
@@ -457,6 +463,7 @@ enum BackupError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .stagingFailed(let m): return "Backup staging failed: \(m)"
+        case .chatSnapshotReadFailed(let message): return message
         case .writeFailed(let m, let e):
             return "Backup write failed: \(m)" + (e.map { " (\($0.localizedDescription))" } ?? "")
         case .archiveFailed(let e):

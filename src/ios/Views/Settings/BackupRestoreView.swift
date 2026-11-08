@@ -413,6 +413,11 @@ struct BackupRestoreView: View {
                                 Text(detailText(category, stat))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                if category == .chats, let count = stat.unreadableMessages, count > 0 {
+                                    Text(String(format: AppLocalized("Unreadable chat messages left out of this backup: %d."), count))
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                }
                             }
                         }
                     }

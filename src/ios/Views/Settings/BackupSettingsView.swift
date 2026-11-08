@@ -355,6 +355,11 @@ struct BackupSettingsView: View {
             if let result {
                 Section {
                     LabeledContent("Size", value: byteText(result.totalBytes))
+                    if let count = result.categories[BackupCategory.chats.rawValue]?.unreadableMessages, count > 0 {
+                        Label(String(format: AppLocalized("Unreadable chat messages left out of this backup: %d."), count),
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
                     if result.skippedFiles > 0 {
                         // §3.4: a size-capped export has gaps, and the user is
                         // told here rather than discovering it at restore time.

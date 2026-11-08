@@ -97039,6 +97039,121 @@
         }
       }
     },
+    "Could not read a saved session from the chat backup snapshot." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read a saved session from the chat backup snapshot."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法从聊天备份快照读取一个已保存的会话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法從聊天備份快照讀取一筆已儲存的對話。"
+          }
+        }
+      }
+    },
+    "Could not read message rows from the chat backup snapshot." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read message rows from the chat backup snapshot."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法从聊天备份快照完整读取消息数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法從聊天備份快照完整讀取訊息資料。"
+          }
+        }
+      }
+    },
+    "Could not read the session list from the chat backup snapshot." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read the session list from the chat backup snapshot."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法从聊天备份快照读取会话列表。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法從聊天備份快照讀取對話列表。"
+          }
+        }
+      }
+    },
+    "Reading the chat backup snapshot…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading the chat backup snapshot…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取聊天备份快照…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在讀取聊天備份快照…"
+          }
+        }
+      }
+    },
+    "Unreadable chat messages left out of this backup: %d." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unreadable chat messages left out of this backup: %d."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 %d 条聊天消息无法读取，未包含在此备份中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 %d 則聊天訊息無法讀取，未包含在此備份中。"
+          }
+        }
+      }
+    },
     "Browser Settings" : {
       "localizations" : {
         "de" : {

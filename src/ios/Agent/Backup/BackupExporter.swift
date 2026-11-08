@@ -318,6 +318,7 @@ actor BackupExporter {
         }
 
         try await run(.chats, AppLocalized("Exporting chats…"), announces: true) {
+            say(AppLocalized("Reading the chat backup snapshot…"))
             guard let snapshotStore else { throw BotWorkspaceError.storage }
             return try await exportChats(dataDir: dataDir, trees: trees, store: snapshotStore,
                                   snapshotAt: options.snapshotAt,
@@ -331,6 +332,9 @@ actor BackupExporter {
                     progress?(text)
                 }
             })
+        }
+        if let unreadable = stats[BackupCategory.chats.rawValue]?.unreadableMessages, unreadable > 0 {
+            say(String(format: AppLocalized("Unreadable chat messages left out of this backup: %d."), unreadable))
         }
         try await run(.agents, AppLocalized("Exporting agents and memory…")) {
             try await exportAgents(dataDir: dataDir, includesHistory: options.categories.contains(.chats), snapshot: graphSnapshot)
@@ -589,6 +593,7 @@ actor BackupExporter {
         }
 
         var messageCount = 0
+        var unreadableMessages = 0
         var fileCount = 0
         var fileBytes: Int64 = 0
 
@@ -599,7 +604,7 @@ actor BackupExporter {
             BackupMemoryGovernor.shared.throttleIfNeeded(context: "chats \(sid.prefix(8))")
             reporter.step()
             guard let session = await store.getSession(sid) else {
-                throw BackupError.stagingFailed(AppLocalized("Could not read the chat backup snapshot."))
+                throw BackupError.chatSnapshotReadFailed(AppLocalized("Could not read a saved session from the chat backup snapshot."))
             }
             // Rows come from the frozen SQLite snapshot, including all rows of
             // a conversation that continued on the live device after capture.
@@ -615,8 +620,9 @@ actor BackupExporter {
             // autoreleased buffers that otherwise pile up across all 2284
             // sessions (the pool can't drain inside a loop that suspends).
             let sessionMsgs = try await store.loadMessagesForBackup(sessionId: sid)
+            unreadableMessages += sessionMsgs.unreadable
             try autoreleasepool {
-                for msg in sessionMsgs {
+                for msg in sessionMsgs.messages {
                     try messages.write(BackupRecordEnvelope(t: "MessageV2", d: msg))
                     messageCount += 1
                     sessionMessages += 1
@@ -658,7 +664,8 @@ actor BackupExporter {
         return BackupManifest.CategoryStat(
             entries: messageCount + fileCount,
             bytes: sessions.totalBytes + messages.totalBytes + markers.totalBytes + fileBytes,
-            encrypted: false, messages: messageCount, files: fileCount)
+            encrypted: false, messages: messageCount, files: fileCount,
+            unreadableMessages: unreadableMessages > 0 ? unreadableMessages : nil)
     }
 
     /// Session row + the two extras the sync layer keeps outside `ChatSession`,

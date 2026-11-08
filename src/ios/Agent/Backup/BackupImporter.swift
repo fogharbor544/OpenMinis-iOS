@@ -334,6 +334,9 @@ actor BackupImporter {
 
         progress?(AppLocalized("Reloading stores…"))
         await reloadStores(for: wanted)
+        if wanted.contains(.chats), let count = manifest.categories[BackupCategory.chats.rawValue]?.unreadableMessages, count > 0 {
+            report.warnings.append(String(format: AppLocalized("Unreadable chat messages left out of this backup: %d."), count))
+        }
         if wanted.contains(.agents) { report.warnings += await agentDependencyWarnings() }
 
         report.duration = Date().timeIntervalSince(started)

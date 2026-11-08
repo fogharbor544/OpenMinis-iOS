@@ -422,10 +422,13 @@ extension ChatStore {
         var session: ChatSession?
 
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
-            if sqlite3_step(stmt) == SQLITE_ROW {
+            let bound = id.withCString {
+                sqlite3_bind_text(stmt, 1, $0, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            }
+            if bound == SQLITE_OK, sqlite3_step(stmt) == SQLITE_ROW,
+               let modelID = sqlite3_column_text(stmt, 2) {
                 let title = sqlite3_column_text(stmt, 1).map { String(cString: $0) }
-                let modelId = String(cString: sqlite3_column_text(stmt, 2))
+                let modelId = String(cString: modelID)
                 let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3))
                 let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
                 let category = sqlite3_column_text(stmt, 5).map { String(cString: $0) }

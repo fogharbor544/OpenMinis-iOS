@@ -267,7 +267,7 @@ extension ChatStore {
     func sessionIdsForBackup() throws -> [String] {
         let result = readSessionIDs()
         guard result.status == SQLITE_DONE else {
-            throw BackupError.stagingFailed(AppLocalized("Could not read the chat backup snapshot."))
+            throw BackupError.chatSnapshotReadFailed(AppLocalized("Could not read the session list from the chat backup snapshot."))
         }
         return result.ids
     }

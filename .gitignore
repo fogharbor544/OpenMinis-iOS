@@ -128,3 +128,11 @@ deps/aot/.build-iphonesimulator/
 
 # Local agent instruction file, not repository content.
 AGENTS.md
+
+# Local planning and decision records, not repository content.
+task_plan.md
+findings.md
+progress.md
+
+# Local documentation: design notes, specs and working records stay on this machine.
+/docs/

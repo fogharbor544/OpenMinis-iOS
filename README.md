@@ -165,14 +165,13 @@ produces an unsigned IPA.
 src/ios/          iOS app (Swift 6 / SwiftUI), extensions, resources and tests
 src/shared/       Cross-platform specifications, CLI docs and regression fixtures
 deps/             Native dependency build scripts and vendored sources
-docs/             Architecture specs, design decisions and working notes
 scripts/          Developer, localization and isolated iOS test tooling
 assets/           Screenshots and branding
 ```
 
-The project-level `AGENTS.md` is a local, ignored agent-instruction file. The
-tracked planning and decision records are `task_plan.md`, `findings.md` and
-`progress.md`.
+The project-level `AGENTS.md`, the `docs/` tree and the planning and
+decision records `task_plan.md`, `findings.md` and `progress.md` are local, ignored
+files: they stay on the developer's machine and are not part of the repository.
 
 ---
 

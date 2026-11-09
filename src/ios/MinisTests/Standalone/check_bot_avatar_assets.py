@@ -5,7 +5,7 @@ import json
 import struct
 
 ROOT = Path(__file__).resolve().parents[4]
-manifest = json.loads((ROOT / "docs/bot-avatar-generation.json").read_text(encoding="utf-8"))
+manifest = json.loads((ROOT / "src/ios/MinisTests/Fixtures/bot-avatar-generation.json").read_text(encoding="utf-8"))
 assert manifest["layout"] == {"columns": 4, "rows": 4, "durationSeconds": 2, "posterFrame": 0}
 entries = manifest["entries"]
 assert len(entries) == len({item["id"] for item in entries}) == 12

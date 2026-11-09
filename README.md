@@ -37,7 +37,7 @@ directly on this repository's `main`.
 | **Skills & MCP** | On-demand skills, external MCP connectors, a catalog of built-in capabilities and execution-time permission controls. |
 | **Workspaces** | Session working files at `/var/minis/workspace/`, addressable as `minis://workspace/...`; shared and external folders can be mounted. |
 | **Schedules & Shortcuts** | Unified in-app task management, iOS Shortcuts, a share extension and a widget. |
-| **Sync, backup & restore** | Optional iCloud sync, plus local `.minisbak` snapshots in `Minis ▸ Backups`. Select Chats for local Bot history; sessions with missing or invalid IDs and unreadable messages are reported separately. Browser Bookmarks are selectable, and Browser Passwords (including the shared vault) and Browser Cookies are separate opt-in categories requiring encryption. Partitioned cookies are skipped. Shared Folders exposes local packages for restore, share and deletion. |
+| **Sync, backup & restore** | Optional iCloud sync, plus local `.minisbak` snapshots in `Minis ▸ Backups`. Select Chats for local Bot history; sessions with missing or invalid IDs and unreadable messages are reported separately. Incompatible staging is cleared before a new export. Browser Bookmarks are selectable, and Browser Passwords (including the shared vault) and Browser Cookies are separate opt-in categories requiring encryption. Partitioned cookies are skipped. Shared Folders exposes local packages for restore, share and deletion. |
 | **Native offloads** | Heavy or platform-specific work is handed to native code instead of the sandbox. |
 
 Chat keeps consecutive tool cards evenly spaced when the model emits only whitespace between them.

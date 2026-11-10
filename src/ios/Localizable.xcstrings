@@ -287005,6 +287005,29 @@
         }
       }
     },
+    "Edit each memory separately. To delete one, clear its text and save." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit each memory separately. To delete one, clear its text and save."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每条记忆可单独编辑。清空其中一条并保存，即可删除该条记忆。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每條記憶可單獨編輯。清空其中一條並儲存，即可刪除該條記憶。"
+          }
+        }
+      }
+    },
     "Edit each fixed memory separately. Clear its text to delete it." : {
       "extractionState" : "manual",
       "localizations" : {

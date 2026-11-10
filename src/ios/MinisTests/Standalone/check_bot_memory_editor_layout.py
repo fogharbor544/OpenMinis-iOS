@@ -1,4 +1,5 @@
-"""Guard the three Bot memory editors against diverging into a single text draft."""
+"""Guard the shared Bot memory editor against merged drafts and nested scrolling."""
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,9 +30,17 @@ assert "private func forgetSelected()" in overview
 assert "store.forget(id: entry.id, owner: owner)" in overview
 
 assert "@State private var draft: String" not in editor
-assert "TextEditor(text: $draft)" not in editor
+assert "TextEditor(" not in editor, "An independently scrolling editor can clip each memory inside the page"
+assert editor.count("ScrollView {") == 1
 assert editor.count("ForEach(baseline) { entry in") == 1
-assert editor.count("TextEditor(text: Binding(get: { entryDrafts[entry.id] ?? \"\" }") == 1
+assert editor.count('TextField("", text: Binding(get: { entryDrafts[entry.id] ?? "" }') == 1
+assert "axis: .vertical" in editor
+assert ".lineLimit(2...)" in editor
+assert 'Separate ordinary memories with blank lines' not in view
+hint = "Edit each memory separately. To delete one, clear its text and save."
+assert f'Text("{hint}")' in editor
+catalog = json.loads((ROOT / "Localizable.xcstrings").read_text(encoding="utf-8"))["strings"]
+assert {"en", "zh-Hans", "zh-Hant"} <= catalog[hint]["localizations"].keys()
 assert "newOrdinaryDrafts" not in editor
 assert "添加记忆" not in editor
 assert 'let ordinaryEdits = section == .ordinary ? entryDrafts : [:]' in editor
@@ -44,4 +53,4 @@ assert "ordinaryAdditions" not in store
 assert "if section != nil && !individualEdits.isEmpty { remaining = \"\" }" in store
 assert "ordinaryEdits: Dictionary(uniqueKeysWithValues: ordinaryBaseline.map" in tests
 assert "ordinaryAdditions" not in tests
-print("PASS: ordinary, fixed and fact memories use per-entry editors and ID-scoped saves")
+print("PASS: ordinary, fixed and fact memories use one scroll area, per-entry fields and ID-scoped saves")

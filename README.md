@@ -33,7 +33,7 @@ directly on this repository's `main`.
 | **A real Linux shell** | A sandboxed Alpine Linux environment runs on-device — the agent can install packages, run scripts, and work with real files. |
 | **Device integration** | Health, Calendar, Reminders, Contacts, HomeKit, Bluetooth, Clipboard, Media, Alarms and more, exposed to the agent as tools. |
 | **Browser automation** | The agent can browse and interact with the web; bookmarks, Keychain-backed passwords and an inline secure-input card for browser logins are available. |
-| **Bots & groups** | Bot-first home navigation, bounded group rounds, per-Bot configuration with a single scroll area for long instructions, and scoped memory with fixed / ordinary / fact categories and per-entry editing. |
+| **Bots & groups** | Bot-first home navigation, bounded group rounds, per-Bot configuration with a single scroll area for long instructions, and scoped memory with fixed / ordinary / fact categories. Each memory has its own expanding field in a single scrollable editor. |
 | **Skills & MCP** | On-demand skills, external MCP connectors, a catalog of built-in capabilities and execution-time permission controls. |
 | **Workspaces** | Session working files at `/var/minis/workspace/`, addressable as `minis://workspace/...`; shared and external folders can be mounted. |
 | **Schedules & Shortcuts** | Unified in-app task management, iOS Shortcuts, a share extension and a widget. |

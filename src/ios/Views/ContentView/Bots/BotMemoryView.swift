@@ -23,14 +23,6 @@ private extension BotMemorySection {
         }
     }
 
-    var editingHint: LocalizedStringKey {
-        switch self {
-        case .fixed: "Edit each fixed memory separately. Clear its text to delete it."
-        case .ordinary: "Separate ordinary memories with blank lines. Clear the text to delete them."
-        case .facts: "Edit each fact memory separately. Clear its text to delete it."
-        }
-    }
-
     var emptyText: LocalizedStringKey {
         switch self {
         case .fixed: "No fixed memories yet"
@@ -322,31 +314,45 @@ private struct BotMemoryDocumentEditor: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text(section.editingHint)
-                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16)
                 if let error {
                     VStack(alignment: .leading) {
                         Text(error).font(.callout).foregroundStyle(.red)
                         Button("复制草稿") { UIPasteboard.general.string = draftDocument }.frame(minHeight: 44)
-                    }.padding(.horizontal, 16)
+                    }.padding(.horizontal, 16).padding(.top, 12)
                 }
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text(section.title).font(.headline)
-                        if baseline.isEmpty { Text(section.emptyText).foregroundStyle(.secondary) }
-                        ForEach(baseline) { entry in
-                            if entry.category == "event" {
-                                Text("事件 · \(entry.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            TextEditor(text: Binding(get: { entryDrafts[entry.id] ?? "" },
-                                                     set: { entryDrafts[entry.id] = $0 }))
-                                .font(.body).lineSpacing(6).frame(minHeight: 140)
-                                .accessibilityLabel(Text(section.title))
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if baseline.isEmpty {
+                            Text(section.emptyText).foregroundStyle(.secondary)
+                        } else {
+                            Text("Edit each memory separately. To delete one, clear its text and save.")
+                                .font(.footnote).foregroundStyle(.secondary)
                         }
-                    }.padding(.horizontal, 16)
+                        ForEach(baseline) { entry in
+                            VStack(alignment: .leading, spacing: 8) {
+                                if entry.category == "event" {
+                                    Text("事件 · \(entry.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                TextField("", text: Binding(get: { entryDrafts[entry.id] ?? "" },
+                                                            set: { entryDrafts[entry.id] = $0 }), axis: .vertical)
+                                    .font(.body)
+                                    .lineLimit(2...)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
+                                    .accessibilityLabel(Text(section.title))
+                            }
+                            .padding(12)
+                            .background(Color(UIColor.secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                    .frame(maxWidth: 760, alignment: .leading)
+                    .padding(16)
+                    .frame(maxWidth: .infinity)
                 }
-            }.padding(.top, 12)
+                .scrollDismissesKeyboard(.interactively)
+            }
+                .background(Color(UIColor.systemGroupedBackground))
                 .navigationTitle(Text(section.editorTitle)).navigationBarTitleDisplayMode(.inline)
                 .interactiveDismissDisabled(changed)
                 .toolbar {

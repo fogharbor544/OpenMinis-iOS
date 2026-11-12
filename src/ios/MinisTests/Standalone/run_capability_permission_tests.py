@@ -6,9 +6,9 @@ import tempfile
 
 root = Path(__file__).resolve().parents[2]
 source = (root / 'Agent/Offload/OffloadPermissionManager.swift').read_text(encoding='utf-8')
-# Isolate this executable's preferences; leave the shipping permission methods intact.
-source = source.replace('private let defaults = UserDefaults.standard',
-                        'private let defaults = UserDefaults(suiteName: CommandLine.arguments[1])!')
+# Exercise the shipping permission store without the app's native dispatch bridge.
+source, boundary, _ = source.partition('/// Called by native dispatch')
+assert boundary, 'Permission store and native dispatch boundary changed'
 tests = '''import Foundation
 func AppLocalized(_ key: String) -> String { key }
 import Combine
@@ -19,8 +19,9 @@ struct AppLogger {
 @main struct Permissions {
     @MainActor static func main() async {
         let suite = CommandLine.arguments[1]
-        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
-        let manager = OffloadPermissionManager.shared
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manager = OffloadPermissionManager(defaults: defaults)
         var changes = 0
         let observer = manager.objectWillChange.sink { changes += 1 }
         let command = "apple-clipboard"

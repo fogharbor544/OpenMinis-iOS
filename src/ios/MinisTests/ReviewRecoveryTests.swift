@@ -18,6 +18,14 @@ final class ReviewRecoveryTests: XCTestCase {
         XCTFail("Asynchronous operation did not settle within three seconds")
     }
 
+    private func waitForSignal(_ semaphore: DispatchSemaphore) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: semaphore.wait(timeout: .now() + 3) == .success)
+            }
+        }
+    }
+
     func testMessageBatchRollsBackAndCanBeRetried() async throws {
         let root = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -170,12 +178,12 @@ final class ReviewRecoveryTests: XCTestCase {
             } catch is CancellationError { cancelled = true }
             catch { XCTFail("Unexpected error: \(error)") }
         }
-        let started = await Task.detached { entered.wait(timeout: .now() + 3) == .success }.value
+        let started = await waitForSignal(entered)
         XCTAssertTrue(started)
         task.cancel()
         await settle { cancelled }
         unblock.signal()
-        let freed = await Task.detached { workerDone.wait(timeout: .now() + 3) == .success }.value
+        let freed = await waitForSignal(workerDone)
         XCTAssertTrue(freed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }

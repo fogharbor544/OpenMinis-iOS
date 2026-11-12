@@ -90,6 +90,18 @@ struct TestStatusMessage {
     struct Info { var toolName = ""; var toolStatus = ""; var lastActivity = Date() }
     var sessionToolInfo: [String: Info] = [:]
 }
+@MainActor final class SessionLockStore: ObservableObject {
+    static let shared = SessionLockStore()
+    var globalEnabled = false
+    func isVisuallyLocked(_ id: String) -> Bool { false }
+    func isLocked(_ id: String) -> Bool { false }
+    func lock(_ id: String) {}
+    func unlockPermanently(_ id: String) {}
+}
+enum BiometricAuth {
+    static var isAvailable: Bool { false }
+    static func authenticate(reason: String) async -> Bool { false }
+}
 enum SyncV2Bootstrap { static var isEnabled = false }
 @MainActor final class SyncCore {
     static let shared = SyncCore()

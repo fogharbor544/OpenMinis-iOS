@@ -84,12 +84,8 @@ struct BotWorkspaceView: View {
         return Dictionary(sessions.lazy.filter { ids.contains($0.id) }.map { ($0.id, $0) }) { first, _ in first }
     }
 
-    private func homeItems(_ previews: [String: ChatSession]) -> [HomeItem] {
+    private func homeItems(_ previews: [String: ChatSession], _ delegationDates: [String: Date]) -> [HomeItem] {
         let items = visibleBots.map(HomeItem.bot) + visibleRooms.map(HomeItem.room)
-        var delegationDates: [String: Date] = [:]
-        for record in store.data.delegations {
-            delegationDates[record.toBotID] = max(delegationDates[record.toBotID] ?? .distantPast, record.updatedAt)
-        }
         let activity = Dictionary(uniqueKeysWithValues: items.map { item in
             (item.id, lastActivity(item, previews, delegationDates))
         })
@@ -110,9 +106,15 @@ struct BotWorkspaceView: View {
         }
     }
 
-    private var workspaceContent: some View { workspaceList(previews: botPreviews) }
+    private var workspaceContent: some View {
+        var delegationDates: [String: Date] = [:]
+        for record in store.data.delegations {
+            delegationDates[record.toBotID] = max(delegationDates[record.toBotID] ?? .distantPast, record.updatedAt)
+        }
+        return workspaceList(previews: botPreviews, delegationDates: delegationDates)
+    }
 
-    private func workspaceList(previews: [String: ChatSession]) -> some View {
+    private func workspaceList(previews: [String: ChatSession], delegationDates: [String: Date]) -> some View {
             List {
                 if showSearch {
                     Section { searchField }
@@ -134,29 +136,16 @@ struct BotWorkspaceView: View {
                     }
                 }
                 if let commander = store.data.bots.first(where: \.isCommander) {
-                    Section {
-                        VStack(spacing: 8) {
-                            BotAvatar(profile: commander, size: 92)
-                            Button { open(commander) } label: {
-                                HStack(spacing: 6) { Text(commander.name).font(.title3.weight(.semibold)); Image(systemName: "chevron.right").font(.caption) }
-                                    .frame(minHeight: 44)
-                            }.buttonStyle(.plain).disabled(opening)
-                            if isBotContentLocked(commander) {
-                                Text(AppLocalized("Locked conversation")).font(.caption).foregroundStyle(.secondary)
-                            } else { BotRunStatusView(botID: commander.id, hidesWhenIdle: true) }
-                        }.frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .contextMenu {
-                            Button { profileBot = BotChatTarget(id: commander.id) } label: { Label("Bot 资料", systemImage: "person.text.rectangle") }
-                            sessionLockMenu(for: commander)
-                        }
-                    }.listRowSeparator(.hidden).listRowBackground(Color.clear)
+                    commanderSection(for: commander)
                 }
                 if isWorkspaceEmpty {
                     Section { emptyState.listRowBackground(Color.clear) }
                 }
-                ForEach(homeItems(previews)) { item in
+                ForEach(homeItems(previews, delegationDates)) { item in
                     switch item {
-                    case .bot(let bot): botRow(bot, preview: bot.sessionId.flatMap { previews[$0] })
+                    case .bot(let bot):
+                        botRow(bot, preview: bot.sessionId.flatMap { previews[$0] },
+                               date: lastActivity(item, previews, delegationDates))
                     case .room(let room): roomRow(room)
                     }
                 }
@@ -322,7 +311,37 @@ struct BotWorkspaceView: View {
         }
     }
 
-    private func botRow(_ bot: BotProfile, preview: ChatSession?) -> some View {
+    private func commanderSection(for commander: BotProfile) -> some View {
+        Section {
+            VStack(spacing: 8) {
+                BotAvatar(profile: commander, size: 92)
+                Button { open(commander) } label: {
+                    HStack(spacing: 6) {
+                        Text(commander.name).font(.title3.weight(.semibold))
+                        Image(systemName: "chevron.right").font(.caption)
+                    }
+                    .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .disabled(opening)
+                if isBotContentLocked(commander) {
+                    Text(AppLocalized("Locked conversation")).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    BotRunStatusView(botID: commander.id, hidesWhenIdle: true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .contextMenu {
+                Button { profileBot = BotChatTarget(id: commander.id) } label: { Label("Bot 资料", systemImage: "person.text.rectangle") }
+                sessionLockMenu(for: commander)
+            }
+        }
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private func botRow(_ bot: BotProfile, preview: ChatSession?, date: Date) -> some View {
         let locked = isBotContentLocked(bot)
         let subtitle = locked ? AppLocalized("Locked conversation") : (botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
             ?? store.delegationPreview(botID: bot.id, after: preview?.lastMessage?.isEmpty == false ? preview?.updatedAt : nil)
@@ -332,7 +351,7 @@ struct BotWorkspaceView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             open(bot)
         } label: {
-            homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: max(preview?.updatedAt ?? .distantPast, delegationDates[bot.id] ?? .distantPast),
+            homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: date,
                     subtitle: subtitle, busy: openingBotID == bot.id,
                     avatar: { BotAvatar(profile: bot, size: 54) },
                     status: { if !locked { BotRunStatusView(botID: bot.id, hidesWhenIdle: true) } })

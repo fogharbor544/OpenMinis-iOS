@@ -65,6 +65,13 @@ struct ChatMessage {
         }
         preconditionFailure("async fixture timed out")
     }
+    static func waitForSignal(_ semaphore: DispatchSemaphore) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: semaphore.wait(timeout: .now() + 3) == .success)
+            }
+        }
+    }
     static func main() async throws {
         FakeSecurity.reset([errSecInteractionNotAllowed])
         check(!CredentialProbe.writeCredential(Data("new".utf8), instanceId: "fixture", account: "key"), "update failure")
@@ -167,12 +174,12 @@ struct ChatMessage {
             } catch is CancellationError { cancelled = true }
             catch { preconditionFailure("unexpected IO error: \(error)") }
         }
-        let started = await Task.detached { entered.wait(timeout: .now() + 3) == .success }.value
+        let started = await waitForSignal(entered)
         check(started, "worker entered")
         io.cancel()
         await settle { cancelled }
         unblock.signal()
-        let finished = await Task.detached { freed.wait(timeout: .now() + 3) == .success }.value
+        let finished = await waitForSignal(freed)
         check(finished && !fm.fileExists(atPath: forbidden.path), "cancelled worker cannot write after unblocking")
         let vm = AIChatViewModel()
         let firstTurn = ScheduledTurnReceipt()

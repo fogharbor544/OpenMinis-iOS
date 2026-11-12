@@ -2217,15 +2217,17 @@ extension AIChatViewModel {
         let live = messages.first(where: { $0.historyAnchorId == msg.anchorId })
             ?? (msg.role == .assistant ? messages.last(where: { $0.role == .assistant }) : nil)
         if let live {
-            if live.persistedMessageID == nil { live.persistedMessageID = raw.id }
-            raw.presentationJSON = BotMessagePresentation(replyGroupID: live.persistedMessageID,
+            raw.presentationJSON = BotMessagePresentation(replyGroupID: live.persistedMessageID ?? raw.id,
                 quote: live.quote, quotedPartIndex: live.quote == nil ? nil : raw.parts.count - 1).json
         }
-        await ChatStore.shared.appendMessage(raw)
-        if !botResultDeliveries.isEmpty, !(await ChatStore.shared.containsPersistedMessage(raw)) {
-            live?.error = "回复未能保存，任务尚未交付。"
+        guard await ChatStore.shared.appendMessage(raw) else {
+            let saveError = AppLocalized("Message could not be saved. Please try again.")
+            live?.error = saveError
+            errorMessage = saveError
+            if msg.role == .assistant { canResume = true }
             return nil
         }
+        if let live, live.persistedMessageID == nil { live.persistedMessageID = raw.id }
         if botConversationVisible && isNearBottom {
             _ = BotWorkspaceStore.shared.updateConversation(raw.sessionId) { $0.lastReadMessageID = BotMessagePresentation.decode(raw.presentationJSON)?.replyGroupID ?? raw.id }
         }

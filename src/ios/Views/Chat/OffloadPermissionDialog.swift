@@ -5,15 +5,18 @@ struct OffloadPermissionDialogModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $manager.pendingRequest) { request in
-                OffloadPermissionDialogContent(request: request)
-                    // Both detents — long arg lists were getting pushed below
-                    // the medium detent's bottom edge with the Allow / Deny
-                    // buttons trailing them, leaving no way to respond. Allow
-                    // dragging up to .large; the content is scrollable in
-                    // either height.
-                    .presentationDetents([.medium, .large])
-                    .interactiveDismissDisabled()
+            .sheet(isPresented: Binding(get: { manager.pendingRequest != nil }, set: { _ in })) {
+                if let request = manager.pendingRequest {
+                    OffloadPermissionDialogContent(request: request)
+                        .id(request.id)
+                        // Both detents — long arg lists were getting pushed below
+                        // the medium detent's bottom edge with the Allow / Deny
+                        // buttons trailing them, leaving no way to respond. Allow
+                        // dragging up to .large; the content is scrollable in
+                        // either height.
+                        .presentationDetents([.medium, .large])
+                        .interactiveDismissDisabled()
+                }
             }
     }
 }

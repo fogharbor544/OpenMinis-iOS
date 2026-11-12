@@ -1,15 +1,7 @@
 import Compression
 import Foundation
 
-private let logger = AppLogger(category: "Backup")
-
-/// Full ZIP extraction for the backup importer.
-///
-/// `BackupPackageReader` (stage 1) can only pull one small entry by name — it
-/// exists to read a manifest. Restoring needs every entry on disk, including
-/// multi-hundred-MB blobs, so this writes each entry out in chunks rather than
-/// materialising it in memory. iOS ships no unzip API, and no ZIP library is
-/// linked, so this is hand-rolled like the app's other two ZIP paths.
+/// Chunked ZIP extraction for restore and large manifest previews.
 enum BackupZipExtractor {
 
     enum ExtractError: LocalizedError {
@@ -86,20 +78,18 @@ enum BackupZipExtractor {
         // single file position. This is what the forward `ZipInputStream`
         // shape cannot do, and why reading the central directory (which this
         // extractor already did) is the enabler rather than a new cost.
-        var firstError: Error?
-        let lock = NSLock()
+        let batch = jobs
+        let failure = ExtractionFailure()
         let workers = min(ProcessInfo.processInfo.activeProcessorCount, maxUnpackWorkers)
         DispatchQueue.concurrentPerform(iterations: workers) { slot in
             guard let local = try? FileHandle(forReadingFrom: zipURL) else {
-                lock.lock()
-                if firstError == nil { firstError = ExtractError.truncated }
-                lock.unlock()
+                failure.record(ExtractError.truncated)
                 return
             }
             defer { try? local.close() }
             var index = slot
-            while index < jobs.count {
-                let (entry, out) = jobs[index]
+            while index < batch.count {
+                let (entry, out) = batch[index]
                 index += workers
                 do {
                     // Per-entry pool: writeEntry reads autoreleased NSData, and
@@ -128,14 +118,25 @@ enum BackupZipExtractor {
                     // bytes no longer have, so a later reader treats a corrupt
                     // member as authoritative. A missing blob is a legible
                     // gap; a short one is a lie.
-                    lock.lock()
-                    if firstError == nil { firstError = error }
-                    lock.unlock()
+                    failure.record(error)
                     try? FileManager.default.removeItem(at: out)
                 }
             }
         }
-        if let firstError { throw firstError }
+        if let error = failure.first { throw error }
+    }
+
+    private final class ExtractionFailure: @unchecked Sendable {
+        private let lock = NSLock()
+        private var error: Error?
+
+        var first: Error? { lock.withLock { error } }
+
+        func record(_ value: Error) {
+            lock.withLock {
+                if error == nil { error = value }
+            }
+        }
     }
 
     /// Below this many entries the dispatch overhead outweighs the win.
@@ -197,7 +198,7 @@ enum BackupZipExtractor {
         return out
     }
 
-    private static func writeEntry(_ entry: Entry, from handle: FileHandle, to out: URL) throws {
+    static func writeEntry(_ entry: Entry, from handle: FileHandle, to out: URL) throws {
         // The local header repeats name/extra lengths and they may differ from
         // the central directory's, so the payload offset must come from there.
         try handle.seek(toOffset: UInt64(entry.localHeaderOffset))
@@ -213,13 +214,7 @@ enum BackupZipExtractor {
         defer { try? sink.close() }
 
         if entry.isCompressed {
-            // Deflate has to be decoded as a unit, so a compressed entry is
-            // bounded by memory. NSFileCoordinator writes stored entries, so in
-            // practice the streaming path below is the one that runs for blobs.
-            guard let raw = try handle.read(upToCount: entry.compressedSize) else {
-                throw ExtractError.truncated
-            }
-            try sink.write(contentsOf: inflate(raw, expectedSize: entry.uncompressedSize))
+            try inflate(entry, from: handle, to: sink)
             return
         }
 
@@ -242,7 +237,7 @@ enum BackupZipExtractor {
 
     // MARK: - Central directory
 
-    struct Entry {
+    struct Entry: Sendable {
         let name: String
         let compressedSize: Int
         let uncompressedSize: Int
@@ -361,19 +356,64 @@ enum BackupZipExtractor {
         return entries
     }
 
-    private static func inflate(_ data: Data, expectedSize: Int) throws -> Data {
-        let cap = max(expectedSize, 1)
-        var out = Data(count: cap)
-        let written: Int = out.withUnsafeMutableBytes { dst in
-            data.withUnsafeBytes { src -> Int in
-                guard let d = dst.bindMemory(to: UInt8.self).baseAddress,
-                      let s = src.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-                return compression_decode_buffer(d, cap, s, data.count, nil, COMPRESSION_ZLIB)
-            }
+    /// Stream raw DEFLATE with bounded buffers. The declared size bounds the
+    /// bytes written, but does not drive an allocation.
+    private static func inflate(_ entry: Entry, from source: FileHandle, to sink: FileHandle) throws {
+        let chunkSize = 64 * 1024
+        let output = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+        defer { output.deallocate() }
+        var stream = compression_stream(dst_ptr: output, dst_size: 0,
+                                        src_ptr: UnsafePointer(output), src_size: 0, state: nil)
+        guard compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+            throw ExtractError.unsupportedCompression(8)
         }
-        guard written > 0 else { throw ExtractError.unsupportedCompression(8) }
-        out.removeSubrange(written...)
-        return out
+        defer { compression_stream_destroy(&stream) }
+
+        var remaining = entry.compressedSize
+        var written = 0
+        while remaining > 0 {
+            let count = min(remaining, chunkSize)
+            remaining -= count
+            let finished = try autoreleasepool {
+                guard let chunk = try source.read(upToCount: count), chunk.count == count else {
+                    throw ExtractError.truncated
+                }
+                return try chunk.withUnsafeBytes { input -> Bool in
+                    guard let bytes = input.bindMemory(to: UInt8.self).baseAddress else {
+                        throw ExtractError.truncated
+                    }
+                    stream.src_ptr = bytes
+                    stream.src_size = input.count
+                    let flags = remaining == 0 ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0
+                    repeat {
+                        let inputBefore = stream.src_size
+                        stream.dst_ptr = output
+                        stream.dst_size = chunkSize
+                        let status = compression_stream_process(&stream, flags)
+                        let produced = chunkSize - stream.dst_size
+                        guard status != COMPRESSION_STATUS_ERROR, produced <= entry.uncompressedSize - written else {
+                            throw ExtractError.truncated
+                        }
+                        if produced > 0 {
+                            try sink.write(contentsOf: Data(bytes: output, count: produced))
+                            written += produced
+                        }
+                        if status == COMPRESSION_STATUS_END {
+                            guard remaining == 0, stream.src_size == 0, written == entry.uncompressedSize else {
+                                throw ExtractError.truncated
+                            }
+                            return true
+                        }
+                        guard produced > 0 || stream.src_size < inputBefore else {
+                            throw ExtractError.truncated
+                        }
+                    } while stream.src_size > 0 || remaining == 0
+                    return false
+                }
+            }
+            if finished { return }
+        }
+        throw ExtractError.truncated
     }
 
     private static func readU16(_ d: Data, _ off: Int) -> UInt16 {

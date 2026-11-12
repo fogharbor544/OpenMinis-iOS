@@ -591,7 +591,10 @@ final class UserAskCenter: ObservableObject {
         guard var r = records[rid], let data = r.assistantRawJSON,
               let raw = try? JSONDecoder().decode(RawMessage.self, from: data) else { return }
         if await !Self.toolUseExists(sessionId: raw.sessionId, toolUseId: r.ask.toolCallId) {
-            await ChatStore.shared.appendMessages([raw])
+            guard await ChatStore.shared.appendMessages([raw]) else {
+                logger.error("[UserAsk] recovered assistant write failed; recovery record retained")
+                return
+            }
         }
         r.assistantPersisted = true
         persist(r)
@@ -634,7 +637,10 @@ final class UserAskCenter: ObservableObject {
             return .toolResult(ToolResult(toolUseId: id, output: interrupted, success: false, mediaRef: nil, snapshot: nil, pageURL: nil, status: "cancelled"))
         }
         rows.append(RawMessage(id: UUID().uuidString, sessionId: sid, role: .user, parts: parts, createdAt: Date()))
-        await ChatStore.shared.appendMessages(rows)
+        guard await ChatStore.shared.appendMessages(rows) else {
+            logger.error("[UserAsk] recovered result write failed; recovery record retained")
+            return
+        }
         markDelivered(toolUseIds: [ask.toolCallId])
         logger.info("[UserAsk] RECOVER delivered req=\(requestId.prefix(8)) rows=\(rows.count) — resuming session \(sid.prefix(8))")
         let (vm, _) = ViewModelCache.shared.getOrCreate(for: sid)

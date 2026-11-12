@@ -36,6 +36,7 @@ struct ProviderInstanceDetailView: View {
     @State private var editingModelEntry: ModelEntry?
     @State private var pendingDeleteModelEntry: ModelEntry?
     @State private var showKeyRevealed = false
+    @State private var credentialSaveError: String?
 
     private var instance: ProviderInstance? {
         store.instance(for: instanceId)
@@ -44,7 +45,12 @@ struct ProviderInstanceDetailView: View {
     var body: some View {
         Group {
             if let instance = instance {
-                instanceContent(instance)
+                VStack(spacing: 0) {
+                    if let credentialSaveError {
+                        Text(credentialSaveError).font(.caption).foregroundStyle(.red).padding()
+                    }
+                    instanceContent(instance)
+                }
             } else {
                 Text("Instance not found")
                     .foregroundStyle(.secondary)
@@ -152,7 +158,10 @@ struct ProviderInstanceDetailView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
                             let cleaned = manualTokenInputText.components(separatedBy: .whitespacesAndNewlines).joined()
-                            ProviderKeychainHelper.saveOAuthString(cleaned, instanceId: instanceId, account: "manual-oauth-token")
+                            guard ProviderKeychainHelper.saveOAuthString(cleaned, instanceId: instanceId, account: "manual-oauth-token") else {
+                                credentialSaveError = ProviderKeychainHelper.storageError.localizedDescription
+                                return
+                            }
                             manualTokenInputText = ""
                             showManualTokenInput = false
                             oauthRefreshTrigger.toggle()
@@ -529,7 +538,8 @@ struct ProviderInstanceDetailView: View {
                     ProviderKeychainHelper.deleteAPIKey(instanceId: instance.id)
                 } else {
                     AppLogger(category: "Provider").info("apiKeyTextField onChange→SAVE instanceId=\(instance.id.prefix(8)) newLen=\(trimmed.count)")
-                    ProviderKeychainHelper.saveAPIKey(trimmed, instanceId: instance.id)
+                    credentialSaveError = ProviderKeychainHelper.saveAPIKey(trimmed, instanceId: instance.id)
+                        ? nil : ProviderKeychainHelper.storageError.localizedDescription
                 }
             }
 

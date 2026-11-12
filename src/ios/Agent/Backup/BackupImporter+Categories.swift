@@ -72,7 +72,7 @@ extension BackupImporter {
                 // plain file cannot do — so without this, reconcileAtLaunch
                 // skipped the providers snapshot entirely and a crash mid
                 // provider-restore left it unrecoverable.
-                try? Data(live.path.utf8).write(
+                try Data(live.path.utf8).write(
                     to: staging.appendingPathComponent(
                         "providers-provider-config.json"
                         + BackupRestoreJournal.fileSnapshotSidecarSuffix),
@@ -88,7 +88,7 @@ extension BackupImporter {
             try fm.copyItem(at: live, to: saved)
             // Record where this came from, so a launch-time reconcile after a
             // crash can restore it without re-deriving the mapping.
-            try? Data(live.path.utf8).write(
+            try Data(live.path.utf8).write(
                 to: saved.appendingPathComponent(".live-path"), options: .atomic)
             snap.directories.append((live: live, saved: saved))
         }
@@ -107,7 +107,7 @@ extension BackupImporter {
             try BackupRestoreJournal.atomicReplace(directory: pair.saved, onto: pair.live)
         }
         for pair in snapshot.files {
-            _ = try? FileManager.default.replaceItemAt(pair.live, withItemAt: pair.saved)
+            try BackupRestoreJournal.atomicReplace(directory: pair.saved, onto: pair.live)
         }
         // A file-level provider rollback only rewrites the JSON on disk; the
         // in-memory store still holds the merged config, so it must be reloaded
@@ -116,6 +116,20 @@ extension BackupImporter {
             Task { @MainActor in await ProviderConfigStore.shared.reloadFromDisk() }
         }
         logger.info("[Restore] rolled back \(snapshot.category.rawValue) (\(snapshot.directories.count) dir(s))")
+    }
+
+    /// A committed category must not be rolled back if another category fails later.
+    func discardRollback(_ snapshot: BackupRollbackSnapshot) throws {
+        for pair in snapshot.files {
+            let sidecar = pair.saved.appendingPathExtension("live-path-of")
+            if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
+            if fm.fileExists(atPath: pair.saved.path) { try? fm.removeItem(at: pair.saved) }
+        }
+        for pair in snapshot.directories where fm.fileExists(atPath: pair.saved.path) {
+            let pointer = pair.saved.appendingPathComponent(".live-path")
+            if fm.fileExists(atPath: pointer.path) { try fm.removeItem(at: pointer) }
+            try? fm.removeItem(at: pair.saved)
+        }
     }
 
     // MARK: - Dispatch
@@ -610,6 +624,9 @@ extension BackupImporter {
         // Absent for a "share copy" package, which is why nil is not an error.
         if let creds = await MainActor.run(body: { BackupSecretsImporter.restore(from: root) }) {
             report.credentialsRestored = creds.providersRestored
+            if creds.providersFailed > 0 {
+                report.warnings.append(String(format: AppLocalized("Credentials could not be saved for %d providers. Existing credentials were kept."), creds.providersFailed))
+            }
             report.credentialsKept = creds.providersSkippedExisting
                 + creds.envVarsSkippedExisting + creds.mcpOAuthSkippedExisting
         }

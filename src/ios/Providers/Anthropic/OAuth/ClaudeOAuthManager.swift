@@ -140,7 +140,7 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
         #endif
         logger.info("Has refresh_token: \(token.refreshToken != nil), expires: \(String(describing: token.expireDate))")
 
-        ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId)
+        guard ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
         logger.info("=== OAuth login complete (instance: \(instanceId)) ===")
     }
 
@@ -217,7 +217,7 @@ final class ClaudeOAuthManager: NSObject, ObservableObject {
         logger.info("Refreshing token on-demand (instance: \(instanceId))...")
         let task = Task<ClaudeTokenStorage, Error> {
             let refreshed = try await perform(staleRefreshToken)
-            ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+            guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
             return refreshed
         }
         inFlightRefreshes[instanceId] = task

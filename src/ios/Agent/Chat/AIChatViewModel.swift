@@ -891,6 +891,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // this didSet runs before SwiftUI's onChange, so the auto-focus
                 // observer would otherwise see an already-cleared flag and pop
                 // the keyboard on a sub agent's callback.
+                completeScheduledTurn(succeeded: false)
                 turnWasSilentProgrammatic = programmaticSilentTurn
                 programmaticSilentTurn = false
                 abandonBotResultDelivery()
@@ -1742,6 +1743,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// run (Shortcut / CLI / job) — such a run has no one to ask, so user_ask
     /// is not exposed. Cleared on every isProcessing → false transition.
     var programmaticTurnOrigin: ProgrammaticPromptOrigin?
+    var scheduledTurnReceipts: [String: ScheduledTurnReceipt] = [:]
+    var activeScheduledJobID: String?
+    var scheduledQueuedJobIDs: [UUID: String] = [:]
     /// [T-user-ask] Whether this run exposes user_ask, decided with the tool
     /// list so the system prompt's fragment agrees with it for the whole run.
     var userAskExposedThisRun: Bool?

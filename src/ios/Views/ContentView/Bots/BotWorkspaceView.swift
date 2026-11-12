@@ -16,6 +16,7 @@ struct BotWorkspaceView: View {
     /// already throttled, cooldown-gated and deferred during scrolling.
     var sessions: [ChatSession] = []
     @ObservedObject private var store = BotWorkspaceStore.shared
+    @ObservedObject private var sessionLocks = SessionLockStore.shared
     @ObservedObject private var runner = BotRoomRunner.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -25,6 +26,7 @@ struct BotWorkspaceView: View {
     @State private var showSearch = false
     @State private var query = ""
     @State private var searchedQuery = ""
+    @State private var lockRevision = 0
     @State private var botSnippets: [String: String] = [:]
     @State private var roomSnippets: [String: String] = [:]
     @FocusState private var searchFocused: Bool
@@ -39,7 +41,11 @@ struct BotWorkspaceView: View {
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var isWorkspaceEmpty: Bool { store.data.bots.isEmpty && store.data.rooms.isEmpty }
     private var visibleBots: [BotProfile] {
-        store.data.bots.filter { !$0.isCommander && (trimmedQuery.isEmpty || botSnippets[$0.id] != nil) }
+        store.data.bots.filter { bot in
+            !bot.isCommander && (trimmedQuery.isEmpty ||
+                (isBotContentLocked(bot) ? SearchKeywords.terms(query).contains { bot.name.localizedCaseInsensitiveContains($0) }
+                    : botSnippets[bot.id] != nil))
+        }
     }
     private var visibleRooms: [BotRoom] {
         store.data.rooms.filter { trimmedQuery.isEmpty || roomSnippets[$0.id] != nil }
@@ -80,19 +86,26 @@ struct BotWorkspaceView: View {
 
     private func homeItems(_ previews: [String: ChatSession]) -> [HomeItem] {
         let items = visibleBots.map(HomeItem.bot) + visibleRooms.map(HomeItem.room)
+        var delegationDates: [String: Date] = [:]
+        for record in store.data.delegations {
+            delegationDates[record.toBotID] = max(delegationDates[record.toBotID] ?? .distantPast, record.updatedAt)
+        }
+        let activity = Dictionary(uniqueKeysWithValues: items.map { item in
+            (item.id, lastActivity(item, previews, delegationDates))
+        })
         return items.sorted { lhs, rhs in
             switch (lhs.pinnedAt, rhs.pinnedAt) {
             case let (l?, r?): return l > r
             case (.some, nil): return true
             case (nil, .some): return false
-            case (nil, nil): return lastActivity(lhs, previews) > lastActivity(rhs, previews)
+            case (nil, nil): return activity[lhs.id, default: .distantPast] > activity[rhs.id, default: .distantPast]
             }
         }
     }
 
-    private func lastActivity(_ item: HomeItem, _ previews: [String: ChatSession]) -> Date {
+    private func lastActivity(_ item: HomeItem, _ previews: [String: ChatSession], _ delegationDates: [String: Date]) -> Date {
         switch item {
-        case .bot(let bot): return max(bot.sessionId.flatMap { previews[$0]?.updatedAt } ?? .distantPast, store.latestDelegation(botID: bot.id)?.updatedAt ?? .distantPast)
+        case .bot(let bot): return max(bot.sessionId.flatMap { previews[$0]?.updatedAt } ?? .distantPast, delegationDates[bot.id] ?? .distantPast)
         case .room(let room): return room.messages.last?.date ?? .distantPast
         }
     }
@@ -128,9 +141,14 @@ struct BotWorkspaceView: View {
                                 HStack(spacing: 6) { Text(commander.name).font(.title3.weight(.semibold)); Image(systemName: "chevron.right").font(.caption) }
                                     .frame(minHeight: 44)
                             }.buttonStyle(.plain).disabled(opening)
-                            BotRunStatusView(botID: commander.id, hidesWhenIdle: true)
+                            if isBotContentLocked(commander) {
+                                Text(AppLocalized("Locked conversation")).font(.caption).foregroundStyle(.secondary)
+                            } else { BotRunStatusView(botID: commander.id, hidesWhenIdle: true) }
                         }.frame(maxWidth: .infinity).padding(.vertical, 12)
-                        .contextMenu { Button { profileBot = BotChatTarget(id: commander.id) } label: { Label("Bot 资料", systemImage: "person.text.rectangle") } }
+                        .contextMenu {
+                            Button { profileBot = BotChatTarget(id: commander.id) } label: { Label("Bot 资料", systemImage: "person.text.rectangle") }
+                            sessionLockMenu(for: commander)
+                        }
                     }.listRowSeparator(.hidden).listRowBackground(Color.clear)
                 }
                 if isWorkspaceEmpty {
@@ -175,7 +193,8 @@ struct BotWorkspaceView: View {
                     .keyboardShortcut("f", modifiers: .command).hidden()
                     .disabled(isWorkspaceEmpty)
             }
-            .task(id: query) { await search() }
+            .onReceive(sessionLocks.objectWillChange) { lockRevision &+= 1 }
+            .task(id: query + "|" + String(lockRevision)) { await search() }
             .sheet(item: $editingBot, onDismiss: {
                 if let bot = savedNewBot { savedNewBot = nil; open(bot) }
             }) { profile in
@@ -279,25 +298,51 @@ struct BotWorkspaceView: View {
         return date.formatted(.dateTime.month(.defaultDigits).day())
     }
 
+    private func isBotContentLocked(_ bot: BotProfile) -> Bool {
+        if let sid = bot.sessionId, sessionLocks.isVisuallyLocked(sid) { return true }
+        return store.data.sessionOwners.contains { sid, owner in
+            owner.botId == bot.id && owner.roomId == nil && sessionLocks.isVisuallyLocked(sid)
+        }
+    }
+
+    @ViewBuilder
+    private func sessionLockMenu(for bot: BotProfile) -> some View {
+        if let sid = bot.sessionId, sessionLocks.globalEnabled, BiometricAuth.isAvailable {
+            Button {
+                if sessionLocks.isLocked(sid) {
+                    Task { @MainActor in
+                        guard await BiometricAuth.authenticate(reason: AppLocalized("Unlock conversation")) else { return }
+                        sessionLocks.unlockPermanently(sid)
+                    }
+                } else { sessionLocks.lock(sid) }
+            } label: {
+                Label(AppLocalized(sessionLocks.isLocked(sid) ? "Unlock conversation" : "Lock conversation"),
+                      systemImage: sessionLocks.isLocked(sid) ? "lock.open" : "lock")
+            }
+        }
+    }
+
     private func botRow(_ bot: BotProfile, preview: ChatSession?) -> some View {
-        let subtitle = botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
+        let locked = isBotContentLocked(bot)
+        let subtitle = locked ? AppLocalized("Locked conversation") : (botSnippets[bot.id].flatMap { $0.isEmpty ? nil : $0 }
             ?? store.delegationPreview(botID: bot.id, after: preview?.lastMessage?.isEmpty == false ? preview?.updatedAt : nil)
             ?? preview?.lastMessage
-            ?? bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init)
+            ?? bot.instructions.split(whereSeparator: \.isNewline).first.map(String.init))
         return Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             open(bot)
         } label: {
-            homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: max(preview?.updatedAt ?? .distantPast, store.latestDelegation(botID: bot.id)?.updatedAt ?? .distantPast),
+            homeRow(name: bot.name, tag: nil, pinned: bot.pinnedAt != nil, date: max(preview?.updatedAt ?? .distantPast, delegationDates[bot.id] ?? .distantPast),
                     subtitle: subtitle, busy: openingBotID == bot.id,
                     avatar: { BotAvatar(profile: bot, size: 54) },
-                    status: { BotRunStatusView(botID: bot.id, hidesWhenIdle: true) })
+                    status: { if !locked { BotRunStatusView(botID: bot.id, hidesWhenIdle: true) } })
         }
         .buttonStyle(BotRowPressStyle())
         .accessibilityHint("打开对话")
         .disabled(opening)
         .contextMenu {
             Button { profileBot = BotChatTarget(id: bot.id) } label: { Label("Bot 资料", systemImage: "person.text.rectangle") }
+            sessionLockMenu(for: bot)
             pinButton(pinned: bot.pinnedAt != nil, noun: "Bot") { store.setPinned(bot.pinnedAt == nil, botID: bot.id) }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -394,7 +439,8 @@ struct BotWorkspaceView: View {
         guard !Task.isCancelled else { return }
         let matches = BotWorkspaceSearch.matches(data: store.data, terms: terms,
             hits: results.compactMap { result in
-                result.matchSnippet.map { BotWorkspaceSearch.Hit(sessionID: result.session.id, snippet: $0) }
+                guard !sessionLocks.isVisuallyLocked(result.session.id) else { return nil }
+                return result.matchSnippet.map { BotWorkspaceSearch.Hit(sessionID: result.session.id, snippet: $0) }
             })
         botSnippets = matches.bots
         roomSnippets = matches.rooms

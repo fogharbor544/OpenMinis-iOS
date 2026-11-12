@@ -552,25 +552,36 @@ extension AIChatViewModel {
     ) async throws -> StreamResult {
         // Track entries we've gotten empty responses from to avoid infinite loops.
         var emptyResponseEntries: Set<String> = []
+        var requestProvider = provider
+        var requestModel = model
+        var requestPrompt = systemPrompt
+        var providerEntryId = activeEntryId
 
         while true {
             let fbStream = try await streamWithGroupFallback(
                 takeoverGeneration: takeoverGeneration,
-                provider: provider,
+                provider: requestProvider,
                 messages: messages,
                 baseSystemPrompt: baseSystemPrompt,
-                systemPrompt: systemPrompt,
+                systemPrompt: requestPrompt,
                 tools: tools,
-                model: model,
+                model: requestModel,
                 lastContextTokens: lastContextTokens,
                 chatMessage: chatMessage,
                 activeGroupId: &activeGroupId,
                 activeEntryId: &activeEntryId
             )
+            if activeEntryId != providerEntryId,
+               let id = activeEntryId, let entry = ProviderConfigStore.shared.entry(for: id) {
+                requestProvider = await makeAgentProvider(for: entry)
+                requestModel = entry.model
+                requestPrompt = agentSystemPrompt(for: entry.model, basePrompt: baseSystemPrompt)
+                providerEntryId = id
+            }
             let result = try await processStreamEvents(
                 stream: fbStream,
                 msgIdx: msgIdx,
-                provider: provider
+                provider: requestProvider
             )
 
             // Empty-response detection: HTTP 200 + stream finished, but no text,
@@ -638,8 +649,13 @@ extension AIChatViewModel {
                 let nextEid = ModelGroupRouter.nextFallback(
                     group: group, currentEntryId: currentEid, store: ProviderConfigStore.shared
                 )
-                if let nextEid, !emptyResponseEntries.contains(nextEid) {
+                if let nextEid, !emptyResponseEntries.contains(nextEid),
+                   let nextEntry = ProviderConfigStore.shared.entry(for: nextEid) {
                     logger.info("🔀ROUTE-CONTENT manually advancing: \(currentEid) → \(nextEid)")
+                    requestProvider = await makeAgentProvider(for: nextEntry)
+                    requestModel = nextEntry.model
+                    requestPrompt = agentSystemPrompt(for: nextEntry.model, basePrompt: baseSystemPrompt)
+                    providerEntryId = nextEid
                     activeEntryId = nextEid
                     // [T-ios-switch-model-fallback-clobber] A pending user switch owns
                     // the binding; this path has the widest window (the whole empty

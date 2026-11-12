@@ -466,7 +466,7 @@ final class SessionConcurrencyManager: ObservableObject {
 
     @Published private(set) var runningSessions: Set<String> = []
     @Published private(set) var suspendedSessions: [String] = []
-    private var waiters: [(id: String, continuation: CheckedContinuation<Void, Never>)] = []
+    private var waiters: [(id: String, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// [T-limits-per-parent] The only way in. An `exempt` run (a sub agent)
     /// gets a lease that holds no slot and never waits; everyone else waits for
@@ -485,6 +485,7 @@ final class SessionConcurrencyManager: ObservableObject {
 
     /// Acquire a processing slot. Returns immediately if under limit, otherwise suspends until a slot opens.
     private func acquireSlot(sessionId: String) async throws {
+        try Task.checkCancellation()
         if runningSessions.count < maxConcurrent {
             runningSessions.insert(sessionId)
             return
@@ -492,12 +493,18 @@ final class SessionConcurrencyManager: ObservableObject {
 
         // Over limit — suspend and wait
         suspendedSessions.append(sessionId)
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            waiters.append((id: sessionId, continuation: continuation))
+        let admitted = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                waiters.append((id: sessionId, continuation: continuation))
+            }
+        } onCancel: {
+            Task { @MainActor in self.cancelWait(sessionId: sessionId) }
         }
-        // After resuming, check if the task was cancelled while waiting
-        try Task.checkCancellation()
-        runningSessions.insert(sessionId)
+        guard admitted else { throw CancellationError() }
+        if Task.isCancelled {
+            releaseSlot(sessionId: sessionId)
+            throw CancellationError()
+        }
     }
 
     /// Release a processing slot and resume the next waiting session (FIFO).
@@ -511,7 +518,7 @@ final class SessionConcurrencyManager: ObservableObject {
         suspendedSessions.removeAll { $0 == sessionId }
         if let idx = waiters.firstIndex(where: { $0.id == sessionId }) {
             let waiter = waiters.remove(at: idx)
-            waiter.continuation.resume()
+            waiter.continuation.resume(returning: false)
         }
     }
 
@@ -521,10 +528,11 @@ final class SessionConcurrencyManager: ObservableObject {
     }
 
     private func resumeNextWaiter() {
-        guard !waiters.isEmpty else { return }
+        guard runningSessions.count < maxConcurrent, !waiters.isEmpty else { return }
         let next = waiters.removeFirst()
         suspendedSessions.removeAll { $0 == next.id }
-        next.continuation.resume()
+        runningSessions.insert(next.id)
+        next.continuation.resume(returning: true)
     }
 }
 

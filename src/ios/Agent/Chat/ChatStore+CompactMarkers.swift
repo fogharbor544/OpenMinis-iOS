@@ -24,12 +24,14 @@ extension ChatStore {
     // MARK: - Compact Markers
 
     /// Insert a compact marker after a successful compaction.
-    func insertCompactMarker(_ marker: CompactMarker) {
+    @discardableResult
+    func insertCompactMarker(_ marker: CompactMarker) -> Bool {
         let sql = """
             INSERT INTO compact_markers (id, session_id, summary, first_kept_sort_order, compacted_count, created_at, ui_boundary_sort_order, boundary_message_id, first_kept_message_id, last_compacted_message_id, version)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         var stmt: OpaquePointer?
+        var saved = false
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (marker.id as NSString).utf8String, -1, nil)
             sqlite3_bind_text(stmt, 2, (marker.sessionId as NSString).utf8String, -1, nil)
@@ -58,10 +60,12 @@ extension ChatStore {
                 sqlite3_bind_null(stmt, 10)
             }
             sqlite3_bind_int64(stmt, 11, Int64(marker.version))
-            sqlite3_step(stmt)
+            saved = sqlite3_step(stmt) == SQLITE_DONE
         }
         sqlite3_finalize(stmt)
+        guard saved else { return false }
         markDirty(recordType: "CompactMarker", recordId: marker.id)
+        return true
     }
 
     /// Rewrite an existing compact marker in place (same id). Used by Phase 2.5

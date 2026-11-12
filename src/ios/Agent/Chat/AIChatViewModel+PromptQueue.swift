@@ -182,6 +182,9 @@ extension AIChatViewModel {
             guard let take = self.planQueueTake(at: .turnEnd) else { break }
             let queued = self.removeQueueTake(take)
             guard !queued.isEmpty else { continue }
+            self.completeScheduledTurn(succeeded: false)
+            self.programmaticTurnOrigin = take.scheduledJobId.map { .job(jobId: $0) }
+            self.activeScheduledJobID = take.scheduledJobId.flatMap { self.scheduledTurnReceipts[$0] != nil ? $0 : nil }
             let drainReminder = self.scheduledReminder(for: take, delivered: queued, at: .turnEnd)
             // [T-loop-reminder-scheduled-exempt] A scheduled fire's poll is an
             // expected repeat: don't let it count toward a loop warning.
@@ -271,9 +274,11 @@ extension AIChatViewModel {
             for msg in self.messages where msg.queuedPromptId.map(queuedIds.contains) == true {
                 msg.historyAnchorId = queueAgentMsg.anchorId
             }
-            if let pid = await self.persistAgentMessage(queueAgentMsg, pastedParts: drainPastedParts), qIdx < self.agentHistory.count {
-                self.agentHistory[qIdx].dbMessageId = pid
+            guard let pid = await self.persistAgentMessage(queueAgentMsg, pastedParts: drainPastedParts) else {
+                self.completeScheduledTurn(succeeded: false)
+                break
             }
+            if qIdx < self.agentHistory.count { self.agentHistory[qIdx].dbMessageId = pid }
 
             self.beginBotResultDelivery(texts: queued.map(\.text))
             do {
@@ -464,9 +469,14 @@ extension AIChatViewModel {
         for msg in messages where msg.queuedPromptId.map(queuedIds.contains) == true {
             msg.historyAnchorId = queueMsg.anchorId
         }
-        if let pid = await persistAgentMessage(queueMsg, snapshots: [:], pastedParts: qPastedParts), queueIdx < agentHistory.count {
-            agentHistory[queueIdx].dbMessageId = pid
+        guard let pid = await persistAgentMessage(queueMsg, snapshots: [:], pastedParts: qPastedParts) else {
+            if let jobID = take.scheduledJobId {
+                scheduledQueuedJobIDs = scheduledQueuedJobIDs.filter { $0.value != jobID }
+                scheduledTurnReceipts.removeValue(forKey: jobID)?.resolve(.init(text: "", succeeded: false))
+            }
+            return .none
         }
+        if queueIdx < agentHistory.count { agentHistory[queueIdx].dbMessageId = pid }
         // Cache markdown on the completed assistant message before starting a new one
         if msgIdx < messages.count {
             for i in messages[msgIdx].blocks.indices {
@@ -488,6 +498,9 @@ extension AIChatViewModel {
         // turn inside this loop: a sub-agent stop's mute was for the turn that
         // just ended, not for the user's queued message.
         delegationResultsMuted = false
+        completeScheduledTurn(succeeded: false)
+        programmaticTurnOrigin = take.scheduledJobId.map { .job(jobId: $0) }
+        activeScheduledJobID = take.scheduledJobId.flatMap { scheduledTurnReceipts[$0] != nil ? $0 : nil }
         beginBotResultDelivery(texts: queued.map(\.text))
         // Start a new assistant message so the next response appears below the queued user message
         messages.append(ChatMessage(role: .assistant, content: "", blocks: []))

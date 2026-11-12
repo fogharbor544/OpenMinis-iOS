@@ -556,7 +556,12 @@ extension AIChatViewModel {
                 // same iteration. Incrementing here too would move the index
                 // past the message and leave the resync nothing wrong to fix.
                 if let raw = await buildRawMessage(steerMsg) {
-                    await ChatStore.shared.appendMessages([raw])
+                    guard await ChatStore.shared.appendMessages([raw]) else {
+                        reportTurnFailure(AppLocalized("Message could not be saved. Please try again."))
+                        canResume = true
+                        hitTurnLimit = false
+                        break
+                    }
                     if steerIdx < agentHistory.count {
                         agentHistory[steerIdx].dbMessageId = raw.id
                     }
@@ -1734,8 +1739,12 @@ extension AIChatViewModel {
                 // it names the backup model when one took over. Passing it here
                 // (rather than letting the persist layer look up the session) is
                 // what keeps attribution correct across a silent switch.
-                if let persistedId = await persistAgentMessage(assistantMessage, tokenUsage: turnUsage, thoughtSignatures: sigMap, streamInterruptCount: interruptCount, modelEntryId: activeEntryId),
-                   assistantAgentIdx < agentHistory.count {
+                guard let persistedId = await persistAgentMessage(assistantMessage, tokenUsage: turnUsage, thoughtSignatures: sigMap, streamInterruptCount: interruptCount, modelEntryId: activeEntryId) else {
+                    completeScheduledTurn(succeeded: false)
+                    hitTurnLimit = false
+                    break
+                }
+                if assistantAgentIdx < agentHistory.count {
                     agentHistory[assistantAgentIdx].dbMessageId = persistedId
                     // [T-error-persist-ios] Persist this turn's error state AFTER the
                     // row exists + dbMessageId is assigned, keyed by that id, so the
@@ -1750,6 +1759,7 @@ extension AIChatViewModel {
                         }
                     }
                 }
+                completeScheduledTurn(message: messages[msgIdx], succeeded: stopReason == .endTurn && !canResume && !userDidCancel)
                 hitTurnLimit = false
 
                 // [T-ios-queued-message-continues-prev-turn] The current turn's
@@ -1890,14 +1900,12 @@ extension AIChatViewModel {
             // [T-user-ask-observe] With the model that wrote it, like the final
             // reply row: a tool-call row used to get model_id NULL, so per-model
             // counts of tool use (user_ask included) were impossible.
-            let deferredAssistantRaw = await buildRawMessage(assistantMessage, thoughtSignatures: sigMap,
+            let deferredAssistantRaw = await buildRawMessage(assistantMessage, tokenUsage: turnUsage, thoughtSignatures: sigMap,
                                                              modelEntryId: activeEntryId)
             // Phase B: write the DB id back into agentHistory immediately — even though
             // we defer the actual appendMessages to batch with the tool results below,
             // the id is deterministic and compact lookups rely on it.
-            if let raw = deferredAssistantRaw, assistantAgentIdx < agentHistory.count {
-                agentHistory[assistantAgentIdx].dbMessageId = raw.id
-            }
+
             // Flush any remaining unspoken text (streaming TTS already spoke most sentences)
             do {
                 let remainingSpeak: String
@@ -2087,7 +2095,15 @@ extension AIChatViewModel {
                 var batch: [RawMessage] = []
                 if let assistantRaw = deferredAssistantRaw { batch.append(assistantRaw) }
                 batch.append(toolResultRaw)
-                await ChatStore.shared.appendMessages(batch)
+                guard await ChatStore.shared.appendMessages(batch) else {
+                    messages[msgIdx].error = AppLocalized("Message could not be saved. Please try again.")
+                    canResume = true
+                    hitTurnLimit = false
+                    break
+                }
+                if let raw = deferredAssistantRaw, assistantAgentIdx < agentHistory.count {
+                    agentHistory[assistantAgentIdx].dbMessageId = raw.id
+                }
                 // [T-user-ask] The answers are in the transcript now: drop the
                 // recovery records (delivery is exactly-once per toolCallId).
                 let askIds = toolEntries.filter { $0.name == UserAskTool.name }.map(\.id)
@@ -2098,7 +2114,13 @@ extension AIChatViewModel {
                     agentHistory[toolResultAgentIdx].dbMessageId = toolResultRaw.id
                 }
             } else if let assistantRaw = deferredAssistantRaw {
-                await ChatStore.shared.appendMessage(assistantRaw)
+                guard await ChatStore.shared.appendMessage(assistantRaw) else {
+                    reportTurnFailure(AppLocalized("Message could not be saved. Please try again."))
+                    canResume = true
+                    hitTurnLimit = false
+                    break
+                }
+                if assistantAgentIdx < agentHistory.count { agentHistory[assistantAgentIdx].dbMessageId = assistantRaw.id }
                 // (assistantAgentIdx was already populated above via deferredAssistantRaw path)
             }
 
@@ -2210,7 +2232,7 @@ extension AIChatViewModel {
                 // stream ended without a proper terminal event — same abnormal
                 // interruption as the no-tool exit above. Surface with content-aware
                 // wording + Resume instead of the old bare "ended unexpectedly".
-                if stopReason == nil && toolEntries.isEmpty {
+                if stopReason == nil {
                     logger.warning("Agent loop stopped: stream ended without stop reason")
                     if assistantText.isEmpty {
                         messages[msgIdx].error = AppLocalized("Response ended unexpectedly (no content received)")
@@ -2239,6 +2261,7 @@ extension AIChatViewModel {
         }
 
         // Store accumulated usage on the assistant message
+        completeScheduledTurn(succeeded: false)
         guard msgIdx < messages.count else { return }
         messages[msgIdx].isAwaitingModelResponse = false
         messages[msgIdx].usage = turnUsage

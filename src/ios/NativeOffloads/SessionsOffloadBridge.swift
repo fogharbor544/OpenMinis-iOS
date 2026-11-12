@@ -410,6 +410,11 @@ private let logger = AppLogger(category: "SessionsOffload")
         messageId: String?,
         attachmentPaths: [String]
     ) -> NSDictionary {
+        retryMessage(sessionId: sessionId, messageId: messageId, attachmentPaths: attachmentPaths, scheduledJobId: nil)
+    }
+
+    @nonobjc static func retryMessage(sessionId: String, messageId: String?, attachmentPaths: [String],
+                                     scheduledJobId: String?) -> NSDictionary {
         let sem = DispatchSemaphore(value: 0)
         var output: [String: Any] = [:]
 
@@ -451,6 +456,14 @@ private let logger = AppLogger(category: "SessionsOffload")
                 }
             }
 
+            if let jobId = scheduledJobId {
+                guard let job = AgentJobRegistry.shared.job(id: jobId), job.isEnabled,
+                      job.state == .pending || job.state == .running else {
+                    output = ["ok": false, "error": "cancelled"]
+                    sem.signal()
+                    return
+                }
+            }
             vm.retryFromMessage(targetMessage.id, replacementAttachments: replacementAttachments)
 
             // Resolve model name.

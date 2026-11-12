@@ -249,7 +249,7 @@ actor BackupImporter {
         let runId = UUID().uuidString.prefix(8).lowercased()
         let staging = BackupRestoreJournal.stagingRoot(runId: String(runId))
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
-        BackupRestoreJournal.begin(backupId: manifest.backupId,
+        try BackupRestoreJournal.begin(backupId: manifest.backupId,
                                    categories: orderedCategories(wanted).map(\.rawValue))
         // Cleared only on a clean finish; if the process dies first the marker
         // survives and the next launch reconciles.
@@ -295,8 +295,6 @@ actor BackupImporter {
                 // device.
                 cat.notDownloadedInPackage = fileIndex
                     .filter { $0.category == category.rawValue && $0.skipped == "not_downloaded" }.count
-                report.categories.append(cat)
-                report.warnings += cat.warnings
                 if category == .agents {
                     let unavailable = await MainActor.run {
                         BotWorkspaceStore.shared.data.bots.filter { $0.iconImageData == nil && $0.avatarPresetID != nil && $0.originalAvatar == nil }.map(\.name)
@@ -308,19 +306,36 @@ actor BackupImporter {
                         discardedSessions = Set(restored.workspace.sessionOwners.keys)
                     } else { discardedSessions = [] }
                     try await BotGraphRestore.commit(discardingSessions: discardedSessions)
+                    if let graphFilesSnapshot { try discardRollback(graphFilesSnapshot) }
                 }
+                if let snapshot, !(wanted.contains(.agents) && category == .chats) {
+                    try discardRollback(snapshot)
+                }
+                report.categories.append(cat)
+                report.warnings += cat.warnings
             } catch {
                 logger.error("[Restore] category \(category.rawValue) failed: \(error.localizedDescription)")
                 var cat = CategoryReport(category: category.rawValue)
                 cat.failed = error.localizedDescription
                 report.categories.append(cat)
-                if let snapshot, (try? rollback(snapshot)) != nil {
-                    report.rolledBack.append(category.rawValue)
+                if let snapshot {
+                    do {
+                        try rollback(snapshot)
+                        try discardRollback(snapshot)
+                        report.rolledBack.append(category.rawValue)
+                    } catch {
+                        preserveRestoreJournal = true
+                        throw ImportError.unreadablePackage(String(format: AppLocalized("Rollback failed; recovery snapshots were retained: %@"), error.localizedDescription))
+                    }
                 }
                 if wanted.contains(.agents) && (category == .chats || category == .agents) {
                     do {
                         try await BotGraphRestore.recover()
-                        if let graphFilesSnapshot { try rollback(graphFilesSnapshot) }
+                        if let graphFilesSnapshot,
+                           category != .chats {
+                            try rollback(graphFilesSnapshot)
+                            try discardRollback(graphFilesSnapshot)
+                        }
                         if !report.rolledBack.contains("bot_graph") { report.rolledBack.append("bot_graph") }
                     } catch {
                         preserveRestoreJournal = true
@@ -350,11 +365,10 @@ actor BackupImporter {
     /// Read a package's manifest without importing — powers the "show the user
     /// what's in here before they commit" step of §8.1.
     func inspect(packageURL: URL) throws -> BackupManifest {
-        let work = fm.temporaryDirectory
-            .appendingPathComponent("minisbak-peek-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fm.removeItem(at: work) }
-        let root = try unpack(packageURL, to: work)
-        let manifest = try readManifest(at: root)
+        guard let bytes = try BackupPackageReader.readManifest(at: packageURL) else {
+            throw ImportError.missingManifest
+        }
+        let manifest = try decodeManifest(bytes)
         try checkFormat(manifest)
         return manifest
     }
@@ -442,6 +456,10 @@ actor BackupImporter {
     private func readManifest(at root: URL) throws -> BackupManifest {
         let url = root.appendingPathComponent("manifest.json")
         guard let data = try? Data(contentsOf: url) else { throw ImportError.missingManifest }
+        return try decodeManifest(data)
+    }
+
+    private func decodeManifest(_ data: Data) throws -> BackupManifest {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         do {

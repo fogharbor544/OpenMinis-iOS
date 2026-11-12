@@ -127,7 +127,7 @@ final class CodexOAuthManager: NSObject, ObservableObject {
         let token = try await exchangeCode(result.code, verifier: verifier)
         logger.info("Token exchange successful")
 
-        ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId)
+        guard ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
         logger.info("=== Codex OAuth login complete (instance: \(instanceId)) ===")
     }
 
@@ -180,7 +180,7 @@ final class CodexOAuthManager: NSObject, ObservableObject {
                 guard let self else { throw LLMError.providerError(message: "OAuth manager deallocated") }
                 logger.info("Refreshing Codex token on-demand (instance: \(instanceId))...")
                 let refreshed = try await self.performRefresh(refreshToken: staleRefreshToken)
-                ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+                guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
                 return refreshed
             }
         } catch {

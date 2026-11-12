@@ -68,30 +68,34 @@ extension AIChatViewModel {
         String(toolId.suffix(12))
     }
 
-    func offloadContextContent(_ content: String, toolId: String, toolName: String, ext: String = "txt") -> String {
+    func offloadContextContent(_ content: String, toolId: String, toolName: String, ext: String = "txt") -> String? {
         let fm = FileManager.default
         let sid = sessionId ?? "unknown"
         let persistDir = Self.minisOffloadsPersistentDir(for: sid)
             .appendingPathComponent("tools", isDirectory: true)
-        try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
         let sanitizedName = toolName.isEmpty ? "tool" : toolName.replacingOccurrences(of: "/", with: "_")
         let shortId = Self.shortToolId(toolId)
         let fileName = "\(sanitizedName)_\(shortId).\(ext)"
         let persistPath = persistDir.appendingPathComponent(fileName)
-        try? content.write(to: persistPath, atomically: true, encoding: .utf8)
+        do {
+            try fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
+            try content.write(to: persistPath, atomically: true, encoding: .utf8)
+        } catch {
+            logger.error("Context offload failed: \(error.localizedDescription)")
+            return nil
+        }
 
         return "\(Self.minisOffloadsLinuxDir)/tools/\(fileName)"
     }
 
     /// Save context image data to disk for later retrieval.
     /// Returns the Linux-visible path where the file was saved.
-    private func offloadContextImage(_ data: Data, toolId: String, mimeType: String) -> String {
+    private func offloadContextImage(_ data: Data, toolId: String, mimeType: String) -> String? {
         let fm = FileManager.default
         let sid = sessionId ?? "unknown"
         let persistDir = Self.minisOffloadsPersistentDir(for: sid)
             .appendingPathComponent("tools", isDirectory: true)
-        try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
         let ext: String
         switch mimeType {
@@ -105,7 +109,13 @@ extension AIChatViewModel {
         let shortId = Self.shortToolId(toolId)
         let fileName = "image_\(shortId).\(ext)"
         let persistPath = persistDir.appendingPathComponent(fileName)
-        try? data.write(to: persistPath)
+        do {
+            try fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
+            try data.write(to: persistPath, options: .atomic)
+        } catch {
+            logger.error("Image offload failed: \(error.localizedDescription)")
+            return nil
+        }
 
         return "\(Self.minisOffloadsLinuxDir)/tools/\(fileName)"
     }
@@ -308,6 +318,7 @@ extension AIChatViewModel {
                         snapshotPath = nil
                     } else {
                         snapshotPath = offloadContextImage(data, toolId: id, mimeType: mime ?? "image/jpeg")
+                        guard snapshotPath != nil else { continue }
                         snapshotsWritten += 1
                     }
 
@@ -330,7 +341,7 @@ extension AIChatViewModel {
                     // Standalone image (user attachment) — no tool id, no
                     // recoverable original path. Always snapshot.
                     let synthId = "img-\(sessionId ?? "s")-\(mi)-\(pi)"
-                    let snap = offloadContextImage(data, toolId: synthId, mimeType: mime)
+                    guard let snap = offloadContextImage(data, toolId: synthId, mimeType: mime) else { continue }
                     snapshotsWritten += 1
                     let placeholder = Self.imagePlaceholderText(
                         data: data, originalPath: nil, snapshotPath: snap
@@ -774,11 +785,12 @@ extension AIChatViewModel {
             case .toolResult(let id, let name, let content, let isError, let imgData, let imgMime, _, _, _):
                 // Offload text content
                 if content.count > 500 {
-                    linuxPath = offloadContextContent(content, toolId: id, toolName: name)
+                    guard let path = offloadContextContent(content, toolId: id, toolName: name) else { continue }
+                    linuxPath = path
                 }
                 // Offload image data
                 if let imgData = imgData, imgData.count > 1024 {
-                    let imgPath = offloadContextImage(imgData, toolId: id, mimeType: imgMime ?? "image/png")
+                    guard let imgPath = offloadContextImage(imgData, toolId: id, mimeType: imgMime ?? "image/png") else { continue }
                     if linuxPath.isEmpty { linuxPath = imgPath }
                 }
 
@@ -789,7 +801,8 @@ extension AIChatViewModel {
 
             case .toolUse(let id, let name, let input, _):
                 if let content = input["content"] as? String {
-                    linuxPath = offloadContextContent(content, toolId: id, toolName: name)
+                    guard let path = offloadContextContent(content, toolId: id, toolName: name) else { continue }
+                    linuxPath = path
                 }
                 var newInput = input
                 // [T-offload-stub-system-reminder issue #374] A pruned ARGUMENT
@@ -805,7 +818,8 @@ extension AIChatViewModel {
                 )
 
             case .imageData(let data, let mime, _):
-                linuxPath = offloadContextImage(data, toolId: candidate.toolId, mimeType: mime)
+                guard let path = offloadContextImage(data, toolId: candidate.toolId, mimeType: mime) else { continue }
+                linuxPath = path
                 let stub = "\(Self.offloadedStubPrefix) Image (~\(candidateTokens) tokens, \(candidate.bytes) bytes) saved to: \(linuxPath)\nUse file_read tool to retrieve if needed."
                 agentHistory[candidate.msgIdx].parts[candidate.partIdx] = .text(stub)
 

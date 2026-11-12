@@ -1019,7 +1019,11 @@ struct AddProviderView: View {
         // Nothing to store for a keyless endpoint — and never write an empty
         // string to the Keychain (hasAnyCredential treats empty as absent).
         if !trimmedKey.isEmpty {
-            ProviderKeychainHelper.saveAPIKey(trimmedKey, instanceId: instance.id)
+            guard ProviderKeychainHelper.saveAPIKey(trimmedKey, instanceId: instance.id) else {
+                isSaving = false
+                errorMessage = ProviderKeychainHelper.storageError.localizedDescription
+                return
+            }
         }
         store.addInstance(instance)
         isSaving = false
@@ -1055,7 +1059,10 @@ struct AddProviderView: View {
             customBaseURL: trimmedBase.isEmpty ? nil : trimmedBase,
             appendV1Suffix: appendV1SuffixInput
         )
-        ProviderKeychainHelper.saveOAuthString(trimmedToken, instanceId: instance.id, account: "manual-oauth-token")
+        guard ProviderKeychainHelper.saveOAuthString(trimmedToken, instanceId: instance.id, account: "manual-oauth-token") else {
+            errorMessage = ProviderKeychainHelper.storageError.localizedDescription
+            return
+        }
         store.addInstance(instance)
         dismiss()
     }

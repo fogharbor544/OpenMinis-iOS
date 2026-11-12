@@ -3,10 +3,8 @@ import Foundation
 
 /// Minimal read-side access to a `.minisbak` archive.
 ///
-/// Scope is deliberately narrow: list entry names, and pull ONE small entry
-/// (manifest / index) by name. It exists so stage 1's export can be verified —
-/// the real importer is a later task and will need streaming extraction of
-/// large blobs, which this does not attempt.
+/// Lists entries and reads individual members for preview and rescue.
+/// Full restore uses BackupZipExtractor.
 ///
 /// Why not reuse `SkillStore.readZipEntries`: that one decodes the entire
 /// archive into `[ZipEntry]` in memory, which is right for a small skill bundle
@@ -14,13 +12,7 @@ import Foundation
 /// directory by seeking, so listing a 2GB package costs a few KB.
 enum BackupPackageReader {
 
-    struct Entry {
-        let name: String
-        let compressedSize: Int
-        let uncompressedSize: Int
-        let isCompressed: Bool
-        let localHeaderOffset: Int
-    }
+    private typealias Entry = BackupZipExtractor.Entry
 
     enum ReaderError: LocalizedError {
         case notAZip
@@ -43,6 +35,36 @@ enum BackupPackageReader {
         try readCentralDirectory(at: url).map(\.name)
     }
 
+    /// Same root selection as the importer, without expanding payload members.
+    static func readManifest(at url: URL) throws -> Data? {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let entries = try readCentralDirectory(from: handle)
+        let names = entries.map(\.name)
+        let roots = Set(names.compactMap { $0.split(separator: "/").first.map(String.init) })
+        let name: String
+        if roots.count == 1, let root = roots.first, names.contains(root + "/manifest.json") {
+            name = root + "/manifest.json"
+        } else { name = "manifest.json" }
+        let matches = entries.filter { $0.name == name }
+        guard matches.count <= 1 else { throw ReaderError.notAZip }
+        guard let entry = matches.first else { return nil }
+
+        let memoryThreshold = 16 * 1024 * 1024
+        if entry.compressedSize <= memoryThreshold, entry.uncompressedSize <= memoryThreshold {
+            return try read(entry, from: handle)
+        }
+
+        // The threshold selects an I/O path; it is not a backup format limit.
+        let fm = FileManager.default
+        let work = fm.temporaryDirectory.appendingPathComponent("minisbak-manifest-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: work, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: work) }
+        let manifest = work.appendingPathComponent("manifest.json")
+        try BackupZipExtractor.writeEntry(entry, from: handle, to: manifest)
+        return try Data(contentsOf: manifest, options: .alwaysMapped)
+    }
+
     /// Read a single entry's bytes.
     ///
     /// `name` is matched on suffix as well as equality, because
@@ -50,13 +72,15 @@ enum BackupPackageReader {
     /// outer folder — entries arrive as `minisbak-<uuid>/manifest.json`, not
     /// bare `manifest.json`.
     static func readEntry(at url: URL, named name: String) throws -> Data? {
-        let entries = try readCentralDirectory(at: url)
-        guard let entry = entries.first(where: { $0.name == name || $0.name.hasSuffix("/" + name) })
-        else { return nil }
-
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        let entries = try readCentralDirectory(from: handle)
+        guard let entry = entries.first(where: { $0.name == name || $0.name.hasSuffix("/" + name) })
+        else { return nil }
+        return try read(entry, from: handle)
+    }
 
+    private static func read(_ entry: Entry, from handle: FileHandle) throws -> Data {
         // Local file header: the name/extra field lengths there can differ from
         // the central directory's, so the data offset must be computed from the
         // LOCAL header rather than assumed.
@@ -67,7 +91,7 @@ enum BackupPackageReader {
         let nameLen = Int(readU16(header, 26))
         let extraLen = Int(readU16(header, 28))
         try handle.seek(toOffset: UInt64(entry.localHeaderOffset + 30 + nameLen + extraLen))
-        guard let raw = try handle.read(upToCount: entry.compressedSize) else {
+        guard let raw = try handle.read(upToCount: entry.compressedSize), raw.count == entry.compressedSize else {
             throw ReaderError.truncated
         }
 
@@ -89,16 +113,14 @@ enum BackupPackageReader {
     private static func readCentralDirectory(at url: URL) throws -> [Entry] {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        return try readCentralDirectory(from: handle)
+    }
+
+    private static func readCentralDirectory(from handle: FileHandle) throws -> [Entry] {
         do {
-            return try BackupZipExtractor.centralDirectory(handle: handle).map {
-                Entry(name: $0.name, compressedSize: $0.compressedSize,
-                      uncompressedSize: $0.uncompressedSize,
-                      isCompressed: $0.isCompressed,
-                      localHeaderOffset: $0.localHeaderOffset)
-            }
+            return try BackupZipExtractor.centralDirectory(handle: handle)
         } catch {
-            // Keep this type's own error vocabulary: callers (and the rescue
-            // path that falls back to a forward scan) branch on it.
+            // Rescue branches on this error to fall back to a forward scan.
             throw ReaderError.notAZip
         }
     }

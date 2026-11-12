@@ -158,7 +158,7 @@ final class XAIOAuthManager: NSObject, ObservableObject {
         )
         logger.info("Token exchange successful")
 
-        ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId)
+        guard ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
         // isAuthenticated(instanceId:) is a plain Keychain read, not @Published —
         // emit objectWillChange so observing views (Provider Detail / AddProvider)
         // refresh their "Signed in" badge immediately on successful login.
@@ -212,7 +212,7 @@ final class XAIOAuthManager: NSObject, ObservableObject {
                 guard let self else { throw LLMError.providerError(message: "OAuth manager deallocated") }
                 logger.info("Refreshing xAI token on-demand (instance: \(instanceId))...")
                 let refreshed = try await self.performRefresh(refreshToken: staleRefreshToken, cachedEndpoint: cachedEndpoint)
-                ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+                guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
                 return refreshed
             }
         } catch {

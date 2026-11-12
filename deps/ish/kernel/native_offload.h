@@ -57,6 +57,11 @@ struct task;
 typedef int (*native_handler_func)(int argc, char **argv,
                                    int stdin_fd, int stdout_fd, int stderr_fd);
 
+// Host capability authorization, invoked for the actual executable on its guest thread.
+// Install before guest execution. The host reads trusted task provenance, never shell text.
+typedef bool (*native_permission_check)(const char *guest_path);
+void native_offload_set_permission_check(native_permission_check check);
+
 // Register an in-process handler for a guest binary name.
 // When guest execve() basename matches guest_name, handler is called
 // instead of emulating the binary. Takes priority over host binary lookup.

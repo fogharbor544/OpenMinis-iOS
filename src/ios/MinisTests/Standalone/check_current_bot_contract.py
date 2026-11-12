@@ -28,8 +28,13 @@ unread = store.split("func updateConversation", 1)[1].split("func latestDelegati
 assert "return next == data || persist(next)" not in unread
 assert "writeQueue.async" in unread
 merge = store.split("private static func mergeConversationState", 1)[1]
-assert "if FileManager.default.fileExists(atPath: fileURL.path)" in merge
-assert "workspace = fallback" in merge
+assert "BotWorkspaceDisk.updateMetadata(at: fileURL, fallback: fallback)" in merge
+update = store.split("static func updateMetadata(", 1)[1].split("static func write(", 1)[0]
+assert "FileManager.default.fileExists(atPath: url.path)" in update
+assert "var workspace = fallback" in update
+assert "decode(Document.self, from: Data(contentsOf: url))" in update
+assert "BotDataSnapshotLock.lock.lock()" in update
+assert "BotDataSnapshotLock.lock.unlock()" in update
 assert "BotDataSnapshotLock.lock.lock()" in merge
 assert "BotDataSnapshotLock.lock.unlock()" in merge
 schema = read("Agent/Chat/AIChatViewModel+ToolDefinitions.swift")

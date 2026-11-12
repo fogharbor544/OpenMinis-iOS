@@ -100,7 +100,7 @@ final class KimiOAuthManager: ObservableObject {
             deviceId: deviceId,
             lastRefresh: Date()
         )
-        ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId)
+        guard ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
         logger.info("Kimi device login complete (instance: \(instanceId))")
     }
 
@@ -201,7 +201,7 @@ final class KimiOAuthManager: ObservableObject {
         let staleRefresh = current.refreshToken ?? ""
         do {
             let refreshed = try await performRefresh(refreshToken: staleRefresh, deviceId: current.deviceId)
-            ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+            guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
             return refreshed
         } catch {
             // Route through the pure compare-before-delete coordinator.

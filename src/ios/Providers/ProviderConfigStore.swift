@@ -3065,28 +3065,45 @@ enum ProviderKeychainHelper {
         UserDefaults.standard.set(date, forKey: apiKeySavedAtUDKey(instanceId: instanceId))
     }
 
-    static func saveAPIKey(_ key: String, instanceId: String, caller: String = #function) {
-        let service = "com.fogharbor544.minis.provider.\(instanceId)"
-        let deleteQuery: [String: Any] = [
+    /// Update the synchronized item without deleting the last usable credential.
+    static var storageError: NSError {
+        NSError(domain: "ProviderCredentialStorage", code: 1, userInfo: [NSLocalizedDescriptionKey:
+            AppLocalized("Credentials could not be saved. Please try again.")])
+    }
+
+    private static func writeCredential(_ data: Data, instanceId: String, account: String) -> Bool {
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: "com.fogharbor544.minis.provider.\(instanceId)",
             kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: true,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        // Save with iCloud Keychain sync enabled
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = Data(key.utf8)
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        // Stamp the local save time for iCloud LWW conflict resolution.
+        let changes: [String: Any] = [kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        var status = SecItemUpdate(query as CFDictionary, changes as CFDictionary)
+        if status == errSecItemNotFound {
+            var addition = query
+            addition.merge(changes) { _, new in new }
+            status = SecItemAdd(addition as CFDictionary, nil)
+            if status == errSecDuplicateItem { status = SecItemUpdate(query as CFDictionary, changes as CFDictionary) }
+        }
+        guard status == errSecSuccess else {
+            AppLogger(category: "Keychain").error("Credential save failed status=\(status)")
+            return false
+        }
+        // Retire a legacy local copy only after its synchronized replacement is durable.
+        var legacy = query
+        legacy[kSecAttrSynchronizable as String] = false
+        SecItemDelete(legacy as CFDictionary)
+        return true
+    }
+
+    @discardableResult
+    static func saveAPIKey(_ key: String, instanceId: String, caller: String = #function) -> Bool {
+        guard writeCredential(Data(key.utf8), instanceId: instanceId, account: account) else { return false }
         stampAPIKeySavedAt(Date(), instanceId: instanceId)
-        AppLogger(category: "Keychain").info("write apiKey instanceId=\(instanceId.prefix(8)) keyLen=\(key.count) addStatus=\(addStatus) caller=\(caller)")
-        // Refresh credential-derived UI (provider list "configured" dot, etc).
         notifyAuthChanged(instanceId: instanceId)
+        return true
     }
 
     static func loadAPIKey(instanceId: String, caller: String = #function) -> String? {
@@ -3148,27 +3165,12 @@ enum ProviderKeychainHelper {
     /// (which would also silently drop any provider type added later). These
     /// read/write the exact same Keychain item as the typed
     /// `saveOAuthToken`/`loadOAuthToken` pair.
-    static func saveRawOAuthToken(_ data: Data, instanceId: String) {
-        let service = "com.fogharbor544.minis.provider.\(instanceId)"
-        let acct = "oauth-token"
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: acct,
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        if status != errSecSuccess {
-            AppLogger(category: "Keychain").warning("write rawOAuthToken instanceId=\(instanceId.prefix(8)) status=\(status)")
-        }
+    @discardableResult
+    static func saveRawOAuthToken(_ data: Data, instanceId: String) -> Bool {
+        guard writeCredential(data, instanceId: instanceId, account: "oauth-token") else { return false }
         clearOAuthNeedsReauth(instanceId: instanceId)
+        notifyAuthChanged(instanceId: instanceId)
+        return true
     }
 
     static func loadRawOAuthToken(instanceId: String) -> Data? {
@@ -3186,30 +3188,10 @@ enum ProviderKeychainHelper {
         return result as? Data
     }
 
-    static func saveOAuthToken<T: Codable>(_ token: T, instanceId: String, caller: String = #function) {
-        guard let data = try? JSONEncoder().encode(token) else {
-            AppLogger(category: "Keychain").warning("write oauthToken instanceId=\(instanceId.prefix(8)) ENCODE FAILED caller=\(caller)")
-            return
-        }
-        let service = "com.fogharbor544.minis.provider.\(instanceId)"
-        let acct = "oauth-token"
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: acct,
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        AppLogger(category: "Keychain").info("write oauthToken instanceId=\(instanceId.prefix(8)) blobLen=\(data.count) addStatus=\(addStatus) caller=\(caller)")
-        clearOAuthNeedsReauth(instanceId: instanceId)
-        notifyAuthChanged(instanceId: instanceId)
+    @discardableResult
+    static func saveOAuthToken<T: Codable>(_ token: T, instanceId: String, caller: String = #function) -> Bool {
+        guard let data = try? JSONEncoder().encode(token) else { return false }
+        return saveRawOAuthToken(data, instanceId: instanceId)
     }
 
     static func loadOAuthToken<T: Codable>(instanceId: String, as type: T.Type, caller: String = #function) -> T? {
@@ -3317,24 +3299,11 @@ enum ProviderKeychainHelper {
 
     // MARK: - OAuth Strings (per-instance, e.g. email, project ID)
 
-    static func saveOAuthString(_ value: String, instanceId: String, account: String, caller: String = #function) {
-        let service = "com.fogharbor544.minis.provider.\(instanceId)"
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-        var syncDelete = deleteQuery
-        syncDelete[kSecAttrSynchronizable as String] = true
-        SecItemDelete(syncDelete as CFDictionary)
-        var addQuery = deleteQuery
-        addQuery[kSecValueData as String] = Data(value.utf8)
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        addQuery[kSecAttrSynchronizable as String] = true
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        AppLogger(category: "Keychain").info("write oauthString instanceId=\(instanceId.prefix(8)) acct=\(account) valLen=\(value.count) addStatus=\(addStatus) caller=\(caller)")
+    @discardableResult
+    static func saveOAuthString(_ value: String, instanceId: String, account: String, caller: String = #function) -> Bool {
+        guard writeCredential(Data(value.utf8), instanceId: instanceId, account: account) else { return false }
         notifyAuthChanged(instanceId: instanceId)
+        return true
     }
 
     static func loadOAuthString(instanceId: String, account: String, caller: String = #function) -> String? {

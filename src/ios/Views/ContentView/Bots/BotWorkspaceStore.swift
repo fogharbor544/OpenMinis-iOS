@@ -200,6 +200,104 @@ struct BotWorkspaceData: Codable, Equatable {
     }
 }
 
+/// Disk-only representation. Archives continue to encode complete BotWorkspaceData.
+/// Immutable history generations are published by one atomic metadata replacement.
+enum BotWorkspaceDisk {
+    private struct Document: Codable {
+        var workspace: BotWorkspaceData
+        var roomHistoryFiles: [String: String]
+        private enum Keys: String, CodingKey { case roomHistoryFiles }
+        init(workspace: BotWorkspaceData, roomHistoryFiles: [String: String]) {
+            self.workspace = workspace
+            self.roomHistoryFiles = roomHistoryFiles
+        }
+        init(from decoder: Decoder) throws {
+            workspace = try BotWorkspaceData(from: decoder)
+            roomHistoryFiles = try decoder.container(keyedBy: Keys.self)
+                .decodeIfPresent([String: String].self, forKey: .roomHistoryFiles) ?? [:]
+        }
+        func encode(to encoder: Encoder) throws {
+            try workspace.encode(to: encoder)
+            var container = encoder.container(keyedBy: Keys.self)
+            try container.encode(roomHistoryFiles, forKey: .roomHistoryFiles)
+        }
+    }
+
+    static func historyDirectory(for url: URL) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".history", isDirectory: true)
+    }
+
+    static func read(_ url: URL) throws -> BotWorkspaceData {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
+        let document = try JSONDecoder().decode(Document.self, from: Data(contentsOf: url))
+        var workspace = document.workspace
+        for index in workspace.rooms.indices {
+            guard let name = document.roomHistoryFiles[workspace.rooms[index].id] else { continue }
+            guard UUID(uuidString: String(name.dropLast(5))) != nil, name.hasSuffix(".json") else {
+                throw BotWorkspaceError.storage
+            }
+            workspace.rooms[index].messages = try JSONDecoder().decode([BotRoomMessage].self,
+                from: Data(contentsOf: historyDirectory(for: url).appendingPathComponent(name)))
+        }
+        return workspace
+    }
+
+    /// Read-state changes preserve history references without loading room transcripts.
+    static func updateMetadata(at url: URL, fallback: BotWorkspaceData,
+                               mutation: (inout BotWorkspaceData) -> Bool) throws {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            var workspace = fallback
+            if mutation(&workspace) { try write(workspace, previous: nil, to: url) }
+            return
+        }
+        var document = try JSONDecoder().decode(Document.self, from: Data(contentsOf: url))
+        guard mutation(&document.workspace) else { return }
+        try JSONEncoder().encode(document).write(to: url, options: .atomic)
+    }
+
+    static func write(_ workspace: BotWorkspaceData, previous: BotWorkspaceData?, to url: URL,
+                      publish: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) throws {
+        BotDataSnapshotLock.lock.lock()
+        defer { BotDataSnapshotLock.lock.unlock() }
+        let fm = FileManager.default
+        let directory = historyDirectory(for: url)
+        let old: Document? = fm.fileExists(atPath: url.path)
+            ? try JSONDecoder().decode(Document.self, from: Data(contentsOf: url)) : nil
+        var metadata = workspace
+        var references: [String: String] = [:]
+        var created: [URL] = []
+        var committed = false
+        defer { if !committed { for file in created { try? fm.removeItem(at: file) } } }
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let previousRooms = Dictionary((previous?.rooms ?? []).map { ($0.id, $0.messages) }, uniquingKeysWith: { first, _ in first })
+        for index in metadata.rooms.indices {
+            let room = workspace.rooms[index]
+            if let existing = old?.roomHistoryFiles[room.id], previousRooms[room.id] == room.messages {
+                references[room.id] = existing
+            } else if !room.messages.isEmpty {
+                let name = UUID().uuidString + ".json"
+                let target = directory.appendingPathComponent(name)
+                created.append(target)
+                try JSONEncoder().encode(room.messages).write(to: target, options: .atomic)
+                references[room.id] = name
+            }
+            metadata.rooms[index].messages = []
+        }
+        let document = try JSONEncoder().encode(Document(workspace: metadata, roomHistoryFiles: references))
+        try publish(document, url)
+        committed = true
+        // Only remove generations after their replacement metadata is durable.
+        let retained = Set(references.values)
+        for name in Set(old?.roomHistoryFiles.values.map { $0 } ?? []) where !retained.contains(name) {
+            guard UUID(uuidString: String(name.dropLast(5))) != nil, name.hasSuffix(".json") else { continue }
+            try? fm.removeItem(at: directory.appendingPathComponent(name))
+        }
+    }
+}
+
 @MainActor
 final class BotWorkspaceStore: ObservableObject {
     static let shared = BotWorkspaceStore()
@@ -225,7 +323,7 @@ final class BotWorkspaceStore: ObservableObject {
         self.fileURL = fileURL ?? Self.defaultFileURL
         do {
             if FileManager.default.fileExists(atPath: self.fileURL.path) {
-                data = try JSONDecoder().decode(BotWorkspaceData.self, from: Data(contentsOf: self.fileURL))
+                data = try BotWorkspaceDisk.read(self.fileURL)
             }
         } catch { unreadable = true; errorMessage = error.localizedDescription }
         if seedCommander && !unreadable {
@@ -725,11 +823,15 @@ final class BotWorkspaceStore: ObservableObject {
         let workspaceURL = fileURL
         let workspaceFallback = next
         let conversationState = state
-        writeQueue.async { [weak self, workspaceURL, sessionID, conversationState, workspaceFallback] in
+        let reportFailure: @MainActor @Sendable (String) -> Void = { [weak self] message in
+            self?.errorMessage = message
+        }
+        writeQueue.async {
             do {
                 try Self.mergeConversationState(sessionID, conversationState, into: workspaceURL, fallback: workspaceFallback)
             } catch {
-                DispatchQueue.main.async { self?.errorMessage = error.localizedDescription }
+                let message = error.localizedDescription
+                Task { @MainActor in reportFailure(message) }
             }
         }
         return true
@@ -817,7 +919,7 @@ final class BotWorkspaceStore: ObservableObject {
         guard !unreadable else { return false }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(next).write(to: fileURL, options: .atomic)
+            try BotWorkspaceDisk.write(next, previous: data, to: fileURL)
             data = next
             errorMessage = nil
             return true
@@ -859,20 +961,14 @@ final class BotWorkspaceStore: ObservableObject {
         BotDataSnapshotLock.lock.lock()
         defer { BotDataSnapshotLock.lock.unlock() }
 
-        var workspace: BotWorkspaceData
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            workspace = try JSONDecoder().decode(BotWorkspaceData.self, from: Data(contentsOf: fileURL))
-        } else {
-            workspace = fallback
+        try BotWorkspaceDisk.updateMetadata(at: fileURL, fallback: fallback) { workspace in
+            if Self.deletedSessionIDsForMerges.contains(Self.tombstoneKey(fileURL: fileURL, sessionID: sessionID)),
+               workspace.sessionOwners[sessionID] == nil {
+                return false
+            }
+            workspace.conversationStates[sessionID] = state
+            return true
         }
-        if Self.deletedSessionIDsForMerges.contains(Self.tombstoneKey(fileURL: fileURL, sessionID: sessionID)),
-           workspace.sessionOwners[sessionID] == nil {
-            return
-        }
-        workspace.conversationStates[sessionID] = state
-        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try JSONEncoder().encode(workspace).write(to: fileURL, options: .atomic)
     }
 
 

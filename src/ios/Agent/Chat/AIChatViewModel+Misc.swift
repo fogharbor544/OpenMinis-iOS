@@ -115,6 +115,9 @@ extension AIChatViewModel {
 
     /// Remove a queued prompt by ID and its corresponding chat message.
     func removeQueuedPrompt(id: UUID) {
+        if let jobID = scheduledQueuedJobIDs.removeValue(forKey: id) {
+            scheduledTurnReceipts.removeValue(forKey: jobID)?.resolve(.init(text: "", succeeded: false))
+        }
         promptQueue.removeAll { $0.id == id }
         messages.removeAll { $0.queuedPromptId == id }
     }
@@ -123,8 +126,7 @@ extension AIChatViewModel {
     func withdrawQueuedMessage(_ messageId: UUID) {
         guard let msg = messages.first(where: { $0.id == messageId }), msg.isQueued,
               let promptId = msg.queuedPromptId else { return }
-        promptQueue.removeAll { $0.id == promptId }
-        messages.removeAll { $0.id == messageId }
+        removeQueuedPrompt(id: promptId)
         logger.info("Withdrew queued message, queue size=\(self.promptQueue.count)")
     }
 

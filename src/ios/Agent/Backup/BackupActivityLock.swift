@@ -22,26 +22,30 @@ enum BackupBackgroundAssertion {
 
     /// Run `body` while holding a background-task assertion.
     static func run<T>(_ name: String, _ body: () async throws -> T) async rethrows -> T {
-        var id = UIApplication.shared.beginBackgroundTask(withName: name) {
-            // Expiry: nothing to roll back here. The export's own staging is
-            // persistent and resumable, so being cut short costs time, not
-            // data. Logged because "why did my backup stop" is otherwise
-            // invisible.
-            logger.warning("[Backup] background assertion for \(name) expired")
-        }
-        if id == .invalid {
-            // A refused grant is not fatal — the operation still runs, it just
-            // has no protection if the user leaves.
-            logger.warning("[Backup] beginBackgroundTask REFUSED for \(name) — no OS grant held")
-        }
-        defer {
-            if id != .invalid {
-                UIApplication.shared.endBackgroundTask(id)
-                id = .invalid
+        let assertion = Assertion()
+        assertion.id = UIApplication.shared.beginBackgroundTask(withName: name) {
+            Task { @MainActor in
+                logger.warning("[Backup] background assertion for \(name) expired")
+                assertion.end()
             }
         }
+        if assertion.id == .invalid {
+            logger.warning("[Backup] beginBackgroundTask REFUSED for \(name) — no OS grant held")
+        }
+        defer { assertion.end() }
         return try await body()
     }
+
+    @MainActor private final class Assertion {
+        var id: UIBackgroundTaskIdentifier = .invalid
+        func end() {
+            guard id != .invalid else { return }
+            let ending = id
+            id = .invalid
+            UIApplication.shared.endBackgroundTask(ending)
+        }
+    }
+
 }
 
 /// Process-wide exclusion for backup operations (review finding I3).

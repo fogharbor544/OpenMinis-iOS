@@ -94,7 +94,7 @@ final class OpenRouterOAuthManager: NSObject, ObservableObject {
         #endif
 
         // 6. Store as permanent API key (not OAuth token — it's a permanent key)
-        ProviderKeychainHelper.saveAPIKey(apiKey, instanceId: instanceId)
+        guard ProviderKeychainHelper.saveAPIKey(apiKey, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
         logger.info("=== OpenRouter OAuth login complete (instance: \(instanceId)) ===")
     }
 

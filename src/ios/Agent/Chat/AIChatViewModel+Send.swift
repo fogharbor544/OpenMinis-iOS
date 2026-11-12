@@ -525,8 +525,13 @@ extension AIChatViewModel {
             // [T-bubble-span] Write back by anchor, not by index: a Stop + edit
             // or delete during this await can cut the entry, and the index
             // would then stamp the id onto whatever took its place.
-            if let persistedId = await self.persistAgentMessage(userMessage, pastedParts: pastedStoredParts),
-               let i = self.agentHistory.firstIndex(where: { $0.anchorId == userMessage.anchorId }) {
+            guard let persistedId = await self.persistAgentMessage(userMessage, pastedParts: pastedStoredParts) else {
+                self.isProcessing = false
+                self.currentTask = nil
+                self.endBackgroundProcessing()
+                return
+            }
+            if let i = self.agentHistory.firstIndex(where: { $0.anchorId == userMessage.anchorId }) {
                 self.agentHistory[i].dbMessageId = persistedId
             }
 

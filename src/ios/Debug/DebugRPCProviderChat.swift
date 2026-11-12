@@ -117,10 +117,10 @@ enum DebugRPCProvider {
         // absent, and an empty Keychain entry is how the AddProviderView keyless
         // flow avoids phantom credentials too.
         if credentialType == .apiKey, let key = apiKey, !key.isEmpty {
-            ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id)
+            guard ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id) else { throw ProviderKeychainHelper.storageError }
         }
         if let token = oauthToken, !token.isEmpty {
-            ProviderKeychainHelper.saveOAuthString(token, instanceId: instance.id, account: "manual-oauth-token")
+            guard ProviderKeychainHelper.saveOAuthString(token, instanceId: instance.id, account: "manual-oauth-token") else { throw ProviderKeychainHelper.storageError }
         }
 
         let store = ProviderConfigStore.shared
@@ -166,14 +166,14 @@ enum DebugRPCProvider {
             if key.isEmpty {
                 ProviderKeychainHelper.deleteAPIKey(instanceId: instance.id)
             } else {
-                ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id)
+                guard ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id) else { throw ProviderKeychainHelper.storageError }
             }
         }
         if let token = params["oauthToken"] as? String {
             if token.isEmpty {
                 ProviderKeychainHelper.deleteOAuthString(instanceId: instance.id, account: "manual-oauth-token")
             } else {
-                ProviderKeychainHelper.saveOAuthString(token, instanceId: instance.id, account: "manual-oauth-token")
+                guard ProviderKeychainHelper.saveOAuthString(token, instanceId: instance.id, account: "manual-oauth-token") else { throw ProviderKeychainHelper.storageError }
             }
         }
         // Reload after possible side-effect of updateInstance (it can clear imageEndpointResolved).

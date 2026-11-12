@@ -1,6 +1,142 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Message could not be saved. Please try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message could not be saved. Please try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "消息未能保存，请重试。"
+          }
+        }
+      }
+    },
+    "Credentials could not be saved. Please try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Credentials could not be saved. Please try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "凭据未能保存，请重试。"
+          }
+        }
+      }
+    },
+    "Credentials could not be saved for %d providers. Existing credentials were kept." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Credentials could not be saved for %d providers. Existing credentials were kept."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%d 个提供商的部分凭据未能保存，写入失败的原有凭据已保留。"
+          }
+        }
+      }
+    },
+    "Locked conversation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locked conversation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话已锁定"
+          }
+        }
+      }
+    },
+    "Unlock conversation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlock conversation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "解锁会话"
+          }
+        }
+      }
+    },
+    "Lock conversation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lock conversation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "锁定会话"
+          }
+        }
+      }
+    },
+    "An interrupted restore still needs recovery. Restart the app before restoring again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An interrupted restore still needs recovery. Restart the app before restoring again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次中断的恢复仍需处理，请重启应用后再尝试恢复。"
+          }
+        }
+      }
+    },
+    "Rollback failed; recovery snapshots were retained: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rollback failed; recovery snapshots were retained: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回滚失败，已保留恢复快照：%@"
+          }
+        }
+      }
+    },
     "Manage local backups in Minis/Backups. Tap a backup to review it for restore, or use its menu to share or delete it." : {
       "extractionState" : "manual",
       "localizations" : {

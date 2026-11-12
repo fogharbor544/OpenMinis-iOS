@@ -56,7 +56,11 @@ final class SessionForkManager {
                 reasoningContent: msg.reasoningContent,
                 streamInterruptCount: msg.streamInterruptCount
             )
-            await store.appendMessage(newMsg)
+            guard await store.appendMessage(newMsg) else {
+                await store.deleteSession(newSession.id)
+                BotWorkspaceStore.shared.errorMessage = AppLocalized("Message could not be saved. Please try again.")
+                return nil
+            }
         }
 
         logger.info("[Fork] Forked remote session \(remoteSessionId) → \(newSession.id) (\(remoteMessages.count) messages)")
@@ -122,7 +126,11 @@ final class SessionForkManager {
                 reasoningContent: msg.reasoningContent,
                 streamInterruptCount: msg.streamInterruptCount
             )
-            await store.appendMessage(newMsg)
+            guard await store.appendMessage(newMsg) else {
+                await store.deleteSession(newSession.id)
+                BotWorkspaceStore.shared.errorMessage = AppLocalized("Message could not be saved. Please try again.")
+                return nil
+            }
         }
 
         // [T-session-duplicate-compact-marker-ios] Copy compact markers AFTER
@@ -186,7 +194,11 @@ final class SessionForkManager {
                     lastCompactedMessageId: lastCompactedNew,
                     version: marker.version
                 )
-                await store.insertCompactMarker(copy)
+                guard await store.insertCompactMarker(copy) else {
+                    await store.deleteSession(newSession.id)
+                    BotWorkspaceStore.shared.errorMessage = AppLocalized("Message could not be saved. Please try again.")
+                    return nil
+                }
                 copied += 1
             }
             logger.info("[Fork] Copied \(copied)/\(markers.count) compact marker(s) to \(newSession.id)")

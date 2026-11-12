@@ -73,6 +73,7 @@ enum FileToolIO {
         private let lock = NSLock()
         private var coordinator: NSFileCoordinator?
         private var cancelled = false
+        private var cancellationHandler: (@Sendable () -> Void)?
 
         var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
 
@@ -84,12 +85,27 @@ enum FileToolIO {
             if alreadyCancelled { c.cancel() }
         }
 
+        func setCancellationHandler(_ handler: @escaping @Sendable () -> Void) {
+            lock.lock()
+            cancellationHandler = handler
+            let alreadyCancelled = cancelled
+            lock.unlock()
+            if alreadyCancelled { handler() }
+        }
+
+        func check() throws {
+            if isCancelled { throw CancellationError() }
+        }
+
         func cancel() {
             lock.lock()
             cancelled = true
             let c = coordinator
+            let handler = cancellationHandler
+            cancellationHandler = nil
             lock.unlock()
             c?.cancel()
+            handler?()
         }
     }
 
@@ -113,18 +129,25 @@ enum FileToolIO {
     ) async throws -> T {
         let once = Once()
         let cancellation = Cancellation()
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
-            queue.async {
-                let result = Result { try work(cancellation) }
-                if once.claim() { cont.resume(with: result) }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
+                cancellation.setCancellationHandler {
+                    if once.claim() { cont.resume(throwing: CancellationError()) }
+                }
+                queue.async {
+                    let result = Result { try cancellation.check(); return try work(cancellation) }
+                    if once.claim() { cont.resume(with: result) }
+                }
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
+                    guard once.claim() else { return }
+                    cancellation.cancel()
+                    let state = url.flatMap { isCloudBacked($0) ? cloudState($0) : nil }
+                    cont.resume(throwing: IOError.timedOut(operation: operation, seconds: Int(timeout),
+                                                           mayHaveWritten: writes, cloudState: state))
+                }
             }
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
-                guard once.claim() else { return }
-                cancellation.cancel()
-                let state = url.flatMap { isCloudBacked($0) ? cloudState($0) : nil }
-                cont.resume(throwing: IOError.timedOut(operation: operation, seconds: Int(timeout),
-                                                       mayHaveWritten: writes, cloudState: state))
-            }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
@@ -201,6 +224,7 @@ enum FileToolIO {
     /// Run `body` under a coordinated read of `url` when it is cloud-backed,
     /// or directly otherwise.
     private static func coordinatedRead<T>(_ url: URL, cancellation: Cancellation, _ body: (URL) throws -> T) throws -> T {
+        try cancellation.check()
         guard isCloudBacked(url) else { return try body(url) }
         try requestDownload(url)
         let coordinator = NSFileCoordinator()
@@ -208,7 +232,7 @@ enum FileToolIO {
         var coordError: NSError?
         var result: Result<T, Error>?
         coordinator.coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
-            result = Result { try body(readURL) }
+            result = Result { try cancellation.check(); return try body(readURL) }
         }
         if let coordError { throw coordError }
         guard let result else { throw CocoaError(.fileReadUnknown) }
@@ -218,6 +242,7 @@ enum FileToolIO {
     /// Run `body` under a coordinated write of `url` when it is cloud-backed,
     /// or directly otherwise. `.forMerging` because callers read-modify-write.
     private static func coordinatedWrite<T>(_ url: URL, cancellation: Cancellation, _ body: (URL) throws -> T) throws -> T {
+        try cancellation.check()
         guard isCloudBacked(url) || isCloudBacked(url.deletingLastPathComponent()) else { return try body(url) }
         if FileManager.default.fileExists(atPath: url.path) {
             try requestDownload(url)
@@ -227,7 +252,7 @@ enum FileToolIO {
         var coordError: NSError?
         var result: Result<T, Error>?
         coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordError) { writeURL in
-            result = Result { try body(writeURL) }
+            result = Result { try cancellation.check(); return try body(writeURL) }
         }
         if let coordError { throw coordError }
         guard let result else { throw CocoaError(.fileWriteUnknown) }
@@ -244,19 +269,22 @@ enum FileToolIO {
     /// file_write: write or append `data`, creating the parent directory if
     /// it is missing (or `createDirs` asks for it).
     static func writeData(_ data: Data, to url: URL, append: Bool, createDirs: Bool, cancellation: Cancellation) throws {
+        try cancellation.check()
         let fm = FileManager.default
         let parent = url.deletingLastPathComponent()
         if createDirs || !fm.fileExists(atPath: parent.path) {
             try fm.createDirectory(at: parent, withIntermediateDirectories: true)
         }
         try coordinatedWrite(url, cancellation: cancellation) { target in
+            try cancellation.check()
             if append, fm.fileExists(atPath: target.path) {
                 let handle = try FileHandle(forWritingTo: target)
                 defer { try? handle.close() }
                 try handle.seekToEnd()
+                try cancellation.check()
                 try handle.write(contentsOf: data)
             } else {
-                try data.write(to: target)
+                try data.write(to: target, options: .atomic)
             }
         }
     }
@@ -280,6 +308,7 @@ enum FileToolIO {
             return .failed("Error: \(path) is \(size) bytes; file_edit handles files up to \(maxEditBytes) bytes. Use the shell (e.g. sed or a script) for larger files.")
         }
         let body: (URL) throws -> EditOutcome = { target in
+            try cancellation.check()
             guard let data = try? Data(contentsOf: target),
                   let fileContent = String(data: data, encoding: .utf8) else {
                 return .failed("Error: Could not read \(path) as UTF-8 text")
@@ -293,7 +322,8 @@ enum FileToolIO {
                     return .failed("Error: Updated content is not valid UTF-8")
                 }
                 do {
-                    try writeData.write(to: target)
+                    try cancellation.check()
+                    try writeData.write(to: target, options: .atomic)
                 } catch {
                     return .failed("Error writing \(path): \(error.localizedDescription)")
                 }
@@ -308,7 +338,7 @@ enum FileToolIO {
             var result: Result<EditOutcome, Error>?
             coordinator.coordinate(readingItemAt: url, options: [], writingItemAt: url, options: .forMerging,
                                    error: &coordError) { readURL, _ in
-                result = Result { try body(readURL) }
+                result = Result { try cancellation.check(); return try body(readURL) }
             }
             if let coordError { throw coordError }
             guard let result else { throw CocoaError(.fileWriteUnknown) }

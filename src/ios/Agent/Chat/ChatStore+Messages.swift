@@ -19,16 +19,18 @@ private let logger = AppLogger(category: "ChatStore")
 extension ChatStore {
     // MARK: - Message CRUD
 
-    func appendMessage(_ message: RawMessage) {
+    @discardableResult
+    func appendMessage(_ message: RawMessage) -> Bool {
         appendMessages([message])
     }
 
     /// Batch-insert multiple messages in a single SQLite transaction.
     /// This reduces disk I/O by coalescing multiple writes into one fsync.
-    func appendMessages(_ messages: [RawMessage]) {
+    @discardableResult
+    func appendMessages(_ messages: [RawMessage]) -> Bool {
         BotDataSnapshotLock.lock.lock()
         defer { BotDataSnapshotLock.lock.unlock() }
-        guard !messages.isEmpty else { return }
+        guard !messages.isEmpty else { return true }
         // PER-SESSION: a batch can span sessions, so mark each one it touches.
         // Moved below the empty guard — an empty batch changes nothing and
         // should not invalidate at all.
@@ -50,7 +52,7 @@ extension ChatStore {
         }
         guard !messages.isEmpty else {
             logger.info("[Store] appendMessages: all messages dropped after empty-assistant filter")
-            return
+            return false
         }
         let dbOK = (db != nil)
         let firstSid = messages.first?.sessionId.prefix(8) ?? "?"
@@ -61,7 +63,9 @@ extension ChatStore {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
-        exec("BEGIN TRANSACTION")
+        guard sqlite3_exec(db, "BEGIN IMMEDIATE TRANSACTION", nil, nil, nil) == SQLITE_OK else { return false }
+        var committed = false
+        defer { if !committed { sqlite3_exec(db, "ROLLBACK", nil, nil, nil) } }
 
         var touchedSessions = Set<String>()
         for message in messages {
@@ -73,7 +77,7 @@ extension ChatStore {
                 partsJSON = String(data: data, encoding: .utf8) ?? "[]"
             } catch {
                 logger.error("Failed to encode message parts: \(error)")
-                continue
+                return false
             }
             // [T-ios-listsessions-part-flags] derived from the parts we just encoded.
             let partFlags = Self.partFlags(for: message.parts)
@@ -114,13 +118,20 @@ extension ChatStore {
                 if stepRC != SQLITE_DONE {
                     let errMsg = String(cString: sqlite3_errmsg(db))
                     logger.error("[Store] INSERT step failed rc=\(stepRC) sid=\(message.sessionId.prefix(8)) mid=\(message.id.prefix(8)) so=\(sortOrder) err=\(errMsg)")
+                    sqlite3_finalize(stmt)
+                    return false
                 } else {
-                    _ = setMessagePresentation(message.id, json: message.presentationJSON)
+                    guard setMessagePresentation(message.id, json: message.presentationJSON) else {
+                        sqlite3_finalize(stmt)
+                        return false
+                    }
                     logger.info("[Store] INSERT ok sid=\(message.sessionId.prefix(8)) mid=\(message.id.prefix(8)) so=\(sortOrder) role=\(message.role.rawValue)")
                 }
             } else {
                 let errMsg = String(cString: sqlite3_errmsg(db))
                 logger.error("[Store] INSERT prepare failed rc=\(prepRC) sid=\(message.sessionId.prefix(8)) err=\(errMsg)")
+                sqlite3_finalize(stmt)
+                return false
             }
             sqlite3_finalize(stmt)
 
@@ -145,10 +156,12 @@ extension ChatStore {
             touchSession(sessionId)
             markDirty(recordType: "Session", recordId: sessionId)
             // Track for file scanning on flush
-            pendingSyncSessionIds.insert(sessionId)
+
         }
 
-        exec("COMMIT")
+        guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else { return false }
+        committed = true
+        pendingSyncSessionIds.formUnion(touchedSessions)
 
         // Prune oldest messages if any session exceeds the threshold
         for sessionId in touchedSessions {
@@ -159,6 +172,7 @@ extension ChatStore {
         for sessionId in touchedSessions {
             NotificationCenter.default.post(name: .sessionDidUpdate, object: sessionId)
         }
+        return true
     }
 
     /// Diagnostic helper: returns (count, maxSortOrder) for a session. Used to detect

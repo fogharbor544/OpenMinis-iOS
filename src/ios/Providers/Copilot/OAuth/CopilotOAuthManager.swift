@@ -138,7 +138,7 @@ final class CopilotOAuthManager: ObservableObject {
             switch KimiDeviceFlow.classifyPoll(json: json, httpOK: httpOK) {
             case .success(let accessToken, _, _):
                 let storage = CopilotTokenStorage(githubToken: accessToken)
-                ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId)
+                guard ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
                 logger.info("[Copilot] device flow complete for instance \(instanceId.prefix(8))")
                 return accessToken
             case .pending:
@@ -242,7 +242,7 @@ final class CopilotOAuthManager: ObservableObject {
         storage.sessionToken = token
         storage.sessionExpiresAt = (json["expires_at"] as? TimeInterval)
             ?? Date().addingTimeInterval(25 * 60).timeIntervalSince1970
-        ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId)
+        guard ProviderKeychainHelper.saveOAuthToken(storage, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
         logger.info("[Copilot] session token refreshed for instance \(instanceId.prefix(8))")
         return token
     }

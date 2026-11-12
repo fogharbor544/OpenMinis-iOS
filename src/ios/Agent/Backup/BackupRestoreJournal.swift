@@ -42,7 +42,8 @@ enum BackupRestoreJournal {
     }
 
     /// Every rollback staging directory currently on disk.
-    static func allStagingRoots() -> [URL] {
+    static func allStagingRoots(at supportRoot: URL? = nil) -> [URL] {
+        let supportDir = supportRoot ?? Self.supportDir
         let names = (try? FileManager.default.contentsOfDirectory(atPath: supportDir.path)) ?? []
         return names.filter { $0.hasPrefix("rollback") }
             .map { supportDir.appendingPathComponent($0, isDirectory: true) }
@@ -54,19 +55,18 @@ enum BackupRestoreJournal {
         var categories: [String]
     }
 
-    static func begin(backupId: String, categories: [String]) {
-        do {
-            try FileManager.default.createDirectory(at: supportDir,
-                                                    withIntermediateDirectories: true)
-            let marker = Marker(backupId: backupId, startedAt: Date(), categories: categories)
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            try encoder.encode(marker).write(to: markerURL, options: .atomic)
-        } catch {
-            // A missing marker degrades crash reporting, not correctness — the
-            // restore itself should still proceed.
-            logger.warning("[Restore] couldn't write in-progress marker: \(error.localizedDescription)")
+    static func begin(backupId: String, categories: [String], supportRoot: URL? = nil) throws {
+        let supportDir = supportRoot ?? Self.supportDir
+        let markerURL = supportDir.appendingPathComponent("in-progress.json")
+        guard !FileManager.default.fileExists(atPath: markerURL.path) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey:
+                AppLocalized("An interrupted restore still needs recovery. Restart the app before restoring again.")])
         }
+        try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
+        let marker = Marker(backupId: backupId, startedAt: Date(), categories: categories)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(marker).write(to: markerURL, options: .atomic)
     }
 
     /// Clear the marker and this run's snapshot after a clean finish.
@@ -78,7 +78,8 @@ enum BackupRestoreJournal {
     }
 
     /// A restore that never completed, if any.
-    static func interrupted() -> Marker? {
+    static func interrupted(at supportRoot: URL? = nil) -> Marker? {
+        let markerURL = (supportRoot ?? supportDir).appendingPathComponent("in-progress.json")
         guard let data = try? Data(contentsOf: markerURL) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -94,8 +95,14 @@ enum BackupRestoreJournal {
     /// a half-applied merge is a superset of the previous state rather than a
     /// corruption, and re-running the same restore converges.
     @discardableResult
-    static func reconcileAtLaunch() -> Marker? {
-        guard let marker = interrupted() else {
+    static func reconcileAtLaunch(supportRoot: URL? = nil) -> Marker? {
+        let supportDir = supportRoot ?? Self.supportDir
+        let markerURL = supportDir.appendingPathComponent("in-progress.json")
+        guard let marker = interrupted(at: supportDir) else {
+            guard !FileManager.default.fileExists(atPath: markerURL.path) else {
+                logger.error("[Restore] unreadable recovery marker retained with snapshots")
+                return nil
+            }
             // No marker, but staging can still be here: a restore that died
             // before writing the marker, or after clearing it, leaves rollback
             // directories nothing will ever look at again. They hold full
@@ -107,7 +114,7 @@ enum BackupRestoreJournal {
             // needed. Without one there is nothing to roll back to.
             let fm = FileManager.default
             var swept = 0
-            for root in allStagingRoots() {
+            for root in allStagingRoots(at: supportDir) {
                 let bytes = (try? root.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?
                     .totalFileAllocatedSize ?? 0
                 try? fm.removeItem(at: root)
@@ -123,54 +130,60 @@ enum BackupRestoreJournal {
 
         let fm = FileManager.default
         var restored = 0
-        // Sweep EVERY staging root, not just one: roots are per-run now, and a
-        // crash can leave more than one behind.
-        for root in allStagingRoots() {
-            for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] {
-                let saved = root.appendingPathComponent(name, isDirectory: true)
-
-                // [review I4] File-backed snapshots (providers' single
-                // provider-config.json) record their live target in a sidecar,
-                // because a plain file has nowhere to put a `.live-path` child.
-                // Before this, reconcile skipped them outright — so the
-                // crash-recovery path from B4 did not cover the category B3 had
-                // just given a rollback to, and the two fixes gave less
-                // protection together than either appeared to alone.
-                if name.hasSuffix(Self.fileSnapshotSidecarSuffix) {
-                    guard let livePath = try? String(contentsOf: saved, encoding: .utf8),
-                          !livePath.isEmpty else { continue }
-                    let payload = root.appendingPathComponent(
-                        String(name.dropLast(Self.fileSnapshotSidecarSuffix.count)))
-                    guard fm.fileExists(atPath: payload.path) else { continue }
-                    let live = URL(fileURLWithPath: livePath)
-                    if fm.fileExists(atPath: live.path) {
-                        if (try? fm.replaceItemAt(live, withItemAt: payload)) != nil { restored += 1 }
-                    } else if (try? fm.moveItem(at: payload, to: live)) != nil {
-                        restored += 1
+        var failed = false
+        guard (try? fm.contentsOfDirectory(atPath: supportDir.path)) != nil else { return marker }
+        for root in allStagingRoots(at: supportDir) {
+            do {
+                let names = try fm.contentsOfDirectory(atPath: root.path)
+                for name in names {
+                    let saved = root.appendingPathComponent(name)
+                    if name.hasSuffix(Self.fileSnapshotSidecarSuffix) {
+                        do {
+                            let livePath = try String(contentsOf: saved, encoding: .utf8)
+                            guard !livePath.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+                            let payload = root.appendingPathComponent(String(name.dropLast(Self.fileSnapshotSidecarSuffix.count)))
+                            try atomicReplace(directory: payload, onto: URL(fileURLWithPath: livePath))
+                            // Remove the recovery instruction first, only after a successful restore.
+                            try fm.removeItem(at: saved)
+                            try? fm.removeItem(at: payload)
+                            restored += 1
+                        } catch {
+                            failed = true
+                            logger.error("[Restore] file recovery retained: \(error.localizedDescription)")
+                        }
+                        continue
                     }
-                    continue
+                    let pointer = saved.appendingPathComponent(".live-path")
+                    guard fm.fileExists(atPath: pointer.path) else { continue }
+                    do {
+                        let livePath = try String(contentsOf: pointer, encoding: .utf8)
+                        guard !livePath.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+                        try atomicReplace(directory: saved, onto: URL(fileURLWithPath: livePath))
+                        try fm.removeItem(at: pointer)
+                        try? fm.removeItem(at: saved)
+                        restored += 1
+                    } catch {
+                        failed = true
+                        logger.error("[Restore] directory recovery retained: \(error.localizedDescription)")
+                    }
                 }
-
-                // Snapshot dirs are named "<category>-<lastPathComponent>"; the
-                // live target is recorded alongside so reconciliation doesn't
-                // have to re-derive it.
-                guard let liveData = try? Data(contentsOf: saved.appendingPathComponent(".live-path")),
-                      let livePath = String(data: liveData, encoding: .utf8), !livePath.isEmpty
-                else { continue }
-                let live = URL(fileURLWithPath: livePath)
-                if (try? atomicReplace(directory: saved, onto: live)) != nil { restored += 1 }
+            } catch {
+                failed = true
+                logger.error("[Restore] staging unreadable; recovery retained: \(error.localizedDescription)")
             }
-            try? fm.removeItem(at: root)
         }
-        logger.info("[Restore] launch reconcile: restored \(restored) snapshot(s)")
-        try? fm.removeItem(at: markerURL)
+        if !failed {
+            try? fm.removeItem(at: markerURL)
+            for root in allStagingRoots(at: supportDir) { try? fm.removeItem(at: root) }
+        }
+        logger.info("[Restore] launch reconcile: restored \(restored), pending=\(failed)")
         return marker
     }
 
     /// Suffix for the sidecar that records a FILE snapshot's live target.
     static let fileSnapshotSidecarSuffix = ".live-path-of"
 
-    /// Replace `live` with `saved` without a window where neither exists.
+    /// Replace a live file or directory from a snapshot without consuming that snapshot.
     ///
     /// The previous `removeItem` + `copyItem` pair left the user's directory
     /// deleted and not yet replaced if the process died between the two — for
@@ -181,8 +194,8 @@ enum BackupRestoreJournal {
         // replaceItemAt needs the replacement to sit next to the target, and it
         // consumes it, so work from a copy.
         let staged = live.deletingLastPathComponent()
-            .appendingPathComponent(".restore-swap-\(UUID().uuidString)", isDirectory: true)
-        try? fm.removeItem(at: staged)
+            .appendingPathComponent(".restore-swap-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: staged) }
         try fm.copyItem(at: saved, to: staged)
         // Don't carry the bookkeeping file into the live tree.
         try? fm.removeItem(at: staged.appendingPathComponent(".live-path"))

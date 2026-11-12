@@ -294,6 +294,7 @@ enum ScheduledJobRunner {
     /// claim is released when this returns.
     @discardableResult
     private static func fire(_ job: AgentJob, upstreamJobId: String? = nil, claimed: Bool = false) async -> String? {
+        guard canDispatch(job) else { return nil }
         if !claimed {
             guard claimFire(job) else {
                 logger.info("[Sched] FIRE \(job.logLabel) skipped — another fire of this job is in progress")
@@ -344,7 +345,13 @@ enum ScheduledJobRunner {
             applyThinkingLevel(job, sessionId: session.id, entry: entry)
             let (vm, _) = ViewModelCache.shared.getOrCreate(for: session.id)
             await vm.loadSession()
+            guard canDispatch(job) else {
+                await ChatStore.shared.deleteSession(session.id)
+                ViewModelCache.shared.remove(sessionId: session.id)
+                return nil
+            }
             vm.sessionSource = sourceTag
+            if awaitsTurnResult(job) { return await submitAndAwait(job, on: vm, text: text, sessionID: session.id) }
             let outcome = vm.submitProgrammaticPrompt(text, origin: .job(jobId: job.id), silent: true,
                                                      presetToolCall: presetFor(job))
             logger.info("[Sched] FIRE \(job.logLabel) → new session \(session.id.prefix(8)) outcome=\(String(describing: outcome))")
@@ -360,7 +367,9 @@ enum ScheduledJobRunner {
             }
             let (vm, fresh) = ViewModelCache.shared.getOrCreate(for: sid)
             if fresh || vm.messages.isEmpty { await vm.loadSession() }
+            guard canDispatch(job) else { return nil }
             applyThinkingLevel(job, sessionId: sid, entry: vm.resolveCurrentEntry())
+            if awaitsTurnResult(job) { return await submitAndAwait(job, on: vm, text: text, sessionID: sid) }
             let outcome = vm.submitProgrammaticPrompt(text, origin: .job(jobId: job.id), silent: true,
                                                      presetToolCall: presetFor(job))
             logger.info("[Sched] FIRE \(job.logLabel) → follow-up \(sid.prefix(8)) outcome=\(String(describing: outcome))")
@@ -372,7 +381,7 @@ enum ScheduledJobRunner {
             // The sessions bridge blocks its caller with a semaphore and
             // hops to the main actor inside — never call it from here directly.
             let ok: Bool = await Task.detached {
-                let dict = SessionsOffloadBridge.retryMessage(sessionId: sid, messageId: messageId, attachmentPaths: [])
+                let dict = SessionsOffloadBridge.retryMessage(sessionId: sid, messageId: messageId, attachmentPaths: [], scheduledJobId: job.id)
                 return (dict["ok"] as? Bool) ?? false
             }.value
             logger.info("[Sched] FIRE \(job.logLabel) → rerun \(sid.prefix(8))/\(messageId.prefix(8)) ok=\(ok)")
@@ -401,6 +410,7 @@ enum ScheduledJobRunner {
             defer { registry.releaseChildStart(key: slotReservation) }
             let (parentVM, parentFresh) = ViewModelCache.shared.getOrCreate(for: parentSid)
             if parentFresh { await parentVM.loadSession() }
+            guard canDispatch(job) else { return nil }
             guard let resolution = SubAgentModelResolver.resolve(subAgent: nil, parent: parentVM) else {
                 logger.warning("[Sched] fire \(job.id.prefix(8)): parent has no model")
                 registry.recordFire(job.id, sessionId: nil, ok: false)
@@ -419,6 +429,11 @@ enum ScheduledJobRunner {
             // scheduled child used to land in the user's conversation pool.
             let (child, _) = ViewModelCache.shared.getOrCreate(for: session.id, kind: .child)
             await child.loadSession()
+            guard canDispatch(job) else {
+                await ChatStore.shared.deleteSession(session.id)
+                ViewModelCache.shared.remove(sessionId: session.id)
+                return nil
+            }
             child.sessionSource = sourceTag
             child.helperConfig = HelperConfig(parentSessionId: parentSid, parentToolUseId: "",
                                               jobId: job.id, maxTurns: AIChatViewModel.helperMaxTurns,
@@ -455,6 +470,51 @@ enum ScheduledJobRunner {
 
     /// [T-scheduled-preset-tool] The job's preset tool call, paired with the
     /// title its card shows. nil for jobs without `--command` / `--tool`.
+    private static func canDispatch(_ job: AgentJob) -> Bool {
+        !Task.isCancelled && job.isEnabled && (job.state == .pending || job.state == .running)
+            && AgentJobRegistry.shared.job(id: job.id) === job
+    }
+
+    private static func awaitsTurnResult(_ job: AgentJob) -> Bool {
+        switch job.trigger {
+        case .once, .immediate, .onCompletion: return true
+        default: return false
+        }
+    }
+
+    private static func submitAndAwait(_ job: AgentJob, on vm: AIChatViewModel,
+                                       text: String, sessionID: String) async -> String? {
+        guard canDispatch(job) else { return nil }
+        let receipt = ScheduledTurnReceipt()
+        vm.scheduledTurnReceipts[job.id] = receipt
+        let outcome = vm.submitProgrammaticPrompt(text, origin: .job(jobId: job.id), silent: true,
+                                                  presetToolCall: presetFor(job))
+        if case .rejected = outcome {
+            vm.scheduledTurnReceipts.removeValue(forKey: job.id)
+            if vm.activeScheduledJobID == job.id { vm.activeScheduledJobID = nil }
+            AgentJobRegistry.shared.recordFire(job.id, sessionId: sessionID, ok: false)
+            AgentJobRegistry.shared.finish(job.id, state: .failed, result: nil)
+            return nil
+        }
+        let queuedID = vm.lastQueuedProgrammaticPromptId(for: outcome)
+        if let queuedID { vm.scheduledQueuedJobIDs[queuedID] = job.id }
+        AgentJobRegistry.shared.recordFire(job.id, sessionId: sessionID, ok: true)
+        let result = await withTaskCancellationHandler {
+            await receipt.wait()
+        } onCancel: {
+            Task { @MainActor in
+                guard vm.scheduledTurnReceipts[job.id] === receipt else { return }
+                vm.scheduledTurnReceipts.removeValue(forKey: job.id)
+                if vm.activeScheduledJobID == job.id { vm.cancel() }
+                else if let queuedID { vm.removeQueuedPrompt(id: queuedID) }
+                receipt.resolve(nil)
+            }
+        }
+        guard !Task.isCancelled, let result else { return nil }
+        AgentJobRegistry.shared.finish(job.id, state: result.succeeded ? .done : .failed, result: result.text)
+        return sessionID
+    }
+
     private static func presetFor(_ job: AgentJob) -> ScheduledPresetToolCallRequest? {
         guard let preset = job.presetToolCall else { return nil }
         return ScheduledPresetToolCallRequest(jobId: job.id, call: preset, title: job.label ?? job.title)

@@ -153,17 +153,17 @@ final class AntigravityOAuthManager: NSObject, ObservableObject {
 
         // 6. Exchange code for token (with PKCE verifier)
         let token = try await exchangeCode(result.code, codeVerifier: pkce.verifier)
-        ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId)
+        guard ProviderKeychainHelper.saveOAuthToken(token, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
 
         // 7. Fetch user email
         if let email = try? await fetchUserEmail(token: token.accessToken) {
-            ProviderKeychainHelper.saveOAuthString(email, instanceId: instanceId, account: "oauth-email")
+            guard ProviderKeychainHelper.saveOAuthString(email, instanceId: instanceId, account: "oauth-email") else { throw ProviderKeychainHelper.storageError }
         }
 
         // 8. Discover project via Cloud Code Assist
         if let (project, baseURL) = try? await discoverCloudCodeProject(token: token.accessToken) {
-            ProviderKeychainHelper.saveOAuthString(project, instanceId: instanceId, account: "oauth-gcp-project")
-            ProviderKeychainHelper.saveOAuthString(baseURL, instanceId: instanceId, account: "oauth-base-url")
+            guard ProviderKeychainHelper.saveOAuthString(project, instanceId: instanceId, account: "oauth-gcp-project") else { throw ProviderKeychainHelper.storageError }
+            guard ProviderKeychainHelper.saveOAuthString(baseURL, instanceId: instanceId, account: "oauth-base-url") else { throw ProviderKeychainHelper.storageError }
             logger.info("Discovered project: \(project) via \(baseURL)")
         } else {
             logger.warning("No project found — Antigravity inference unavailable")
@@ -216,7 +216,7 @@ final class AntigravityOAuthManager: NSObject, ObservableObject {
                 guard let self else { throw LLMError.providerError(message: "OAuth manager deallocated") }
                 logger.info("Refreshing Antigravity token on-demand (instance: \(instanceId))...")
                 let refreshed = try await self.performRefresh(refreshToken: staleRefreshToken)
-                ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId)
+                guard ProviderKeychainHelper.saveOAuthToken(refreshed, instanceId: instanceId) else { throw ProviderKeychainHelper.storageError }
                 return refreshed
             }
         } catch {

@@ -318,8 +318,7 @@ extension AIChatViewModel {
         { [self] content, toolId, toolName in
             let key = "\(sessionId ?? "unknown")|\(toolName)|\(toolId)"
             if let known = trimOffloadPaths[key] { return known }
-            let path = offloadContextContent(content, toolId: toolId, toolName: toolName)
-            guard !path.isEmpty else { return nil }
+            guard let path = offloadContextContent(content, toolId: toolId, toolName: toolName) else { return nil }
             trimOffloadPaths[key] = path
             return path
         }
@@ -1374,7 +1373,12 @@ extension AIChatViewModel {
             version: 2
         )
         logger.info("[Compact] Persisting v2 marker: id=\(marker.id.prefix(8)) lcmId=\(lastCompactedMessageId.prefix(8)) lcmHistoryIdx=\(lcmHistoryIdx ?? -1)/agentHistory.count=\(self.agentHistory.count) historyCount=\(historyCount) includesBoundary=\(includesBoundary)")
-        await ChatStore.shared.insertCompactMarker(marker)
+        guard await ChatStore.shared.insertCompactMarker(marker) else {
+            statusMsg.content = AppLocalized("Message could not be saved. Please try again.")
+            statusMsg.isCompactLoading = false
+            errorMessage = statusMsg.content
+            return
+        }
 
         // Phase B: update cache so effectiveAgentHistory() starts using the new summary immediately.
         self.cachedLatestMarker = marker

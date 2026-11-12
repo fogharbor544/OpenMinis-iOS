@@ -289,10 +289,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             if itemTemplate.contentType == .folder {
                 try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
             } else if let sourceURL = url {
-                if FileManager.default.fileExists(atPath: destURL.path) {
-                    try FileManager.default.removeItem(at: destURL)
-                }
-                try FileManager.default.copyItem(at: sourceURL, to: destURL)
+                try Self.replaceContents(from: sourceURL, at: destURL,
+                                         mayReplace: options.contains(.mayAlreadyExist))
             }
             let item = FileProviderItem(url: destURL, parentIdentifier: itemTemplate.parentItemIdentifier)
             completionHandler(item, [], false, nil)
@@ -301,6 +299,21 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             completionHandler(nil, [], false, error)
         }
         return Progress()
+    }
+
+    /// Stage alongside the target; a failed copy never removes the original.
+    private static func replaceContents(from source: URL, at target: URL, mayReplace: Bool) throws {
+        let fm = FileManager.default
+        let staged = target.deletingLastPathComponent().appendingPathComponent(".minis-write-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: staged) }
+        if fm.fileExists(atPath: target.path), !mayReplace { throw NSFileProviderError(.filenameCollision) }
+        try fm.copyItem(at: source, to: staged)
+        if fm.fileExists(atPath: target.path) {
+            guard mayReplace else { throw NSFileProviderError(.filenameCollision) }
+            _ = try fm.replaceItemAt(target, withItemAt: staged)
+        } else {
+            try fm.moveItem(at: staged, to: target)
+        }
     }
 
     // MARK: - Modify Item
@@ -361,10 +374,14 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             }
 
             if changedFields.contains(.contents), let newContents {
-                if FileManager.default.fileExists(atPath: destURL.path) {
-                    try FileManager.default.removeItem(at: destURL)
+                do {
+                    try Self.replaceContents(from: newContents, at: destURL, mayReplace: true)
+                } catch {
+                    if destURL != srcURL {
+                        try FileManager.default.moveItem(at: destURL, to: srcURL)
+                    }
+                    throw error
                 }
-                try FileManager.default.copyItem(at: newContents, to: destURL)
             }
 
             let resultItem = FileProviderItem(url: destURL, parentIdentifier: item.parentItemIdentifier)

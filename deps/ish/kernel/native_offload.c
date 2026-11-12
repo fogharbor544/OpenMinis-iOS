@@ -43,6 +43,11 @@
 #undef ISH_INTERNAL
 #endif
 
+static native_permission_check permission_check;
+void native_offload_set_permission_check(native_permission_check check) {
+    permission_check = check;
+}
+
 #if !__APPLE__
 int native_offload_add(const char *spec) { (void)spec; return -1; }
 const char *native_offload_lookup(const char *guest_path) { (void)guest_path; return NULL; }
@@ -633,6 +638,8 @@ static void apply_exec_semantics(const char *guest_file) {
 static int exec_handler(native_handler_func handler, const char *guest_file,
                         size_t argc, const char *argv, const char *envp) {
     (void)envp;
+    // Authorize before path translation, descriptor setup or process-wide cwd changes.
+    if (permission_check != NULL && !permission_check(guest_file)) return _EACCES;
     const char *root_source = get_root_source();
 
     // Build argc/argv for the handler, translating guest paths to host paths.
@@ -713,10 +720,18 @@ static int exec_handler(native_handler_func handler, const char *guest_file,
     // after, so a signal can only reach the callback during the window when the
     // handler is genuinely running. `entry` points into the static registry,
     // which outlives every task.
-    current->native_offload_entry = offload_find(guest_file);
-
-    // Call the handler in-process
-    int ret = handler((int)argc, handler_argv, handler_stdin, handler_stdout, handler_stderr);
+    // Call the handler in-process only if it was not stopped while awaiting consent.
+    lock(&current->sighand->lock);
+    bool cancelled = sigset_has(current->pending, SIGKILL_) || sigset_has(current->pending, SIGTERM_) || sigset_has(current->pending, SIGINT_);
+    unlock(&current->sighand->lock);
+    int ret;
+    if (cancelled) {
+        if (handler_stderr >= 0) dprintf(handler_stderr, "Native capability denied or cancelled: %s\n", guest_file);
+        ret = 126;
+    } else {
+        current->native_offload_entry = offload_find(guest_file);
+        ret = handler((int)argc, handler_argv, handler_stdin, handler_stdout, handler_stderr);
+    }
 
     current->native_offload_entry = NULL;
 

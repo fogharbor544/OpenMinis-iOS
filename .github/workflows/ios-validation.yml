@@ -25,6 +25,9 @@ jobs:
           python3 src/ios/MinisTests/Standalone/run_secure_input_tests.py
           python3 src/ios/MinisTests/Standalone/run_credential_save_tests.py
           python3 src/ios/MinisTests/Standalone/run_browser_takeover_tests.py
+      - name: High risk recovery behavior (native Swift required)
+        if: ${{ !cancelled() }}
+        run: python3 src/ios/MinisTests/Standalone/run_review_recovery_tests.py --require-swift
       - name: Fresh product initialization and Swift syntax
         if: ${{ !cancelled() }}
         run: |
@@ -79,6 +82,14 @@ jobs:
         run: |
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspacePersistenceTests.swift -o "$RUNNER_TEMP/bot-tests"
           "$RUNNER_TEMP/bot-tests"
+      - name: Backup manifest preview behavior
+        if: ${{ !cancelled() }}
+        run: python3 src/ios/MinisTests/Standalone/run_backup_preview_tests.py
+      - name: Split workspace history migration and failure recovery
+        if: ${{ !cancelled() }}
+        run: |
+          swiftc -swift-version 6 src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspaceSplitHistoryTests.swift -o "$RUNNER_TEMP/bot-history-tests"
+          "$RUNNER_TEMP/bot-history-tests"
       - name: Bot memory entries
         if: ${{ !cancelled() }}
         run: |
@@ -181,6 +192,19 @@ jobs:
           swiftc src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift \
             src/ios/MinisTests/Standalone/BotWorkspaceSearchTests.swift -o "$RUNNER_TEMP/bot-search-tests"
           "$RUNNER_TEMP/bot-search-tests"
+      - name: Bot workspace search scale baseline
+        if: ${{ !cancelled() }}
+        run: |
+          swiftc -O src/ios/Views/ContentView/Bots/BotWorkspaceStore.swift src/ios/MinisTests/Standalone/BotWorkspaceSearchBenchmark.swift -o "$RUNNER_TEMP/bot-search-benchmark"
+          "$RUNNER_TEMP/bot-search-benchmark" | tee "$RUNNER_TEMP/bot-search-benchmark.txt"
+          python3 src/ios/MinisTests/Standalone/benchmark_search_sql.py | tee -a "$RUNNER_TEMP/bot-search-benchmark.txt"
+      - name: Upload search scale baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-search-scale-baseline
+          path: ${{ runner.temp }}/bot-search-benchmark.txt
+          if-no-files-found: warn
       - name: Bot session binding behavior tests
         if: ${{ !cancelled() }}
         run: |

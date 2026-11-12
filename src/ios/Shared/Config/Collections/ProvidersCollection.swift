@@ -124,7 +124,7 @@ struct ProvidersCollection: ConfigCollection {
         // Save credential to Keychain BEFORE addInstance() so the model-refresh
         // it kicks off can authenticate.
         if let key = resolvedKey {
-            ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id)
+            guard ProviderKeychainHelper.saveAPIKey(key, instanceId: instance.id) else { throw ProviderKeychainHelper.storageError }
         }
         store.addInstance(instance)
         return instance.id
@@ -246,7 +246,7 @@ struct ProvidersCollection: ConfigCollection {
                     throw ConfigError.invalidValue("API key cannot be empty")
                 }
                 let resolved = try Self.resolveSecret(trimmed)
-                ProviderKeychainHelper.saveAPIKey(resolved, instanceId: id)
+                guard ProviderKeychainHelper.saveAPIKey(resolved, instanceId: id) else { throw ProviderKeychainHelper.storageError }
                 // Keep the instance's credentialType consistent with having a key.
                 try? mutate(id) { _ in }   // touch → updateInstance persists/notifies
             }

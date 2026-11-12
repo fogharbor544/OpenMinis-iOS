@@ -33,14 +33,34 @@ directly on this repository's `main`.
 | **A real Linux shell** | A sandboxed Alpine Linux environment runs on-device — the agent can install packages, run scripts, and work with real files. |
 | **Device integration** | Health, Calendar, Reminders, Contacts, HomeKit, Bluetooth, Clipboard, Media, Alarms and more, exposed to the agent as tools. |
 | **Browser automation** | The agent can browse and interact with the web; bookmarks, Keychain-backed passwords and an inline secure-input card for browser logins are available. |
-| **Bots & groups** | Bot-first home navigation, bounded group rounds, per-Bot configuration with a single scroll area for long instructions, and scoped memory with fixed / ordinary / fact categories. Each memory has its own expanding field in a single scrollable editor. |
+| **Bots & groups** | Bot-first home navigation, bounded group rounds and separate memory for each Bot or group. The fixed, ordinary and fact memory editors each scroll as one page, with a field that grows with each entry. Long Bot instructions scroll in one area, and the Commander’s built-in instructions have a separate read-only view. |
 | **Skills & MCP** | On-demand skills, external MCP connectors, a catalog of built-in capabilities and execution-time permission controls. |
 | **Workspaces** | Session working files at `/var/minis/workspace/`, addressable as `minis://workspace/...`; shared and external folders can be mounted. |
 | **Schedules & Shortcuts** | Unified in-app task management, iOS Shortcuts, a share extension and a widget. |
-| **Sync, backup & restore** | Optional iCloud sync, plus local `.minisbak` snapshots in `Minis ▸ Backups`. Select Chats for local Bot history; sessions with missing or invalid IDs and unreadable messages are reported separately. Incompatible staging is cleared before a new export. Browser Bookmarks are selectable, and Browser Passwords (including the shared vault) and Browser Cookies are separate opt-in categories requiring encryption. Partitioned cookies are skipped. Shared Folders exposes local packages for restore, share and deletion. |
+| **Sync, backup & restore** | Optional iCloud sync and local `.minisbak` snapshots in `Minis ▸ Backups`, accessible through Settings → Storage → Shared Folders. Select Chats to include local Bot history; exports report omitted sessions with invalid IDs and unreadable messages. Browser Bookmarks are a separate category. Browser Passwords (including shared vault accounts) and Browser Cookies are opt-in and require encryption and device-owner verification. Partitioned cookies are skipped. |
 | **Native offloads** | Heavy or platform-specific work is handed to native code instead of the sandbox. |
 
-Chat keeps consecutive tool cards evenly spaced when the model emits only whitespace between them.
+Chat keeps consecutive tool cards evenly spaced when the model emits only
+whitespace between them.
+
+Starting a new backup clears incompatible staging from an interrupted export
+without affecting saved packages.
+
+**Changes in development:**
+
+- Device capability permissions apply to indirect shell calls, and permission
+  prompts appear in order. With session protection enabled, long-press a Bot or
+  the Commander to lock its primary conversation and hide its message previews
+  and search matches while locked.
+- One-shot tasks sent to a chat finish after their own reply is saved, so
+  dependent tasks receive the correct result. The app reports failed message
+  and credential writes.
+- Backup previews read only the manifest, including for encrypted packages.
+  Restore still validates and extracts the package, and keeps recovery copies
+  if rollback fails.
+- Group histories are saved separately so changing settings or read status does
+  not rewrite every group's history. Existing data migrates on the next
+  successful save, and the backup format is unchanged.
 
 The bundled in-app guide is the authoritative user-facing feature reference:
 [`src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md`](src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md).

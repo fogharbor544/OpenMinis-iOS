@@ -95,6 +95,7 @@ extension AIChatViewModel {
                                   silent: Bool = true,
                                   presetToolCall: ScheduledPresetToolCallRequest? = nil,
                                   bypassContextPrompt: Bool = false) -> ProgrammaticSubmitOutcome {
+        guard !Task.isCancelled else { return .rejected(reason: "cancelled") }
         let tag = "📨[Programmatic] origin=\(origin.logLabel) vm=\(vmInstanceId) sid=\(sessionId?.prefix(8) ?? "nil")"
 
         guard remoteDeviceId == nil else {
@@ -189,6 +190,7 @@ extension AIChatViewModel {
         beginBotResultDelivery(texts: [text])
         programmaticSilentTurn = silent
         programmaticTurnOrigin = origin  // [T-user-ask] no one to ask in this run
+        if case .job(let id) = origin, scheduledTurnReceipts[id] != nil { activeScheduledJobID = id }
         // [T-loop-reminder-scheduled-exempt] A scheduled fire starting a turn
         // on an idle session: its poll is an expected repeat, not a loop. (A
         // queued fire is exempted where it is taken off the queue instead.)
@@ -675,3 +677,40 @@ enum QueuedCallbackReminder {
     }
 }
 // END QueuedCallbackReminder
+
+// One receipt per scheduled fire, completed before a later queued turn can replace its reply.
+@MainActor
+final class ScheduledTurnReceipt {
+    struct Outcome { let text: String; let succeeded: Bool }
+    private var finished = false
+    private var outcome: Outcome?
+    private var waiter: CheckedContinuation<Outcome?, Never>?
+    func resolve(_ result: Outcome?) {
+        guard !finished else { return }
+        finished = true
+        outcome = result
+        let pending = waiter
+        waiter = nil
+        pending?.resume(returning: result)
+    }
+    func wait() async -> Outcome? {
+        if finished { return outcome }
+        return await withCheckedContinuation { waiter = $0 }
+    }
+}
+
+extension AIChatViewModel {
+    func completeScheduledTurn(message: ChatMessage? = nil, succeeded: Bool) {
+        guard let id = activeScheduledJobID else { return }
+        activeScheduledJobID = nil
+        scheduledQueuedJobIDs = scheduledQueuedJobIDs.filter { $0.value != id }
+        guard let receipt = scheduledTurnReceipts.removeValue(forKey: id) else { return }
+        let reply = message ?? messages.last(where: { $0.role == .assistant })
+        let blocks = reply?.blocks.compactMap { block -> String? in
+            if case .text = block.kind { return block.content }
+            return nil
+        }.joined(separator: "\n") ?? ""
+        receipt.resolve(.init(text: blocks.isEmpty ? (reply?.content ?? "") : blocks,
+                              succeeded: succeeded && reply?.error == nil))
+    }
+}

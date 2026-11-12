@@ -25,6 +25,7 @@ enum PermissionResult {
 struct PermissionRequest: Identifiable {
     let id: String
     let commandName: String
+    let sessionId: String
     let displayLabel: String
     let description: String
     /// The full shell command string, e.g. "apple-healthkit query --type steps"
@@ -146,15 +147,16 @@ final class OffloadPermissionManager: ObservableObject {
         .init(name: "apple-vision", displayLabel: "Vision", description: "", category: .system, showInSettings: false),
     ]
 
-    @Published var pendingRequest: PermissionRequest?
+    @Published private(set) var pendingRequest: PermissionRequest?
+    private var queuedRequests: [PermissionRequest] = []
 
     /// Per-session "Ask Once" grants: [sessionId: Set<commandName>]
     private var sessionGrants: [String: Set<String>] = [:]
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let logger = AppLogger(category: "OffloadPermission")
 
-    private init() {}
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
     // MARK: - Storage
 
@@ -203,11 +205,8 @@ final class OffloadPermissionManager: ObservableObject {
     /// deliberately the kernel's rule and nothing else. Registered names are
     /// bare (no slashes), so normalising the caller's side is sufficient.
     ///
-    /// Scope: this closes path-based spellings (absolute, `./`, `../`, any
-    /// prefix). It does NOT cover indirection where the first token is a
-    /// different program — `sh -c '…'`, `env …`, a script, a subprocess — for
-    /// which the name never appears as argv[0] here. Those need the check to
-    /// move to the dispatch site itself; see the issue.
+    /// This is an early UI preflight only. Shell indirection and script calls are
+    /// authorized again at native dispatch using the actual executable and fs_context.
     static func extractOffloadCommand(from shellCommand: String) -> String? {
         let trimmed = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         let firstToken = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? trimmed
@@ -251,29 +250,25 @@ final class OffloadPermissionManager: ObservableObject {
             let displayLabel = cmdInfo?.displayLabel ?? command
             let description = cmdInfo?.description ?? ""
 
-            let allowed = await withCheckedContinuation { continuation in
-                let request = PermissionRequest(
-                    id: UUID().uuidString,
-                    commandName: command,
-                    displayLabel: displayLabel,
-                    description: description,
-                    fullCommand: fullCommand,
-                    continuation: continuation
-                )
-                self.pendingRequest = request
-
-                // 30s timeout
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 30_000_000_000)
-                    if self.pendingRequest?.id == request.id {
-                        self.pendingRequest = nil
-                        continuation.resume(returning: false)
+            let requestId = UUID().uuidString
+            let allowed = await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    guard !Task.isCancelled else { continuation.resume(returning: false); return }
+                    let request = PermissionRequest(id: requestId, commandName: command,
+                        sessionId: sessionId, displayLabel: displayLabel, description: description,
+                        fullCommand: fullCommand, continuation: continuation)
+                    if pendingRequest == nil { pendingRequest = request }
+                    else { queuedRequests.append(request) }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 30_000_000_000)
+                        self.respond(to: requestId, allowed: false)
                     }
                 }
+            } onCancel: {
+                Task { @MainActor in self.respond(to: requestId, allowed: false) }
             }
 
-            if allowed {
-                sessionGrants[sessionId, default: []].insert(command)
+            if allowed && !Task.isCancelled {
                 logger.info("Permission granted (Ask Once): \(command)")
                 return .allowed
             } else {
@@ -290,14 +285,57 @@ final class OffloadPermissionManager: ObservableObject {
     // MARK: - UI Response
 
     func respond(to requestId: String, allowed: Bool) {
-        guard let request = pendingRequest, request.id == requestId else { return }
-        pendingRequest = nil
-        request.continuation.resume(returning: allowed)
+        let request: PermissionRequest
+        if let current = pendingRequest, current.id == requestId {
+            request = current
+            pendingRequest = queuedRequests.isEmpty ? nil : queuedRequests.removeFirst()
+        } else if let index = queuedRequests.firstIndex(where: { $0.id == requestId }) {
+            request = queuedRequests.remove(at: index)
+        } else { return }
+        let granted = allowed && permissionLevel(for: request.commandName) != .notAllowed
+        if granted { sessionGrants[request.sessionId, default: []].insert(request.commandName) }
+        request.continuation.resume(returning: granted)
+        if granted {
+            let duplicates = ([pendingRequest].compactMap { $0 } + queuedRequests)
+                .filter { $0.sessionId == request.sessionId && $0.commandName == request.commandName }
+                .map(\.id)
+            for id in duplicates { respond(to: id, allowed: true) }
+        }
     }
 
     // MARK: - Session Reset
 
     func resetSessionGrants(for sessionId: String) {
+        let ids = ([pendingRequest].compactMap { $0 } + queuedRequests)
+            .filter { $0.sessionId == sessionId }.map(\.id)
+        for id in ids { respond(to: id, allowed: false) }
         sessionGrants.removeValue(forKey: sessionId)
+    }
+}
+
+/// Called by native dispatch for the resolved executable, including shell wrappers and scripts.
+@objc(OffloadPermissionBridge) final class OffloadPermissionBridge: NSObject {
+    @objc(authorizeCommand:fsContext:completion:)
+    nonisolated static func authorize(command: String, fsContext: UInt64,
+                                      completion: @escaping @Sendable (Bool) -> Void) {
+        Task { @MainActor in
+            guard OffloadPermissionManager.allCommands.contains(where: { $0.name == command }) else {
+                completion(true)
+                return
+            }
+            let sessionID: String?
+            if fsContext == 0 { sessionID = nil }
+            else {
+                guard let resolved = MinisFsRouter.shared.sid(for: fsContext) else {
+                    completion(false)
+                    return
+                }
+                sessionID = resolved
+            }
+            let result = await OffloadPermissionManager.shared.checkPermission(
+                for: command, sessionId: sessionID, fullCommand: command)
+            if case .allowed = result { completion(true) }
+            else { completion(false) }
+        }
     }
 }

@@ -21,6 +21,7 @@ enum BackupSecretsImporter {
 
     struct Result {
         var providersRestored = 0
+        var providersFailed = 0
         var providersSkippedExisting = 0
         var envVarsRestored = 0
         var envVarsSkippedExisting = 0
@@ -84,12 +85,13 @@ enum BackupSecretsImporter {
 
         for p in secrets.providers {
             var wrote = false
+            var failed = false
+            func record(_ saved: Bool) { wrote = wrote || saved; failed = failed || !saved }
             // Each field is independent: an instance may carry an apiKey, an
             // OAuth blob, or both, and a missing one must not block the others.
             if let b64 = p.apiKey, let value = decode(b64) {
                 if ProviderKeychainHelper.loadAPIKey(instanceId: p.instanceId) == nil {
-                    ProviderKeychainHelper.saveAPIKey(value, instanceId: p.instanceId)
-                    wrote = true
+                    record(ProviderKeychainHelper.saveAPIKey(value, instanceId: p.instanceId))
                 } else {
                     result.providersSkippedExisting += 1
                 }
@@ -97,23 +99,20 @@ enum BackupSecretsImporter {
             if let b64 = p.manualOAuthToken, let value = decode(b64),
                ProviderKeychainHelper.loadOAuthString(
                    instanceId: p.instanceId, account: "manual-oauth-token") == nil {
-                ProviderKeychainHelper.saveOAuthString(
-                    value, instanceId: p.instanceId, account: "manual-oauth-token")
-                wrote = true
+                record(ProviderKeychainHelper.saveOAuthString(
+                    value, instanceId: p.instanceId, account: "manual-oauth-token"))
             }
             if let b64 = p.oauthEmail, let value = decode(b64),
                ProviderKeychainHelper.loadOAuthString(
                    instanceId: p.instanceId, account: "oauth-email") == nil {
-                ProviderKeychainHelper.saveOAuthString(
-                    value, instanceId: p.instanceId, account: "oauth-email")
-                wrote = true
+                record(ProviderKeychainHelper.saveOAuthString(
+                    value, instanceId: p.instanceId, account: "oauth-email"))
             }
             if let b64 = p.oauthGcpProject, let value = decode(b64),
                ProviderKeychainHelper.loadOAuthString(
                    instanceId: p.instanceId, account: "oauth-gcp-project") == nil {
-                ProviderKeychainHelper.saveOAuthString(
-                    value, instanceId: p.instanceId, account: "oauth-gcp-project")
-                wrote = true
+                record(ProviderKeychainHelper.saveOAuthString(
+                    value, instanceId: p.instanceId, account: "oauth-gcp-project"))
             }
             // The structured OAuth blob is stored under a per-provider-type
             // Codable. It is written back as raw JSON under the same Keychain
@@ -121,11 +120,11 @@ enum BackupSecretsImporter {
             // type (and stays correct when a new one is added).
             if let b64 = p.oauthToken, let raw = Data(base64Encoded: b64) {
                 if ProviderKeychainHelper.loadRawOAuthToken(instanceId: p.instanceId) == nil {
-                    ProviderKeychainHelper.saveRawOAuthToken(raw, instanceId: p.instanceId)
-                    wrote = true
+                    record(ProviderKeychainHelper.saveRawOAuthToken(raw, instanceId: p.instanceId))
                 }
             }
-            if wrote { result.providersRestored += 1 }
+            if failed { result.providersFailed += 1 }
+            else if wrote { result.providersRestored += 1 }
         }
 
         let env = restoreEnvVarValues(secrets.envVars)

@@ -13,6 +13,35 @@
 #include <unistd.h>
 #include <sys/select.h>
 
+#include "kernel/native_offload.h"
+#include <string.h>
+#if __has_include("Minis-Swift.h")
+#import "Minis-Swift.h"
+#else
+@interface OffloadPermissionBridge : NSObject
++ (void)authorizeCommand:(NSString *)command fsContext:(uint64_t)context completion:(void (^)(BOOL))completion;
+@end
+#endif
+
+static bool noff_authorize_executable(const char *guest_path) {
+    if ([NSThread isMainThread]) return false;
+    const char *slash = strrchr(guest_path, '/');
+    NSString *command = [NSString stringWithUTF8String:slash ? slash + 1 : guest_path];
+    if (command == nil) return false;
+    uint64_t context = noff_current_fs_context();
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    __block BOOL allowed = NO;
+    [OffloadPermissionBridge authorizeCommand:command fsContext:context completion:^(BOOL result) {
+        allowed = result;
+        dispatch_semaphore_signal(done);
+    }];
+    return dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 35 * NSEC_PER_SEC)) == 0 && allowed;
+}
+
+__attribute__((constructor)) static void noff_install_permission_boundary(void) {
+    native_offload_set_permission_check(noff_authorize_executable);
+}
+
 // ── Error code constants ──
 NSString *const NOFF_ERR_AUTHORIZATION_DENIED       = @"authorization_denied";
 NSString *const NOFF_ERR_AUTHORIZATION_NOT_DETERMINED = @"authorization_not_determined";

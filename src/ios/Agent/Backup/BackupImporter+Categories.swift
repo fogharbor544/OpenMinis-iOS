@@ -494,27 +494,16 @@ extension BackupImporter {
         -> CategoryReport {
         var report = CategoryReport(category: BackupCategory.skills.rawValue)
         let dataDir = root.appendingPathComponent("data", isDirectory: true)
+        var recordsByID: [String: SkillRecord] = [:]
 
         struct SkillRecord: Codable {
             let id: String, name: String, description: String, version: String
             let isEnabled: Bool, installedAt: Date, updatedAt: Date, body: String
+            let content: String?
             let sourceURL: String?
         }
         for rec in readJSONL(dataDir, base: "skills", as: SkillRecord.self) {
-            // importSkillFromSync preserves the id and applies its own LWW,
-            // which is exactly Merge semantics; it also skips markDirty, so the
-            // rescan below stages the changes instead.
-            // [T-skill-restore-untitled] Pass the name the backup recorded.
-            // It is only consulted if parsing rec.body fails to yield one —
-            // a skill whose SKILL.md has malformed frontmatter would otherwise
-            // restore as "Untitled Skill" despite the backup knowing better.
-            let applied = await MainActor.run {
-                SkillStore.shared.importSkillFromSync(
-                    skillId: rec.id, content: rec.body, source: .file,
-                    isEnabled: rec.isEnabled, installedAt: rec.installedAt,
-                    updatedAt: rec.updatedAt, fallbackName: rec.name)
-            }
-            if applied { report.imported += 1 } else { report.skipped += 1 }
+            recordsByID[rec.id] = rec
         }
 
         let files = try restoreFileTree(
@@ -530,9 +519,29 @@ extension BackupImporter {
         report.bytesWritten = files.bytes
         report.missingBlobs = files.missingBlobs
 
+        // The file tree holds the exact SKILL.md bytes. Apply it only after
+        // the tree restore, so the DB, Library copy and rootfs copy all parse
+        // the same frontmatter and body. Older packages have no `content`;
+        // their file tree is still authoritative when present.
+        for (skillId, rec) in recordsByID.sorted(by: { $0.key < $1.key }) {
+            let skillFile = AIChatViewModel.minisSkillsPersistentDir
+                .appendingPathComponent(skillId, isDirectory: true)
+                .appendingPathComponent("SKILL.md")
+            let restoredContent = try? String(contentsOf: skillFile, encoding: .utf8)
+            let fullContent = restoredContent ?? rec.content ?? rec.body
+            let applied = await MainActor.run {
+                SkillStore.shared.rescanRestoredSkill(
+                    skillId: skillId, content: fullContent, source: .file,
+                    fallbackDescription: rec.description, fallbackVersion: rec.version,
+                    isEnabled: rec.isEnabled, installedAt: rec.installedAt,
+                    updatedAt: rec.updatedAt, fallbackName: rec.name)
+            }
+            if applied { report.imported += 1 } else { report.skipped += 1 }
+        }
+
         // [T-ios-skill-backup-fakefs] Make the restored bundled files visible
         // to the guest NOW. restoreFileTree only copies blobs into the App
-        // Group directory; unlike SKILL.md (importSkillFromSync → syncToRootfs
+        // Group directory; unlike SKILL.md (rescanRestoredSkill → syncToRootfs
         // → ensureFakefsMetadata) nothing above registered these paths in
         // iSH's meta.db. Shared Files can skip that because every mount
         // re-walks its directory (see importSharedFiles) — but a skill's

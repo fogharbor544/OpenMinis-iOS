@@ -693,19 +693,49 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     /// step would still delete local bundled files against a stale record.
     ///
     /// `fallbackName` is a name the CALLER already knows from its own metadata,
-    /// used only when parsing `content` fails to produce one. Backup restore
-    /// passes the name recorded in skills.jsonl: if that skill's SKILL.md has
-    /// malformed frontmatter (no leading `---`, broken YAML), `parse` yields
-    /// `defaultSkillName` and the correct name sitting in the backup record
-    /// would otherwise be thrown away — the skill restores as
-    /// "Untitled Skill" even though the file is intact.
-    /// [T-skill-restore-untitled] Sync callers pass nil and keep today's
-    /// behaviour, since for them the SKILL.md body is the only source of truth.
+    /// used only when parsing `content` fails to produce one. iCloud sync
+    /// callers pass nil; the backup restore path has its own entry point below.
+    /// [T-skill-restore-untitled] A malformed SKILL.md would otherwise restore
+    /// as "Untitled Skill" even when the backup record knows the correct name.
     @discardableResult
     func importSkillFromSync(
         skillId: String, content: String, source: SkillImportSource,
         isEnabled: Bool, installedAt: Date, updatedAt: Date,
         fallbackName: String? = nil
+    ) -> Bool {
+        return importSkillFromSyncWithFullContent(
+            skillId: skillId, content: content, source: source,
+            fallbackDescription: nil, fallbackVersion: nil,
+            isEnabled: isEnabled, installedAt: installedAt,
+            updatedAt: updatedAt, fallbackName: fallbackName)
+    }
+
+    /// Restore path: apply a full `SKILL.md` after the package's file tree has
+    /// been written. Older packages may carry only the parsed body, so their
+    /// backup metadata fills in the missing frontmatter fields.
+    @discardableResult
+    func rescanRestoredSkill(
+        skillId: String, content: String, source: SkillImportSource,
+        fallbackDescription: String?, fallbackVersion: String?,
+        isEnabled: Bool, installedAt: Date, updatedAt: Date,
+        fallbackName: String? = nil
+    ) -> Bool {
+        return importSkillFromSyncWithFullContent(
+            skillId: skillId, content: content, source: source,
+            fallbackDescription: fallbackDescription,
+            fallbackVersion: fallbackVersion, isEnabled: isEnabled,
+            installedAt: installedAt, updatedAt: updatedAt,
+            fallbackName: fallbackName, respectLocalNewer: false)
+    }
+
+    /// Shared implementation. Backup restore has already replaced the file
+    /// tree, so it must publish that file regardless of the pre-restore
+    /// `updatedAt`; sync imports retain the LWW guard against stale records.
+    private func importSkillFromSyncWithFullContent(
+        skillId: String, content: String, source: SkillImportSource,
+        fallbackDescription: String?, fallbackVersion: String?,
+        isEnabled: Bool, installedAt: Date, updatedAt: Date,
+        fallbackName: String?, respectLocalNewer: Bool
     ) -> Bool {
         // [T-icloud-cloud-overwrites-local-edits] Local-newer guard. Skill
         // files (SKILL.md + bundled files) are user-editable; below we
@@ -717,7 +747,8 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
         // the local skill's updated_at is newer than the inbound record
         // (+ slack for clock drift), keep local and skip. A skill that
         // doesn't exist locally always applies.
-        if let local = skills.first(where: { $0.id == skillId }) {
+        if respectLocalNewer,
+           let local = skills.first(where: { $0.id == skillId }) {
             let slack: TimeInterval = 5
             if local.updatedAt.timeIntervalSince(updatedAt) > slack {
                 AppLogger(category: "SkillSync").info("[IMPORT] '\(skillId)' SKIP (local newer): localUpdatedAt=\(local.updatedAt) remoteUpdatedAt=\(updatedAt)")
@@ -738,6 +769,16 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
             AppLogger(category: "SkillSync").info(
                 "[IMPORT] '\(skillId)' SKILL.md parse yielded the placeholder name; using caller-supplied name '\(fallbackName)'")
             parsed.name = fallbackName
+        }
+        if parsed.description.isEmpty,
+           let fallbackDescription,
+           !fallbackDescription.isEmpty {
+            parsed.description = fallbackDescription
+        }
+        if parsed.version == "1.0.0",
+           let fallbackVersion,
+           !fallbackVersion.isEmpty {
+            parsed.version = fallbackVersion
         }
 
         // If a local skill exists with the same slugified name but a different ID,

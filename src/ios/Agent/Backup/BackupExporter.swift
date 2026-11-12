@@ -700,7 +700,12 @@ actor BackupExporter {
 
     private func exportSkills(dataDir: URL, trees: BackupFileTreeExporter) async throws
         -> BackupManifest.CategoryStat {
-        let rows = await MainActor.run { SkillStore.shared.skills.map(SkillRecord.init) }
+        let rows = await MainActor.run {
+            SkillStore.shared.skills.map { skill in
+                SkillRecord(skill, content: SkillStore.readSkillContent(
+                    in: SkillStore.shared.skillDirectoryURL(for: skill.id)) ?? "")
+            }
+        }
         let writer = BackupJSONLWriter(directory: dataDir, baseName: "skills")
         defer { try? writer.close() }
         for row in rows {
@@ -728,7 +733,8 @@ actor BackupExporter {
 
     /// `SkillStore.Skill` is not Codable (it is a UI model), so the format
     /// declares its own record. That is the right boundary anyway: the package
-    /// is cross-platform and must not drift with an internal UI type.
+    /// is cross-platform and must not drift with an internal UI type. `content`
+    /// is the exact SKILL.md bytes; `body` remains for older package readers.
     private struct SkillRecord: Codable {
         let id: String
         let name: String
@@ -738,13 +744,16 @@ actor BackupExporter {
         let installedAt: Date
         let updatedAt: Date
         let body: String
+        let content: String
         let sourceURL: String?
 
-        init(_ s: Skill) {
+        init(_ s: Skill, content: String) {
             id = s.id; name = s.name; description = s.description
             version = s.version; isEnabled = s.isEnabled
             installedAt = s.installedAt; updatedAt = s.updatedAt
-            body = s.body; sourceURL = s.sourceURL
+            body = s.body
+            self.content = content
+            sourceURL = s.sourceURL
         }
     }
 

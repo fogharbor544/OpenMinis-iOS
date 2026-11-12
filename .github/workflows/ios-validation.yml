@@ -32,6 +32,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           python3 src/ios/MinisTests/Standalone/check_fresh_install.py
+          python3 src/ios/MinisTests/Standalone/check_skill_backup_restore.py
           python3 src/ios/MinisTests/Standalone/parse_ios_sources.py
       - name: Parse changed Swift sources
         if: ${{ !cancelled() }}

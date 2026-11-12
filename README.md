@@ -61,6 +61,9 @@ without affecting saved packages.
 - Group histories are saved separately so changing settings or read status does
   not rewrite every group's history. Existing data migrates on the next
   successful save, and the backup format is unchanged.
+- Skill backups carry the full `SKILL.md` in addition to its parsed body.
+  Restore applies the restored file to the skill list, detail view and sandbox
+  view; packages made by older builds still use their recorded metadata.
 
 The bundled in-app guide is the authoritative user-facing feature reference:
 [`src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md`](src/ios/Resources/BundledSkills/openminis-ios-user-guide/references/ios-user-manual.md).

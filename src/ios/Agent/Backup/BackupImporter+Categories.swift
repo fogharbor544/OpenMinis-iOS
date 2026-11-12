@@ -120,6 +120,7 @@ extension BackupImporter {
 
     /// A committed category must not be rolled back if another category fails later.
     func discardRollback(_ snapshot: BackupRollbackSnapshot) throws {
+        let fm = FileManager.default
         for pair in snapshot.files {
             let sidecar = pair.saved.appendingPathExtension("live-path-of")
             if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
